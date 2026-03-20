@@ -46,7 +46,5 @@ if __name__ == "__main__":
     steps = 10000
     trajectory = simulate_lorenz(initial_state, dt, steps)
 
-    # Print the final state after simulation
     print("Final state:", trajectory[-1])
-    # Plot the trajectory of the Lorenz attractor
     plot_trajectory(trajectory)
