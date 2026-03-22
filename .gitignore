@@ -1,4 +1,6 @@
 .venv
 .factory
 .vscode
+.idea/*
 __pycache__
+experiments
