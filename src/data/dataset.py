@@ -86,7 +86,7 @@ class LorenzDataset(Dataset):
         self.samples = self._create_samples()
 
     def denormalize(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert normalized predictions back to original scale."""
+        """Convert normalized predictions back to the original scale."""
         if self.normalize:
             return x * (self.std + 1e-8) + self.mean
         return x

@@ -1,20 +1,18 @@
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from numpy.ma.core import size
 
 
-def step(state, sigma, tho, beta):
+def step(state, sigma, rho, beta):
     x, y, z = state
     dx = sigma * (y - x)
-    dy = x * (tho - z) - y
+    dy = x * (rho - z) - y
     dz = x * y - beta * z
     return dx, dy, dz
 
-def runge_kutta_4(state, dt, sigma, tho, beta):
-    k1 = step(state, sigma, tho, beta)
-    k2 = step([state[i] + 0.5 * dt * k1[i] for i in range(3)], sigma, tho, beta)
-    k3 = step([state[i] + 0.5 * dt * k2[i] for i in range(3)], sigma, tho, beta)
-    k4 = step([state[i] + dt * k3[i] for i in range(3)], sigma, tho, beta)
+def runge_kutta_4(state, dt, sigma, rho, beta):
+    k1 = step(state, sigma, rho, beta)
+    k2 = step([state[i] + 0.5 * dt * k1[i] for i in range(3)], sigma, rho, beta)
+    k3 = step([state[i] + 0.5 * dt * k2[i] for i in range(3)], sigma, rho, beta)
+    k4 = step([state[i] + dt * k3[i] for i in range(3)], sigma, rho, beta)
 
     new_state = [state[i] + (dt / 6) * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]) for i in range(3)]
     return new_state
@@ -45,7 +43,6 @@ def plot_trajectory(trajectory):
 
 def create_trajectories(initial_state=None, dt=0.01, steps=10000):
     trajectory = simulate_lorenz(initial_state=initial_state, dt=dt, steps=steps)
-    print(type(trajectory))
     return trajectory
 
 

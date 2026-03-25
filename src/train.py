@@ -4,33 +4,13 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from datetime import datetime
 from pathlib import Path
+import argparse
 
 from model.mlp import MLP, MLPConfig
 from data.dataset import LorenzDataset, collate_fn
+from utils import compute_loss
 
-
-def compute_loss(model, inputs, targets, T):
-    """Compute multi-step autoregressive loss per paper Equation 3."""
-    x_pred = inputs
-    total_loss = 0.0
-
-    for tau in range(T):
-        x_pred = model(x_pred)
-        total_loss += torch.norm(x_pred - targets[:, tau], dim=1).mean()
-
-    return total_loss / T
-
-    # for trajectory in trajectories:
-    #     M = len(trajectory)
-    #     for m in range(M - T):
-    #         x_pred = trajectory[m]
-    #         for tau in range(1, T + 1):
-    #             x_pred = model(x_pred)
-    #             x_true = trajectory[m + tau]
-    #             total_loss += torch.norm(x_true - x_pred)
-    #         count += T
-    #
-    # return total_loss / count
+SAVE_DIR = Path("experiments/lorenz")
 
 
 def train(model, loader, optimizer, T, epochs, device="cpu"):
@@ -40,7 +20,7 @@ def train(model, loader, optimizer, T, epochs, device="cpu"):
     for epoch in range(epochs):
         epoch_loss = 0.0
         for inputs, targets in loader:
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets = inputs.to(device), targets.to(device) # shapes: [batch_size, input_size], [batch_size, T, input_size]
             optimizer.zero_grad()
             loss = compute_loss(model, inputs, targets, T)
             loss.backward()
@@ -53,12 +33,12 @@ def train(model, loader, optimizer, T, epochs, device="cpu"):
     return losses
 
 
-def plot_losses(losses, T, save_dir="experiments/lorenz"):
+def save_losses(losses, T, save_dir):
     save_path = Path(save_dir)
     save_path.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = save_path / f"loss_T{T}_{timestamp}.png"
+    filename = save_path / f"loss_T{T}_{timestamp}"
     
     plt.figure(figsize=(10, 6))
     plt.plot(losses, linewidth=2)
@@ -66,14 +46,22 @@ def plot_losses(losses, T, save_dir="experiments/lorenz"):
     plt.ylabel("Loss")
     plt.title(f"Training Loss (T={T})")
     plt.grid(True, alpha=0.3)
-    plt.savefig(filename, dpi=150)
+    plt.savefig(f"{filename}.png", dpi=150)
     plt.close()
     
     print(f"Loss plot saved to {filename}")
 
+    with open(f"{filename}.txt", "w") as f:
+        f.write('\n'.join(map(str, losses)))
+        print(f"Loss values saved to {filename}.txt")
 
 if __name__ == "__main__":
-    T = 4
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--T", type=int, default=4, help="Temporal horizon")
+    args = parser.parse_args()
+    T = args.T
+
     config = MLPConfig(
         input_size=3,
         output_size=3,
@@ -87,4 +75,13 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     losses = train(model, loader, optimizer, T, epochs=100)
-    plot_losses(losses, T)
+    save_losses(losses, T, SAVE_DIR)
+
+    model_dir = SAVE_DIR / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model_path = model_dir / f"mlp_T{T}.pt"
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'train_T': T
+    }, model_path)
+    print(f"Model saved to {model_path}")
