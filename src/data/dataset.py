@@ -44,14 +44,15 @@ class LorenzDataset(Dataset):
                 initial_state=initial_state,
                 dt=dt,
                 steps=steps_per_trajectory
-            )
+            ) #  [steps_per_trajectory, 3]
             self.trajectories.append(torch.tensor(traj, dtype=torch.float32))
 
-        self.trajectories = torch.stack(self.trajectories)
+        self.trajectories = torch.stack(self.trajectories) #  [num_trajectories, steps_per_trajectory, 3]
 
+        # Z-score normalization
         if self.normalize:
-            self.mean = self.trajectories.mean(dim=(0, 1))
-            self.std = self.trajectories.std(dim=(0, 1))
+            self.mean = self.trajectories.mean(dim=(0, 1))  # scalar
+            self.std = self.trajectories.std(dim=(0, 1))  # scalar
             self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
 
         self.samples = self._create_samples()
@@ -63,8 +64,8 @@ class LorenzDataset(Dataset):
 
         for traj_idx in range(num_traj):
             for m in range(seq_len - self.T):
-                input_state = self.trajectories[traj_idx, m]
-                targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]
+                input_state = self.trajectories[traj_idx, m]  # [3,]
+                targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]  # [T, 3]
                 samples.append((input_state, targets))
 
         return samples
@@ -94,6 +95,6 @@ class LorenzDataset(Dataset):
 
 def collate_fn(batch):
     """Custom collate function for DataLoader."""
-    inputs = torch.stack([item[0] for item in batch])
-    targets = torch.stack([item[1] for item in batch])
+    inputs = torch.stack([item[0] for item in batch])  # [batch size, 3]
+    targets = torch.stack([item[1] for item in batch]) # [batch size, T, 3]
     return inputs, targets

@@ -18,5 +18,11 @@ pip intall -r requirements.txt
 ### Train the MLP to learn Lorenz attractor dynamics
 
 ```bash
-python src/train.py
+python src/train.py [-T=<temporal_horizon>]
+```
+
+### Evaluate Equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper
+
+```bash
+python src/evaluate.py --model=<model_path>
 ```

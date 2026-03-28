@@ -1,16 +1,25 @@
 import torch
 import matplotlib.pyplot as plt
 from datetime import datetime
+import numpy as np
 
 
 def compute_loss(model, inputs, targets, T):
-    """Compute multi-step autoregressive loss per paper Equation 3."""
+    """Compute multi-step autoregressive loss per paper Equation 3.
+    Args:
+        model: MLP model
+        inputs: (batch_size, input_size) tensor
+        targets: (batch_size, T, input_size) tensor
+        T: prediction horizon
+    Returns:
+        float: average loss
+    """
     x_pred = inputs
     total_loss = 0.0
 
     for tau in range(T):
         x_pred = model(x_pred)
-        total_loss += torch.norm(x_pred - targets[:, tau], dim=1).mean()
+        total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
 
     return total_loss / T
 

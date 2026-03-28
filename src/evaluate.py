@@ -13,15 +13,16 @@ SAVE_DIR = Path("experiments/lorenz")
 
 def load_model(model_path, config):
     model = MLP(config, random_seed=42)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    checkpoint = torch.load(model_path, weights_only=True)
+    model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     return model
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, help="Path to saved model (.pt file)")
-    parser.add_argument("--max_T", type=int, default=64, help="Maximum T for evaluation")
+    parser.add_argument("--model", "-m", type=str, required=True, help="Path to saved model (.pt file)")
+    parser.add_argument("--max-T", type=int, default=64, help="Maximum T for evaluation")
     args = parser.parse_args()
 
     config = MLPConfig(

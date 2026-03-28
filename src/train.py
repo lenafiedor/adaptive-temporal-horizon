@@ -26,7 +26,7 @@ def train(model, loader, optimizer, T, epochs, device="cpu"):
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        avg_loss = epoch_loss / len(loader)
+        avg_loss = epoch_loss / len(loader)  # average over batches
         losses.append(avg_loss)
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.6f}")
     
@@ -58,7 +58,7 @@ def save_losses(losses, T, save_dir):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--T", type=int, default=4, help="Temporal horizon")
+    parser.add_argument("-T", "T", type=int, default=1, help="Temporal horizon")
     args = parser.parse_args()
     T = args.T
 
