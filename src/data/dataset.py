@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 from typing import Optional
 
-from data.lorenz import simulate_lorenz
+from model.lorenz import simulate_lorenz
 
 
 class LorenzDataset(Dataset):

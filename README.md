@@ -26,3 +26,9 @@ python src/train.py [-T=<temporal_horizon>]
 ```bash
 python src/evaluate.py --model=<model_path>
 ```
+
+### Compute Global or Local Lyapunov Exponents
+
+```bash
+python src/scripts/compute_lyapunov_exponents.py [--mode=global|local]
+```

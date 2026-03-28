@@ -1,7 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
 from datetime import datetime
-import numpy as np
 
 
 def compute_loss(model, inputs, targets, T):
