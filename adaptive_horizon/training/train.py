@@ -7,8 +7,7 @@ import argparse
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.model.horizon_scheduler import AdaptiveHorizonScheduler
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
-from adaptive_horizon.training.loss import compute_loss
-from adaptive_horizon.training.validation import compute_validation_loss
+from adaptive_horizon.training.loss import compute_loss, compute_validation_loss
 from adaptive_horizon.visualization.plotting import save_results
 
 SAVE_DIR = Path("experiments/lorenz")
