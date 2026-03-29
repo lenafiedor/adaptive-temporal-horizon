@@ -23,6 +23,8 @@ poetry install
 
 ### MLP Training and Evaluation
 
+> Note: MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
+
 First, train the MLP to learn Lorenz attractor dynamics.
 
 ```bash
