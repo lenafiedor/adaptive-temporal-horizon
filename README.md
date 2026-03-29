@@ -1,5 +1,9 @@
 # Adaptive Temporal Horizon in Auto-Regressive Models
 
+This repository contains an extension of the ideas presented in [Adaptive Temporal Horizon in Auto-Regressive Models](https://arxiv.org/abs/2506.03889).
+
+Specifically, we implement an adaptive temporal horizon for training a multi-layer perceptron (MLP) to learn Lorenz attractor dynamics.
+
 ## Requirements
 
 - Python 3.13
@@ -10,10 +14,11 @@
 ### Setup
 
 ```bash
-cd adaptive_temporal_horizon
+cd adaptive-temporal-horizon
 python -m venv ./.venv
 source ./.venv/bin/activate
-pip intall -r requirements.txt
+pip install poetry
+poetry install
 ```
 
 ### MLP Training and Evaluation
@@ -42,7 +47,7 @@ Then, let's evaluate equation (3) from the [Temporal horizons in forecasting: an
 poetry run evaluate-mlp --model=<path/to/trained/model.pt>
 ```
 
-### Compute Lyapunov Exponents
+### Computing Lyapunov Exponents
 
 To analyse Lyapunov exponents, run the following command:
 
