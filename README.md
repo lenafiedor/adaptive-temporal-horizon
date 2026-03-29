@@ -3,6 +3,7 @@
 ## Requirements
 
 - Python 3.13
+- Poetry package manager
 
 ## Usage
 
@@ -21,10 +22,10 @@ First, train the MLP to learn Lorenz attractor dynamics.
 
 ```bash
 poetry run train-mlp              # With static training_results horizon (T=1)
-poetry run train-mlp --adaptive   # With adaptive training_results horizon
+poetry run train-mlp --adaptive   # With adaptive training horizon
 ```
 
-Args:
+**Args:**
 
 | Name | Description | Default value | Scope (static/adaptive) |
 |------|-------------|---------------|-------------------------|
@@ -49,4 +50,6 @@ To analyse Lyapunov exponents, run the following command:
 poetry run compute-lyapunov [--mode=global|local] [--plot]
 ```
 
-`--mode` argument specifies whether to compute global or local Lyapunov exponents.
+**Args:**
+- `--mode`: Specifies whether to compute global or local Lyapunov exponents.
+- `--plot`: If set, generates a plot of the Lorenz attractor dynamics. In `local` mode, Lyapunov exponents plot will be generated regardless of this argument.
