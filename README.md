@@ -6,7 +6,7 @@
 
 ## Usage
 
-### Create the virtual environment
+### Setup
 
 ```bash
 cd adaptive_temporal_horizon
@@ -15,20 +15,38 @@ source ./.venv/bin/activate
 pip intall -r requirements.txt
 ```
 
-### Train the MLP to learn Lorenz attractor dynamics
+### MLP Training and Evaluation
+
+First, train the MLP to learn Lorenz attractor dynamics.
 
 ```bash
-python src/train.py [-T=<temporal_horizon>]
+poetry run train-mlp              # With static training_results horizon (T=1)
+poetry run train-mlp --adaptive   # With adaptive training_results horizon
 ```
 
-### Evaluate Equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper
+Args:
+
+| Name | Description | Default value | Scope (static/adaptive) |
+|------|-------------|---------------|-------------------------|
+| `-T` | Training horizon or initial T if using an adaptive horizon. | 1 | Both |
+| `--epochs`, `-e` | Number of epochs to train the model. | 100 | Both |
+| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not. | False | – |
+| `--max-T` | Maximum training horizon | 16 | Adaptive |
+| `-warmup`, `-w` | Number of warmup epochs. During the warmup period, the training horizon is static and equal to 1. | 10 | Adaptive |
+|`--update-freq`, `-u` | Frequency of the adaptive training horizon update. | 5 | Adaptive |
+
+Then, let's evaluate equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper on the learned model.
 
 ```bash
-python src/evaluate.py --model=<model_path>
+poetry run evaluate-mlp --model=<path/to/trained/model.pt>
 ```
 
-### Compute Global or Local Lyapunov Exponents
+### Compute Lyapunov Exponents
+
+To analyse Lyapunov exponents, run the following command:
 
 ```bash
-python src/scripts/compute_lyapunov_exponents.py [--mode=global|local]
+poetry run compute-lyapunov [--mode=global|local] [--plot]
 ```
+
+`--mode` argument specifies whether to compute global or local Lyapunov exponents.

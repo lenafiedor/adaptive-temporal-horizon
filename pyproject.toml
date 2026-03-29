@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "adaptive-temporal-horizon"
+version = "0.1.0"
+description = "Adaptive temporal horizon for chaotic systems prediction"
+authors = ["Lena Fiedor"]
+readme = "README.md"
+packages = [{include = "adaptive_horizon"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.0"
+numpy = "^1.24"
+matplotlib = "^3.7"
+
+[tool.poetry.scripts]
+train-mlp = "adaptive_horizon.training.train:main"
+evaluate-mlp = "adaptive_horizon.training.evaluate:main"
+compute-lyapunov = "adaptive_horizon.analysis.compute_lyapunov:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

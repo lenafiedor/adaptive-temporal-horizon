@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.model.lorenz import lorenz_f, jacobian_lorenz
+from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
 
 
 def rk4_step(f, x, dt, *args):

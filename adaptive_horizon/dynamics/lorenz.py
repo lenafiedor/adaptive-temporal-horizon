@@ -8,6 +8,7 @@ def lorenz_f(x, sigma=10, rho=28, beta=8/3):
         x[0] * x[1] - beta * x[2]
     ])
 
+
 def jacobian_lorenz(x, y, z, sigma=10, rho=28, beta=8/3):
     return np.array([[-sigma, sigma, 0], [rho-z, -1, -x], [y, x, -beta]])
 
@@ -18,6 +19,7 @@ def _rk4_step(f, x, dt, *args):
     k3 = f(x + 0.5 * dt * k2, *args)
     k4 = f(x + dt * k3, *args)
     return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+
 
 def simulate_lorenz(initial_state=None, dt=0.01, steps=10000, sigma=10, rho=28, beta=8/3):
     if initial_state is None:

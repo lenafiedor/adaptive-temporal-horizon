@@ -4,8 +4,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Union
 
-from model.residual_block import ResidualBlock
-from model.dense_block import DenseBlock
+from adaptive_horizon.model.residual_block import ResidualBlock
+from adaptive_horizon.model.dense_block import DenseBlock
 
 
 @dataclass(frozen=True)

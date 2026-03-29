@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 from typing import Optional
 
-from model.lorenz import simulate_lorenz
+from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 
 
 class LorenzDataset(Dataset):
@@ -33,7 +33,7 @@ class LorenzDataset(Dataset):
         if seed is not None:
             np.random.seed(seed)
 
-        self.trajectories = []
+        trajectories = []
         for _ in range(num_trajectories):
             initial_state = [
                 np.random.uniform(-20, 20),
@@ -45,9 +45,9 @@ class LorenzDataset(Dataset):
                 dt=dt,
                 steps=steps_per_trajectory
             ) #  [steps_per_trajectory, 3]
-            self.trajectories.append(torch.tensor(traj, dtype=torch.float32))
+            trajectories.append(traj)
 
-        self.trajectories = torch.stack(self.trajectories) #  [num_trajectories, steps_per_trajectory, 3]
+        self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)  # [num_trajectories, steps_per_trajectory, 3]
 
         # Z-score normalization
         if self.normalize:
