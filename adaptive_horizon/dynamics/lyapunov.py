@@ -1,7 +1,7 @@
 import numpy as np
 
-from adaptive_horizon.dynamics.integrators import rk4_step_coupled_lorenz
-from adaptive_horizon.dynamics.lorenz import jacobian_lorenz
+from adaptive_horizon.dynamics.integrators import rk4_step_coupled
+from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
 
 
 def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
@@ -13,11 +13,11 @@ def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
     sum_log = 0.0
 
     for _ in range(burn_in):
-        x, Q = rk4_step_coupled_lorenz(x, Q, dt)
+        x, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
         Q, R = np.linalg.qr(Q)
 
     for _ in range(steps):
-        x, Q = rk4_step_coupled_lorenz(x, Q, dt)
+        x, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
         Q, R = np.linalg.qr(Q)
         sum_log += np.log(np.abs(R[0, 0]) + 1e-12)
 
@@ -27,27 +27,29 @@ def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
 
 def compute_local_lyapunov(trajectory, dt=0.01, window=10):
     """
+    Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
+    
     Args:
-        trajectory (array [N, 3]): array of states
+        trajectory (array [N, 3]): array of states (used only for initial conditions)
         dt (float): time step
         window (int): number of steps to compute local exponent over
     Returns:
         LLEs (array [N - window,]): array of local Lyapunov exponents
     """
+    trajectory = np.array(trajectory)
     N = len(trajectory)
     lles = []
 
     for i in range(N - window):
+        x = trajectory[i].copy()
         Q = np.eye(3)
-        sum_log = 0
+        sum_log = 0.0
 
-        for j in range(window):
-            J = jacobian_lorenz(*trajectory[i + j])
-            Q = Q + dt * (J @ Q)
-
+        for _ in range(window):
+            x, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
             Q, R = np.linalg.qr(Q)
-            sum_log += np.log(np.abs(np.diag(R)))
+            sum_log += np.log(np.abs(R[0, 0]) + 1e-12)
 
-        lles.append(np.max(sum_log / (window * dt)))
+        lles.append(sum_log / (window * dt))
 
     return np.array(lles)

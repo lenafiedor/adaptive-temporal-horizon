@@ -20,7 +20,7 @@ def main():
         print(f"Largest Lyapunov Exponent: {lyap:.4f}")
 
     elif args.mode == "local":
-        lyap = compute_local_lyapunov(lorenz_trajectory, dt=0.01, window=10)
+        lyap = compute_local_lyapunov(lorenz_trajectory)
         plot_lyapunov_exponent(lyap)
 
     else:

@@ -5,7 +5,7 @@ class AdaptiveHorizonScheduler:
     """
     Adapts temporal horizon T based on local Lyapunov exponent (LLE).
 
-    The idea: Start with small T (easy predictions), and increase T during training_results
+    The idea: Start with a small T (easy predictions) and increase T during training_results
     based on the system's chaotic properties as measured by LLE.
     """
 

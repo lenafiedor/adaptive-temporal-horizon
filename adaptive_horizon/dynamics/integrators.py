@@ -1,7 +1,5 @@
 import numpy as np
 
-from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
-
 
 def rk4_step(f, x, dt, *args):
     k1 = f(x, *args)
@@ -43,8 +41,3 @@ def rk4_step_coupled(x, Q, dt, f, jacobian):
     Q_next = Q + (dt / 6.0) * (k1_Q + 2*k2_Q + 2*k3_Q + k4_Q)
 
     return x_next, Q_next
-
-
-def rk4_step_coupled_lorenz(x, Q, dt):
-    """Convenience wrapper for Lorenz system."""
-    return rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
