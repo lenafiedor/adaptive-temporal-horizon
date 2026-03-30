@@ -12,10 +12,22 @@ from adaptive_horizon.visualization.plotting import plot_g_T
 SAVE_DIR = Path("experiments/lorenz/evaluation")
 
 
-def load_model(model_path, config):
+def load_model(model_path):
+    checkpoint = torch.load(model_path, weights_only=False)
+    state_dict = checkpoint['model_state_dict']
+
+    cfg = checkpoint['config']
+    config = MLPConfig(
+        input_size=cfg['input_size'],
+        output_size=cfg['output_size'],
+        layer_widths=cfg['layer_widths'],
+        residual_connections=cfg['residual_connections'],
+        k=cfg.get('k'),
+        activation=nn.ReLU()
+    )
+
     model = MLP(config, random_seed=42)
-    checkpoint = torch.load(model_path, weights_only=True)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(state_dict)
     model.eval()
     return model, checkpoint
 
@@ -23,19 +35,11 @@ def load_model(model_path, config):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", "-m", type=str, required=True, help="Path to saved model (.pt file)")
-    parser.add_argument("--max-T", type=int, default=64, help="Maximum T for evaluation")
+    parser.add_argument("--max-T", type=int, default=128, help="Maximum T for evaluation")
     parser.add_argument("--adaptive", action="store_true", help="Mark as adaptive model (for output naming)")
     args = parser.parse_args()
 
-    config = MLPConfig(
-        input_size=3,
-        output_size=3,
-        layer_widths=[64, 64, 64],
-        residual_connections=False,
-        activation=nn.ReLU()
-    )
-
-    model, checkpoint = load_model(args.model, config)
+    model, checkpoint = load_model(args.model)
     print(f"Loaded model from {args.model}")
 
     adaptive = 'T_schedule' in checkpoint

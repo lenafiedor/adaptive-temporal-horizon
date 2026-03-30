@@ -76,17 +76,4 @@ def compute_g_T(model, loader, T_vals, device="cpu"):
     for T in g_vals:
         g_vals[T] /= num_batches
 
-    # inputs, targets = next(iter(loader))
-    # inputs, targets = inputs.to(device), targets.to(device)
-    #
-    # g_vals = {}
-    # g1 = compute_gradient_norm(model, inputs, targets[:, :1], T=1).detach()
-    #
-    # for T in T_vals:
-    #     grad_norm = compute_gradient_norm(model, inputs, targets[:, :T], T=T)
-    #     g_T = (grad_norm / g1).item()
-    #     g_vals[T] = g_T
-    #
-    #     print(f"T={T}, g(T)={g_T:.4f}")
-
     return g_vals

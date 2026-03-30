@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 
 def save_results(losses, val_losses, T, save_dir, T_schedule=None):
@@ -94,7 +95,7 @@ def plot_trajectory(trajectory, save_dir="experiments/lorenz/trajectories"):
     print(f"Plot saved to {save_path}")
 
 
-def plot_lyapunov_exponent(exponents, save_dir="experiments/lorenz/analysis"):
+def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
     print(f"Mean LLE: {np.mean(exponents):.4f}")
     print(f"Std LLE: {np.std(exponents):.4f}")
     print(f"Min LLE: {np.min(exponents):.4f}")
@@ -105,14 +106,55 @@ def plot_lyapunov_exponent(exponents, save_dir="experiments/lorenz/analysis"):
     plt.axhline(y=np.mean(exponents), color='r', linestyle='--', label=f'Mean: {np.mean(exponents):.3f}')
     plt.xlabel("Time step")
     plt.ylabel("Local Lyapunov Exponent")
-    plt.title(f"Local Lyapunov Exponents along Lorenz Trajectory")
+    plt.title(f"Local Lyapunov Exponents along Lorenz Trajectory (window size={window})")
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / "local_lyapunov.png"
+    save_path = save_dir / f"local_lyapunov_W{window}.png"
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Plot saved to {save_path}")
+
+
+def plot_trajectory_heatmap(trajectory, exponents, window, save_dir="experiments/lorenz/analysis"):
+    """Plot 3D Lorenz trajectory colored by local Lyapunov exponents."""
+    trajectory = np.array(trajectory)
+    n_lle = len(exponents)
+    
+    # Truncate trajectory to match exponents length
+    x = trajectory[:n_lle, 0]
+    y = trajectory[:n_lle, 1]
+    z = trajectory[:n_lle, 2]
+    
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection="3d")
+    
+    points = np.array([x, y, z]).T.reshape(-1, 1, 3)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    
+    norm = plt.Normalize(exponents.min(), exponents.max())
+    lc = Line3DCollection(segments, cmap='coolwarm', norm=norm)
+    lc.set_array(exponents[:-1])
+    lc.set_linewidth(1)
+    ax.add_collection3d(lc)
+    
+    ax.set_xlim(x.min(), x.max())
+    ax.set_ylim(y.min(), y.max())
+    ax.set_zlim(z.min(), z.max())
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title("Lorenz Attractor")
+    
+    cbar = fig.colorbar(lc, ax=ax, shrink=0.5, aspect=20, pad=0.1)
+    cbar.set_label("Local Lyapunov Exponent")
+    
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    save_path = save_dir / f"lorenz_lyapunov_heatmap_W{window}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Plot saved to {save_path}")

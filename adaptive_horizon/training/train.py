@@ -67,13 +67,8 @@ def train(model, train_loader, val_loader, optimizer, T, epochs, device="cpu", s
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-        
-        if scheduler:
-            if (epoch + 1) % 10 == 0 or epoch == 0:
-                print(f"Epoch {epoch + 1}/{epochs}, T={current_T}, "
-                      f"Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
-        else:
-            print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
+
+        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
     
     return losses, val_losses, T_schedule
 
@@ -104,7 +99,8 @@ def main():
         input_size=3,
         output_size=3,
         layer_widths=[64, 64, 64],
-        residual_connections=False,
+        residual_connections=True,
+        k = 1,
         activation=nn.ReLU()
     )
     model = MLP(config, random_seed=42).to(device)
@@ -127,10 +123,19 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
     prefix = "adaptive_" if args.adaptive else ""
     model_path = model_dir / f"{prefix}mlp_T{args.T}.pt"
-    
-    save_dict = {'model_state_dict': model.state_dict()}
+
+    save_dict = {
+        'model_state_dict': model.state_dict(),
+        'config': {
+            'input_size': config.input_size,
+            'output_size': config.output_size,
+            'layer_widths': config.layer_widths,
+            'residual_connections': config.residual_connections,
+            'k': config.k,
+        }
+    }
     if args.adaptive:
-        save_dict['final_T'] = final_T
+        save_dict['final_T'] = scheduler.current_T
         save_dict['T_schedule'] = T_schedule
     else:
         save_dict['train_T'] = args.T
