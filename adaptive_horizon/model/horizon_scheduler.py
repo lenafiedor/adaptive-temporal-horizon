@@ -3,10 +3,8 @@ import numpy as np
 
 class AdaptiveHorizonScheduler:
     """
-    Adapts temporal horizon T based on local Lyapunov exponent (LLE).
-
-    The idea: Start with a small T (easy predictions) and increase T during training_results
-    based on the system's chaotic properties as measured by LLE.
+    Adapts temporal horizon T based on the loss function.
+    The idea: Start with a small T and increase T during training based on the system's chaotic properties.
     """
 
     def __init__(self,

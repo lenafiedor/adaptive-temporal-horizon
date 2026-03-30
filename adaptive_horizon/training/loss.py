@@ -36,10 +36,17 @@ def compute_validation_loss(model, val_loader, T, device="cpu"):
 
 
 def compute_gradient_norm(model, inputs, targets, T):
+    """Compute gradient norm using summed loss per paper Eq. 3."""
     model.zero_grad()
 
-    loss = compute_loss(model, inputs, targets, T)
-    loss.backward()
+    x_pred = inputs
+    total_loss = 0.0
+    for tau in range(T):
+        x_pred = model(x_pred)
+        total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
+
+    total_loss = total_loss / T
+    total_loss.backward()
 
     total_norm = 0.0
     for p in model.parameters():
@@ -52,17 +59,34 @@ def compute_gradient_norm(model, inputs, targets, T):
 def compute_g_T(model, loader, T_vals, device="cpu"):
     model.eval()
 
-    input, targets = next(iter(loader))
-    input, targets = input.to(device), targets.to(device)
+    g_vals = {T: 0.0 for T in T_vals}
+    num_batches = 5
 
-    g_vals = {}
-    g1 = compute_gradient_norm(model, input, targets[:, :1], T=1)
+    for i, (inputs, targets) in enumerate(loader):
+        if i >= num_batches:
+            break
 
-    for T in T_vals:
-        grad_norm = compute_gradient_norm(model, input, targets[:, :T], T=T)
-        g_T = (grad_norm / g1).item()
-        g_vals[T] = g_T
+        inputs, targets = inputs.to(device), targets.to(device)
+        g1 = compute_gradient_norm(model, inputs, targets[:, :1], T=1).detach()
 
-        print(f"T={T}, g(T)={g_T:.4f}")
+        for T in T_vals:
+            grad_norm = compute_gradient_norm(model, inputs, targets[:, :T], T=T)
+            g_vals[T] += (grad_norm / g1).item()
+
+    for T in g_vals:
+        g_vals[T] /= num_batches
+
+    # inputs, targets = next(iter(loader))
+    # inputs, targets = inputs.to(device), targets.to(device)
+    #
+    # g_vals = {}
+    # g1 = compute_gradient_norm(model, inputs, targets[:, :1], T=1).detach()
+    #
+    # for T in T_vals:
+    #     grad_norm = compute_gradient_norm(model, inputs, targets[:, :T], T=T)
+    #     g_T = (grad_norm / g1).item()
+    #     g_vals[T] = g_T
+    #
+    #     print(f"T={T}, g(T)={g_T:.4f}")
 
     return g_vals

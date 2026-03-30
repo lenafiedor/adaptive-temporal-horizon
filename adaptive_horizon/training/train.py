@@ -120,13 +120,13 @@ def main():
         epochs=args.epochs, device=device, scheduler=scheduler
     )
 
-    final_T = scheduler.current_T if scheduler else args.T
-    save_results(losses, val_losses, final_T, SAVE_DIR, T_schedule)
+    initial_T = args.T
+    save_results(losses, val_losses, initial_T, SAVE_DIR, T_schedule)
 
     model_dir = SAVE_DIR / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
-    model_name = "adaptive_mlp.pt" if args.adaptive else f"mlp_T{args.T}.pt"
-    model_path = model_dir / model_name
+    prefix = "adaptive_" if args.adaptive else ""
+    model_path = model_dir / f"{prefix}mlp_T{args.T}.pt"
     
     save_dict = {'model_state_dict': model.state_dict()}
     if args.adaptive:

@@ -58,11 +58,11 @@ def plot_g_T(g_values, save_path, adaptive=False, train_T=None):
     save_path = Path(save_path)
     save_path.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suffix = f"_T{train_T}" if train_T is not None else ""
     if adaptive:
-        filename = save_path / f"adaptive_gradient_scaling_{timestamp}.png"
+        filename = save_path / f"adaptive_gradient_scaling{suffix}_{timestamp}.png"
     else:
-        T_suffix = f"_T{train_T}" if train_T is not None else ""
-        filename = save_path / f"gradient_scaling{T_suffix}_{timestamp}.png"
+        filename = save_path / f"gradient_scaling{suffix}_{timestamp}.png"
 
     plt.figure()
     plt.plot(Ts, values, marker='o')

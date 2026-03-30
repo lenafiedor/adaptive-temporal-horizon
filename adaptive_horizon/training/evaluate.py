@@ -39,14 +39,12 @@ def main():
     print(f"Loaded model from {args.model}")
 
     adaptive = 'T_schedule' in checkpoint
-    train_T = checkpoint.get('train_T') if not adaptive else None
+    train_T = checkpoint.get('train_T') if not adaptive else checkpoint['T_schedule'][0]
 
     eval_dataset = LorenzDataset(num_trajectories=100, steps_per_trajectory=1000, T=args.max_T, normalize=True)
     eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
     T_vals = list(range(1, args.max_T + 1))
-    print(f"Evaluating g(T) for T values: {T_vals}")
-
     g_vals = compute_g_T(model, eval_loader, T_vals)
     plot_g_T(g_vals, SAVE_DIR, adaptive=adaptive, train_T=train_T)
 
