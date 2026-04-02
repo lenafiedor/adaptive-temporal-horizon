@@ -77,84 +77,97 @@ def plot_g_T(g_values, save_path, adaptive=False, train_T=None):
     print(f"Gradient scaling plot saved to {filename}")
 
 
-def plot_trajectory(trajectory, save_dir="experiments/lorenz/trajectories"):
-    x = [state[0] for state in trajectory]
-    y = [state[1] for state in trajectory]
-    z = [state[2] for state in trajectory]
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    ax.plot(x, y, z)
-    ax.set_title("Lorenz Attractor")
-
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / "lorenz_system.png"
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Plot saved to {save_path}")
-
-
 def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
-    print(f"Mean LLE: {np.mean(exponents):.4f}")
-    print(f"Std LLE: {np.std(exponents):.4f}")
-    print(f"Min LLE: {np.min(exponents):.4f}")
-    print(f"Max LLE: {np.max(exponents):.4f}")
-
-    plt.figure(figsize=(12, 4))
-    plt.plot(exponents, linewidth=0.5)
-    plt.axhline(y=np.mean(exponents), color='r', linestyle='--', label=f'Mean: {np.mean(exponents):.3f}')
-    plt.xlabel("Time step")
-    plt.ylabel("Local Lyapunov Exponent")
-    plt.title(f"Local Lyapunov Exponents along Lorenz Trajectory (window size={window})")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    """
+    Plot histograms of all 3 Lyapunov exponents.
+    
+    Args:
+        exponents: array of shape [N, 3] with local Lyapunov exponents
+        window: window size used for computation
+        save_dir: directory to save plot
+    """
+    exponents = np.array(exponents)
+    labels = [r"$\lambda_1$", r"$\lambda_2$", r"$\lambda_3$"]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    for i, ax in enumerate(axes):
+        lle_i = exponents[:, i]
+        mean_lle = np.mean(lle_i)
+        ax.hist(lle_i, bins=50, edgecolor='black', alpha=0.7, density=True)
+        ax.axvline(x=mean_lle, color='r', linestyle='-', linewidth=2, label=f'Mean: {mean_lle:.3f}')
+        ax.set_xlabel("Local Lyapunov Exponent")
+        ax.set_ylabel("Density")
+        ax.set_yscale('log')
+        ax.set_title(f"Distribution of {labels[i]} (window={window})")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
     plt.tight_layout()
-
+    
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / f"local_lyapunov_W{window}.png"
+    save_path = save_dir / f"lle_histogram_W{window}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Plot saved to {save_path}")
 
 
-def plot_trajectory_heatmap(trajectory, exponents, window, save_dir="experiments/lorenz/analysis"):
-    """Plot 3D Lorenz trajectory colored by local Lyapunov exponents."""
+def plot_trajectory_heatmap(trajectory, exponents, window, burn_in, save_dir="experiments/lorenz/analysis"):
+    """
+    Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
+    
+    Args:
+        trajectory: array of shape [N, 3] with trajectory states
+        exponents: array of shape [N-window, 3] with local Lyapunov exponents
+        window: window size used for computation
+        burn_in: number of initial steps to ignore
+        save_dir: directory to save plot
+    """
     trajectory = np.array(trajectory)
+    exponents = np.array(exponents)
     n_lle = len(exponents)
+
+    offset = burn_in + window
+    traj_aligned = trajectory[offset:offset + n_lle]
+
+    x = traj_aligned[:, 0]
+    y = traj_aligned[:, 1]
+    z = traj_aligned[:, 2]
     
-    # Truncate trajectory to match exponents length
-    x = trajectory[:n_lle, 0]
-    y = trajectory[:n_lle, 1]
-    z = trajectory[:n_lle, 2]
+    labels = [r"$\lambda_1$", r"$\lambda_2$", r"$\lambda_3$"]
     
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection="3d")
+    fig = plt.figure(figsize=(18, 6))
     
-    points = np.array([x, y, z]).T.reshape(-1, 1, 3)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    for i in range(3):
+        ax = fig.add_subplot(1, 3, i + 1, projection="3d")
+        
+        points = np.array([x, y, z]).T.reshape(-1, 1, 3)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        lle_i = exponents[:, i]
+        norm = plt.Normalize(lle_i.min(), lle_i.max())
+        lc = Line3DCollection(segments, cmap='coolwarm', norm=norm)
+        lc.set_array(lle_i[:-1])
+        lc.set_linewidth(1)
+        ax.add_collection3d(lc)
+        
+        ax.set_xlim(x.min(), x.max())
+        ax.set_ylim(y.min(), y.max())
+        ax.set_zlim(z.min(), z.max())
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title(f"Lorenz Attractor colored by {labels[i]}")
+        
+        cbar = fig.colorbar(lc, ax=ax, shrink=0.5, aspect=20, pad=0.1)
+        cbar.set_label(f"Local {labels[i]}")
     
-    norm = plt.Normalize(exponents.min(), exponents.max())
-    lc = Line3DCollection(segments, cmap='coolwarm', norm=norm)
-    lc.set_array(exponents[:-1])
-    lc.set_linewidth(1)
-    ax.add_collection3d(lc)
-    
-    ax.set_xlim(x.min(), x.max())
-    ax.set_ylim(y.min(), y.max())
-    ax.set_zlim(z.min(), z.max())
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title("Lorenz Attractor")
-    
-    cbar = fig.colorbar(lc, ax=ax, shrink=0.5, aspect=20, pad=0.1)
-    cbar.set_label("Local Lyapunov Exponent")
+    plt.tight_layout()
     
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / f"lorenz_lyapunov_heatmap_W{window}.png"
+    save_path = save_dir / f"lorenz_lle_heatmap_W{window}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Plot saved to {save_path}")

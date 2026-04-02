@@ -15,7 +15,7 @@ def jacobian_lorenz(x, y, z, sigma=10, rho=28, beta=8/3):
     return np.array([[-sigma, sigma, 0], [rho-z, -1, -x], [y, x, -beta]])
 
 
-def simulate_lorenz(initial_state=None, dt=0.01, steps=10000, sigma=10, rho=28, beta=8/3):
+def simulate_lorenz(initial_state=None, dt=0.01, steps=100000, sigma=10, rho=28, beta=8/3):
     if initial_state is None:
         initial_state = np.array([1.0, 1.0, 1.0])
 

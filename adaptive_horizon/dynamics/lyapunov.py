@@ -25,31 +25,35 @@ def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
     return lyap
 
 
-def compute_local_lyapunov(trajectory, dt=0.01, window=10):
+def compute_local_lyapunov(trajectory, burn_in, dt=0.01):
     """
     Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
-    
+
     Args:
         trajectory (array [N, 3]): array of states (used only for initial conditions)
+        burn_in (int): number of initial steps to ignore
         dt (float): time step
-        window (int): number of steps to compute local exponent over
     Returns:
-        LLEs (array [N - window,]): array of local Lyapunov exponents
+        LLEs (array [N - 1, 3]): array of local Lyapunov exponents
     """
     trajectory = np.array(trajectory)
     N = len(trajectory)
+    Q = np.eye(3)
     lles = []
 
-    for i in range(N - window):
-        x = trajectory[i].copy()
-        Q = np.eye(3)
-        sum_log = 0.0
+    for i in range(N - 1):
+        x = trajectory[i]
+        x_next, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
+        Q, R = np.linalg.qr(Q)
 
-        for _ in range(window):
-            x, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
-            Q, R = np.linalg.qr(Q)
-            sum_log += np.log(np.abs(R[0, 0]) + 1e-12)
-
-        lles.append(sum_log / (window * dt))
+        if i >= burn_in:
+            lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
 
     return np.array(lles)
+
+
+def smooth_lle(lles, window):
+    smoothed = []
+    for i in range(len(lles) - window):
+        smoothed.append(np.mean(lles[i:i+window], axis=0))
+    return np.array(smoothed)
