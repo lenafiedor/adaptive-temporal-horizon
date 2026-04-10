@@ -7,7 +7,7 @@ import argparse
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.model.horizon_scheduler import AdaptiveHorizonScheduler
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
-from adaptive_horizon.training.loss import compute_loss, compute_validation_loss
+from adaptive_horizon.training.loss import batch_loss, validation_loss
 from adaptive_horizon.visualization.plotting import save_results
 
 SAVE_DIR = Path("experiments/lorenz")
@@ -54,7 +54,7 @@ def train(model, train_loader, val_loader, optimizer, T, epochs, device="cpu", s
         for inputs, targets in train_loader:
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
-            loss = compute_loss(model, inputs, targets, current_T)
+            loss = batch_loss(model, inputs, targets, current_T)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -62,7 +62,7 @@ def train(model, train_loader, val_loader, optimizer, T, epochs, device="cpu", s
         avg_loss = epoch_loss / len(train_loader)
         losses.append(avg_loss)
         
-        val_loss = compute_validation_loss(model, val_loader, current_T, device)
+        val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
         
         if val_loss < best_val_loss:

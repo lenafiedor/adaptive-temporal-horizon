@@ -42,7 +42,7 @@ def main():
     model, checkpoint = load_model(args.model)
     print(f"Loaded model from {args.model}")
 
-    adaptive = 'T_schedule' in checkpoint
+    adaptive = 'adaptive' in args.model.lower()
     train_T = checkpoint.get('train_T') if not adaptive else checkpoint['T_schedule'][0]
 
     eval_dataset = LorenzDataset(num_trajectories=100, steps_per_trajectory=1000, T=args.max_T, normalize=True)

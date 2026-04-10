@@ -1,20 +1,18 @@
 import torch
 
+from adaptive_horizon.model.mlp import MLP
 
-def compute_loss(model, inputs, targets, T):
-    """Compute multi-step autoregressive loss per paper Equation 3.
+
+def batch_loss(model, inputs, targets, T):
+    """Compute per-sample loss with a fixed horizon.
     Args:
         model: MLP model
         inputs: (batch_size, input_size) tensor
         targets: (batch_size, T, input_size) tensor
-        T: prediction horizon (int or tensor)
+        T: prediction horizon (scalar)
     Returns:
         float: average loss
     """
-    # Handle tensor T (from batched dataloader)
-    if isinstance(T, torch.Tensor):
-        T = int(T.min().item())  # Use minimum T in batch for safety
-
     x_pred = inputs
     total_loss = 0.0
 
@@ -25,7 +23,38 @@ def compute_loss(model, inputs, targets, T):
     return total_loss / T
 
 
-def compute_validation_loss(model, val_loader, T, device="cpu"):
+def adaptive_batch_loss(model: MLP, inputs: torch.Tensor, targets: torch.Tensor, T: torch.Tensor):
+    """Compute per-sample loss with sample-specific horizons.
+    Args:
+        model: MLP model
+        inputs: (batch_size, input_size)
+        targets: (batch_size, max_T, input_size) - padded to max_T
+        T: (batch_size,) - horizon per sample
+    Returns:
+        float: average loss
+    """
+    batch_size = inputs.shape[0]
+    max_T = int(T.max().item())
+
+    # Autoregressive predictions up to max_T
+    x_pred = inputs
+    all_preds = []
+    for tau in range(max_T):
+        x_pred = model(x_pred)
+        all_preds.append(x_pred)
+    preds = torch.stack(all_preds, dim=1)  # [batch_size, max_T, input_size]
+
+    # Per-sample MSE with masking based on each sample's T
+    total_loss = 0.0
+    for i in range(batch_size):
+        t_i = int(T[i].item())
+        sample_loss = torch.nn.functional.mse_loss(preds[i, :t_i], targets[i, :t_i])
+        total_loss += sample_loss
+
+    return total_loss / batch_size
+
+
+def validation_loss(model, val_loader, T, device="cpu"):
     """Compute validation loss."""
     model.eval()
     total_loss = 0.0
@@ -33,13 +62,13 @@ def compute_validation_loss(model, val_loader, T, device="cpu"):
     with torch.no_grad():
         for inputs, targets in val_loader:
             inputs, targets = inputs.to(device), targets.to(device)
-            loss = compute_loss(model, inputs, targets, T)
+            loss = batch_loss(model, inputs, targets, T)
             total_loss += loss.item()
 
     return total_loss / len(val_loader)
 
 
-def compute_adaptive_loss(model, val_loader, device="cpu"):
+def adaptive_validation_loss(model, val_loader, device="cpu"):
     """Compute adaptive validation loss."""
     model.eval()
     total_loss = 0.0
@@ -47,7 +76,7 @@ def compute_adaptive_loss(model, val_loader, device="cpu"):
     with torch.no_grad():
         for inputs, targets, T in val_loader:
             inputs, targets, T = inputs.to(device), targets.to(device), T.to(device)
-            loss = compute_loss(model, inputs, targets, T)
+            loss = adaptive_batch_loss(model, inputs, targets, T)
             total_loss += loss.item()
 
     return total_loss / len(val_loader)
