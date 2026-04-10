@@ -14,6 +14,7 @@ matplotlib = "^3.7"
 
 [tool.poetry.scripts]
 train-mlp = "adaptive_horizon.training.train:main"
+train-mlp-adaptive = "adaptive_horizon.training.train_adaptive:main"
 evaluate-mlp = "adaptive_horizon.training.evaluate:main"
 compute-lyapunov = "adaptive_horizon.analysis.compute_lyapunov:main"
 

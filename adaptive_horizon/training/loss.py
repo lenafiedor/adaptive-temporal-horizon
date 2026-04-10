@@ -7,10 +7,14 @@ def compute_loss(model, inputs, targets, T):
         model: MLP model
         inputs: (batch_size, input_size) tensor
         targets: (batch_size, T, input_size) tensor
-        T: prediction horizon
+        T: prediction horizon (int or tensor)
     Returns:
         float: average loss
     """
+    # Handle tensor T (from batched dataloader)
+    if isinstance(T, torch.Tensor):
+        T = int(T.min().item())  # Use minimum T in batch for safety
+
     x_pred = inputs
     total_loss = 0.0
 
@@ -35,8 +39,26 @@ def compute_validation_loss(model, val_loader, T, device="cpu"):
     return total_loss / len(val_loader)
 
 
+def compute_adaptive_loss(model, val_loader, device="cpu"):
+    """Compute adaptive validation loss."""
+    model.eval()
+    total_loss = 0.0
+
+    with torch.no_grad():
+        for inputs, targets, T in val_loader:
+            inputs, targets, T = inputs.to(device), targets.to(device), T.to(device)
+            loss = compute_loss(model, inputs, targets, T)
+            total_loss += loss.item()
+
+    return total_loss / len(val_loader)
+
+
 def compute_gradient_norm(model, inputs, targets, T):
     """Compute gradient norm using summed loss per paper Eq. 3."""
+    # Handle tensor T (from batched dataloader)
+    if isinstance(T, torch.Tensor):
+        T = int(T.min().item())
+
     model.zero_grad()
 
     x_pred = inputs

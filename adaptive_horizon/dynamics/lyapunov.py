@@ -25,7 +25,7 @@ def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
     return lyap
 
 
-def compute_local_lyapunov(trajectory, burn_in, dt=0.01):
+def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     """
     Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
 
@@ -40,6 +40,8 @@ def compute_local_lyapunov(trajectory, burn_in, dt=0.01):
     N = len(trajectory)
     Q = np.eye(3)
     lles = []
+    if not burn_in:
+        burn_in = int(0.01 * N)
 
     for i in range(N - 1):
         x = trajectory[i]

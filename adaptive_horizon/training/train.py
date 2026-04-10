@@ -116,8 +116,7 @@ def main():
         epochs=args.epochs, device=device, scheduler=scheduler
     )
 
-    initial_T = args.T
-    save_results(losses, val_losses, initial_T, SAVE_DIR, T_schedule)
+    save_results(losses, val_losses, args.T, SAVE_DIR, T_schedule)
 
     model_dir = SAVE_DIR / "models"
     model_dir.mkdir(parents=True, exist_ok=True)

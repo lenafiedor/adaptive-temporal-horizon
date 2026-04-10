@@ -14,7 +14,6 @@ def main():
     args = parser.parse_args()
 
     lorenz_trajectory = simulate_lorenz()
-    burn_in = int(0.01 * len(lorenz_trajectory))
 
     if args.mode == "global":
         lyap = compute_global_lyapunov()
