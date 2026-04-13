@@ -91,10 +91,10 @@ def cross_evaluation(max_train_T, max_val_T, save_dir=SAVE_DIR):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["g_T", "cross-eval"], default="g_T", help="Evaluation mode: 'g_T' to compute g(T), 'cross-eval' to evaluate multiple models")
+    parser.add_argument("--mode", type=str, choices=["grad-scaling", "cross-val"], default="g_T", help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models")
     parser.add_argument("--model", "-m", type=str, help="Path to saved model (only needed for g_T mode)")
-    parser.add_argument("--max-train-T", type=int, default=20, help="Maximum training T (only needed for cross-eval mode)")
-    parser.add_argument("--max-eval-T", type=int, default=20, help="Maximum T for evaluation")
+    parser.add_argument("--max-train-T", "max-train-T", type=int, default=20, help="Maximum training T (only needed for cross-eval mode)")
+    parser.add_argument("--max-eval-T", "max-eval-T", type=int, default=20, help="Maximum T for evaluation")
     args = parser.parse_args()
 
     if args.mode == "cross-eval":

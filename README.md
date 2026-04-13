@@ -21,7 +21,7 @@ pip install poetry
 poetry install
 ```
 
-### MLP Training and Evaluation
+### MLP Training 
 
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
@@ -41,11 +41,36 @@ poetry run train-mlp --adaptive   # With adaptive training horizon
 | `-T`                  | Training horizon (only in fixed horizon mode).       | 1             |
 | `--epochs`, `-e`      | Number of epochs to train the model.                 | 100           |
 
-Then, let's evaluate equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper on the learned model.
+
+### MLP Evaluation
+
+#### Model-specific gradient scaling
+
+Let's evaluate equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper on the learned model.
+
+This script will evaluate the model on a range of evaluation horizons by computing the following function:
+
+$$
+g(T) = \frac{\left\| \nabla_{\theta} \mathcal{L}_x(\theta, T) \right\|}{\left\| \nabla_{\theta} \mathcal{L}_x(\theta, 1) \right\|}
+$$
+
+Which represents the gradient scaling with respect to $T$.
 
 ```bash
-poetry run evaluate-mlp --model=<path/to/trained/model.pt>
+poetry run evaluate-mlp --model=path/to/trained/model.pt
 ```
+
+#### Cross-validation on all trained models
+
+This script will evaluate all trained models (`experiments/lorenz/models`) on a set of evaluation horizons.
+
+```bash
+poetry run evaluate-mlp --mode=cross-val
+```
+
+**Args:**
+- `--max-train-T`: Maximum training horizon to consider for evaluation (default: 20)
+- `--max-eval-T`: Maximum evaluation horizon to consider for evaluation (default: 20)
 
 ### Computing Lyapunov Exponents
 
