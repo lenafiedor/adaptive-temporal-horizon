@@ -1,55 +1,60 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from datetime import datetime
 from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 
-def save_results(losses, val_losses, T, save_dir, T_schedule=None):
-    """Save training_results history and optionally T schedule."""
-    save_path = Path(save_dir) / "training_results"
-    save_path.mkdir(parents=True, exist_ok=True)
+def save_losses(train_losses: torch.Tensor, val_losses: torch.Tensor, save_dir: Path, T=None, adaptive=False):
+    """Save training history"""
+    loss_dir = save_dir / "training_results"
+    loss_dir.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    adaptive = T_schedule is not None
-    prefix = "adaptive_" if adaptive else ""
-    filename = save_path / f"{prefix}loss_T{T}_{timestamp}"
-    
-    if adaptive:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    else:
-        fig, ax1 = plt.subplots(figsize=(10, 6))
-    
-    ax1.plot(losses, label='Train Loss', linewidth=2)
+    filename = f"loss_T{T}_{timestamp}" if not adaptive else f"adaptive_loss_{timestamp}"
+    loss_path = loss_dir / filename
+
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    ax1.plot(train_losses, label='Train Loss', linewidth=2)
     ax1.plot(val_losses, label='Val Loss', linewidth=2)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title(f"Training Loss (T={T})" if not adaptive else "Training with Adaptive Temporal Horizon")
+    ax1.set_title(f"Training Loss (T={T})")
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
-    if adaptive:
-        ax2.plot(T_schedule, marker='o', linewidth=2, markersize=4)
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Temporal Horizon T")
-        ax2.set_title("Adaptive Temporal Horizon Schedule")
-        ax2.grid(True, alpha=0.3)
-    
     plt.tight_layout()
-    plt.savefig(f"{filename}.png", dpi=150)
+    plt.savefig(f"{loss_path}.png", dpi=150)
     plt.close()
-    print(f"Loss plot saved to {filename}.png")
+    print(f"Loss plot saved to {loss_path}.png")
 
-    with open(f"{filename}.txt", "w") as f:
-        if adaptive:
-            f.write("epoch,train_loss,val_loss,T\n")
-            for i, (tl, vl, t) in enumerate(zip(losses, val_losses, T_schedule)):
-                f.write(f"{i},{tl:.6f},{vl:.6f},{t}\n")
-        else:
-            f.write("epoch,train_loss,val_loss\n")
-            for i, (tl, vl) in enumerate(zip(losses, val_losses)):
-                f.write(f"{i},{tl:.6f},{vl:.6f}\n")
-    print(f"Loss values saved to {filename}.txt")
+    with open(f"{loss_path}.txt", "w") as f:
+        f.write("min_train_loss,min_val_loss\n")
+        f.write(f"{min(train_losses)},{min(val_losses)}")
+    print(f"Min loss values saved to {loss_path}.txt")
+
+
+def save_model(model, config, save_dir, T=None, adaptive=False):
+    model_dir = save_dir / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"mlp_T{T}.pt" if not adaptive else f"adaptive_mlp.pt"
+    model_path = model_dir / filename
+
+    save_dict = {
+        'model_state_dict': model.state_dict(),
+        'train_T': T,
+        'config': {
+            'input_size': config.input_size,
+            'output_size': config.output_size,
+            'layer_widths': config.layer_widths,
+            'residual_connections': config.residual_connections,
+            'k': config.k
+        }
+    }
+
+    torch.save(save_dict, model_path)
+    print(f"Model saved to {model_path}")
 
 
 def plot_g_T(g_values, save_path, adaptive=False, train_T=None):
@@ -104,7 +109,7 @@ def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/anal
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    
+
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     save_path = save_dir / f"lle_histogram_W{window}.png"

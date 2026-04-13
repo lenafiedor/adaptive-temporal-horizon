@@ -14,7 +14,6 @@ class AdaptiveLorenzDataset(Dataset):
         self,
         num_trajectories: int = 10,
         steps_per_trajectory: int = 10000,
-        T: int = 1,
         dt: float = 0.01,
         normalize: bool = True,
         seed: Optional[int] = None
@@ -85,7 +84,8 @@ class AdaptiveLorenzDataset(Dataset):
 
         return samples
 
-    def _lle_to_horizon(self, lambda_max, dt, C=2.0, min_T=1, max_T=16):
+    @staticmethod
+    def _lle_to_horizon(lambda_max, dt, C=2.0, min_T=1, max_T=16):
         tau = np.log(C) / (lambda_max + 1e-6)
         T = np.clip((tau / dt), min_T, max_T)
         return T.astype(int)
