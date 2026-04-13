@@ -29,20 +29,17 @@ poetry install
 First, train the MLP to learn Lorenz attractor dynamics.
 
 ```bash
-poetry run train-mlp              # With static training_results horizon (T=1)
+poetry run train-mlp              # With static training horizon (T=1)
 poetry run train-mlp --adaptive   # With adaptive training horizon
 ```
 
 **Args:**
 
-| Name | Description | Default value | Scope (static/adaptive) |
-|------|-------------|---------------|-------------------------|
-| `-T` | Training horizon or initial T if using an adaptive horizon. | 1 | Both |
-| `--epochs`, `-e` | Number of epochs to train the model. | 100 | Both |
-| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not. | False | – |
-| `--max-T` | Maximum training horizon | 16 | Adaptive |
-| `-warmup`, `-w` | Number of warmup epochs. During the warmup period, the training horizon is static and equal to 1. | 10 | Adaptive |
-|`--update-freq`, `-u` | Frequency of the adaptive training horizon update. | 5 | Adaptive |
+| Name                  | Description                                          | Default value |
+|-----------------------|------------------------------------------------------|---------------|
+| `--adaptive`, `-a`    | Whether to use the adaptive training horizon or not. | False         |
+| `-T`                  | Training horizon (only in fixed horizon mode).       | 1             |
+| `--epochs`, `-e`      | Number of epochs to train the model.                 | 100           |
 
 Then, let's evaluate equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper on the learned model.
 
@@ -52,7 +49,7 @@ poetry run evaluate-mlp --model=<path/to/trained/model.pt>
 
 ### Computing Lyapunov Exponents
 
-To analyse Lyapunov exponents, run the following command:
+To analyze Lyapunov exponents, run the following command:
 
 ```bash
 poetry run compute-lyapunov [--mode=global|local] [--plot]

@@ -81,17 +81,6 @@ class LorenzDataset(Dataset):
         """
         return self.samples[idx]
 
-    def update_horizon(self, new_T: int):
-        """Update temporal horizon and recreate samples (for curriculum learning)."""
-        self.T = new_T
-        self.samples = self._create_samples()
-
-    def denormalize(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert normalized predictions back to the original scale."""
-        if self.normalize:
-            return x * (self.std + 1e-8) + self.mean
-        return x
-
 
 def collate_fn(batch):
     """Custom collate function for DataLoader."""

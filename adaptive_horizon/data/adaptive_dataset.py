@@ -103,7 +103,7 @@ class AdaptiveLorenzDataset(Dataset):
         return input_state, target, torch.tensor(T, dtype=torch.float32)
 
 
-def collate_fn(batch):
+def collate_fn_adaptive(batch):
     """Custom collate function for DataLoader."""
     inputs = torch.stack([item[0] for item in batch])  # [batch size, 3]
     T = torch.stack([item[2] for item in batch])  # [B]

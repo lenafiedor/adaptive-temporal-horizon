@@ -14,13 +14,14 @@ def save_losses(train_losses: torch.Tensor, val_losses: torch.Tensor, save_dir: 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"loss_T{T}_{timestamp}" if not adaptive else f"adaptive_loss_{timestamp}"
     loss_path = loss_dir / filename
+    plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
 
     fig, ax1 = plt.subplots(figsize=(10, 6))
     ax1.plot(train_losses, label='Train Loss', linewidth=2)
     ax1.plot(val_losses, label='Val Loss', linewidth=2)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title(f"Training Loss (T={T})")
+    ax1.set_title(plot_title)
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
@@ -57,18 +58,14 @@ def save_model(model, config, save_dir, T=None, adaptive=False):
     print(f"Model saved to {model_path}")
 
 
-def plot_g_T(g_values, save_path, adaptive=False, train_T=None):
+def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
     Ts = list(g_values.keys())
     values = list(g_values.values())
 
-    save_path = Path(save_path)
-    save_path.mkdir(exist_ok=True)
+    save_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    suffix = f"_T{train_T}" if train_T is not None else ""
-    if adaptive:
-        filename = save_path / f"adaptive_gradient_scaling{suffix}_{timestamp}.png"
-    else:
-        filename = save_path / f"gradient_scaling{suffix}_{timestamp}.png"
+    filename = f"gradient_scaling_T{train_T}_{timestamp}.png" if not adaptive else f"adaptive_gradient_scaling_{timestamp}.png"
+    plot_path = save_dir / filename
 
     plt.figure()
     plt.plot(Ts, values, marker='o')
@@ -76,10 +73,10 @@ def plot_g_T(g_values, save_path, adaptive=False, train_T=None):
     plt.ylabel("g(T)")
     plt.title("Gradient Scaling")
     plt.grid(True)
-    plt.savefig(filename, dpi=150)
+    plt.savefig(plot_path, dpi=150)
     plt.close()
 
-    print(f"Gradient scaling plot saved to {filename}")
+    print(f"Gradient scaling plot saved to {plot_path}")
 
 
 def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
