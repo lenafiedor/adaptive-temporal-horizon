@@ -79,6 +79,44 @@ def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
+def plot_mse_cross_validation(mse_matrix, train_Ts, val_Ts, save_dir="experiments/lorenz/evaluation"):
+    """
+    Plot MSE cross-validation: X = training horizon, Y = validation MSE, 
+    with colored lines for each validation horizon.
+    
+    Args:
+        mse_matrix: dict of {train_T: {val_T: mse_value}}
+        train_Ts: list of training horizons
+        val_Ts: list of validation horizons
+        save_dir: directory to save plot
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    cmap = plt.cm.tab20
+    colors = [cmap(i / len(val_Ts)) for i in range(len(val_Ts))]
+    
+    for i, val_T in enumerate(val_Ts):
+        mse_values = [mse_matrix[train_T][val_T] for train_T in train_Ts]
+        ax.plot(train_Ts, mse_values, color=colors[i], label=f'Val T={val_T}', linewidth=1.5, marker='.', markersize=4)
+    
+    ax.set_xlabel("Training Horizon (T)")
+    ax.set_ylabel("Validation MSE")
+    ax.set_title("Cross-Validation MSE: Training vs Validation Horizons")
+    ax.set_yscale('log')
+    ax.set_xticks(train_Ts)
+    ax.grid(True, alpha=0.3)
+    ax.legend(title="Validation Horizon", loc='upper right', bbox_to_anchor=(1.05, 1), ncol=2)
+    
+    plt.tight_layout()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = save_dir / f"mse_cross_validation_{timestamp}.png"
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Cross-validation MSE plot saved to {save_path}")
+
+
 def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
     """
     Plot histograms of all 3 Lyapunov exponents.
