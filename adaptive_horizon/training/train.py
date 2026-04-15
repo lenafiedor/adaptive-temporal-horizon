@@ -20,6 +20,7 @@ from adaptive_horizon.visualization.plotting import save_losses, save_model
 
 SAVE_DIR = Path("experiments/lorenz")
 LAYER_WIDTH = 10
+RANDOM_SEED = 42
 
 
 def train(
@@ -107,7 +108,7 @@ def main():
         k=1,
         activation=torch.nn.ReLU(),
     )
-    model = MLP(config, random_seed=42).to(device)
+    model = MLP(config, random_seed=RANDOM_SEED).to(device)
 
     if args.adaptive:
         train_dataset = AdaptiveLorenzDataset(

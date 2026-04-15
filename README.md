@@ -79,6 +79,14 @@ poetry run evaluate-mlp --model=path/to/trained/model.pt
 
 This script will evaluate all trained models (`experiments/lorenz/models`) on a set of evaluation horizons.
 
+T values for evaluation are dynamically set to the same as found trained models, but you can also specify a maximum value.
+Models will be then additionally validated at each T value divisible by 10 that is greater than the maximum T found in the training set.
+
+**Example:**
+- You have trained models with `T = [1, 2, 4, 8, 12, 16, 20]`
+- `max_val_T` is set to 100
+- Each model will be evaluated with `T = [1, 2, 4, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]`
+
 ```bash
 poetry run evaluate-mlp --mode=cross-val
 ```
