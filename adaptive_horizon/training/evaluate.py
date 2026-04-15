@@ -153,7 +153,10 @@ def main():
         help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models",
     )
     parser.add_argument(
-        "--model", "-m", type=str, help="Path to saved model (only needed for grad-scaling mode)"
+        "--model",
+        "-m",
+        type=str,
+        help="Path to saved model (only needed for grad-scaling mode)",
     )
     parser.add_argument(
         "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"

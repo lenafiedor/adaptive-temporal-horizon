@@ -92,7 +92,11 @@ def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
 
 
 def plot_mse_cross_validation(
-    mse_matrix, train_Ts, val_Ts, save_dir="experiments/lorenz/evaluation", adaptive_mse=None
+    mse_matrix,
+    train_Ts,
+    val_Ts,
+    save_dir="experiments/lorenz/evaluation",
+    adaptive_mse=None,
 ):
     """
     Plot MSE cross-validation: X = training horizon, Y = validation MSE,
@@ -135,9 +139,7 @@ def plot_mse_cross_validation(
     ax.set_xticks(range(len(plot_train_Ts)))
     ax.set_xticklabels([str(t) for t in plot_train_Ts])
     ax.grid(True, alpha=0.3)
-    ax.legend(
-        title="Validation Horizon", loc="lower right", ncol=2
-    )
+    ax.legend(title="Validation Horizon", loc="lower right", ncol=2)
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
