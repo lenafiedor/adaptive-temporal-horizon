@@ -2,7 +2,6 @@ import torch
 
 
 class ResidualBlock(torch.nn.Module):
-
     def __init__(self, width: int, k: int, activation: torch.nn.Module) -> None:
         super(ResidualBlock, self).__init__()
 

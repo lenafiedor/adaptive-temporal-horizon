@@ -23,7 +23,9 @@ def batch_loss(model, inputs, targets, T):
     return total_loss / T
 
 
-def adaptive_batch_loss(model: MLP, inputs: torch.Tensor, targets: torch.Tensor, T: torch.Tensor):
+def adaptive_batch_loss(
+    model: MLP, inputs: torch.Tensor, targets: torch.Tensor, T: torch.Tensor
+):
     """Compute per-sample loss with sample-specific horizons.
     Args:
         model: MLP model
@@ -102,7 +104,7 @@ def compute_gradient_norm(model, inputs, targets, T):
     total_norm = 0.0
     for p in model.parameters():
         if p.grad is not None:
-            total_norm += p.grad.norm()**2
+            total_norm += p.grad.norm() ** 2
 
     return torch.sqrt(total_norm)
 

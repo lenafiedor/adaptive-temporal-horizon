@@ -7,12 +7,14 @@ class AdaptiveHorizonScheduler:
     The idea: Start with a small T and increase T during training based on the system's chaotic properties.
     """
 
-    def __init__(self,
-                 initial_T: int = 1,
-                 max_T: int = 32,
-                 lle_trajectory: np.ndarray = None,
-                 update_frequency: int = 10,
-                 warmup_epochs: int = 5):
+    def __init__(
+        self,
+        initial_T: int = 1,
+        max_T: int = 32,
+        lle_trajectory: np.ndarray = None,
+        update_frequency: int = 10,
+        warmup_epochs: int = 5,
+    ):
         self.initial_T = initial_T
         self.max_T = max_T
         self.current_T = initial_T
@@ -21,7 +23,9 @@ class AdaptiveHorizonScheduler:
         self.warmup_epochs = warmup_epochs
         self.history = []
 
-    def should_increase_T(self, epoch: int, val_loss: float, best_val_loss: float) -> bool:
+    def should_increase_T(
+        self, epoch: int, val_loss: float, best_val_loss: float
+    ) -> bool:
         if epoch < self.warmup_epochs or self.current_T >= self.max_T:
             return False
 
@@ -39,9 +43,6 @@ class AdaptiveHorizonScheduler:
 
         new_T = min(self.current_T + 1, self.max_T)
         self.current_T = new_T
-        self.history.append({
-            'T': new_T,
-            'increased_at_epoch': len(self.history)
-        })
+        self.history.append({"T": new_T, "increased_at_epoch": len(self.history)})
 
         return new_T

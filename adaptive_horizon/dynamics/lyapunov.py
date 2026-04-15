@@ -57,5 +57,5 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
 def smooth_lle(lles, window):
     smoothed = []
     for i in range(len(lles) - window):
-        smoothed.append(np.mean(lles[i:i+window], axis=0))
+        smoothed.append(np.mean(lles[i : i + window], axis=0))
     return np.array(smoothed)

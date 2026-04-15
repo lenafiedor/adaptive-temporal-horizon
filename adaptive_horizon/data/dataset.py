@@ -16,7 +16,7 @@ class LorenzDataset(Dataset):
         T: int = 1,
         dt: float = 0.01,
         normalize: bool = True,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
     ):
         """
         Args:
@@ -38,16 +38,16 @@ class LorenzDataset(Dataset):
             initial_state = [
                 np.random.uniform(-20, 20),
                 np.random.uniform(-20, 20),
-                np.random.uniform(0, 50)
+                np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state,
-                dt=dt,
-                steps=steps_per_trajectory
-            ) #  [steps_per_trajectory, 3]
+                initial_state=initial_state, dt=dt, steps=steps_per_trajectory
+            )  #  [steps_per_trajectory, 3]
             trajectories.append(traj)
 
-        self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)  # [num_trajectories, steps_per_trajectory, 3]
+        self.trajectories = torch.tensor(
+            np.array(trajectories), dtype=torch.float32
+        )  # [num_trajectories, steps_per_trajectory, 3]
 
         # Z-score normalization
         if self.normalize:
@@ -85,5 +85,5 @@ class LorenzDataset(Dataset):
 def collate_fn(batch):
     """Custom collate function for DataLoader."""
     inputs = torch.stack([item[0] for item in batch])  # [batch size, 3]
-    targets = torch.stack([item[1] for item in batch]) # [batch size, T, 3]
+    targets = torch.stack([item[1] for item in batch])  # [batch size, T, 3]
     return inputs, targets

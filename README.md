@@ -21,7 +21,9 @@ pip install poetry
 poetry install
 ```
 
-### MLP Training 
+Form now on, we will use the `poetry` command wrapper to run scripts.
+
+### MLP Training
 
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
@@ -69,8 +71,11 @@ poetry run evaluate-mlp --mode=cross-val
 ```
 
 **Args:**
-- `--max-train-T`: Maximum training horizon to consider for evaluation (default: 20)
-- `--max-eval-T`: Maximum evaluation horizon to consider for evaluation (default: 20)
+
+| Name            | Description                                           | Default value |
+|-----------------|-------------------------------------------------------|---------------| 
+| `--max-train-T` | Maximum training horizon to consider for evaluation   | 20            |
+| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | 20            |
 
 ### Computing Lyapunov Exponents
 
@@ -81,5 +86,20 @@ poetry run compute-lyapunov [--mode=global|local] [--plot]
 ```
 
 **Args:**
-- `--mode`: Specifies whether to compute global or local Lyapunov exponents.
-- `--plot`: If set, generates a plot of the Lorenz attractor dynamics. In `local` mode, Lyapunov exponents plot will be generated regardless of this argument.
+
+| Name     | Description                                                                            | Default value |
+|----------|----------------------------------------------------------------------------------------|---------------|
+| `--mode` | Specifies whether to compute global or local Lyapunov exponents. (`global` or `local`) | global        |
+| `--plot` | If set, generates a plot of the Lorenz attractor dynamics.                             | False         |
+
+
+### Linter & Formatter
+
+We use [Ruff package]{https://docs.astral.sh/ruff/) for linting and formatting.
+
+Before committing, please make sure to run the following commands:
+
+```bash
+poetry run ruff check
+poetry run ruff format
+```

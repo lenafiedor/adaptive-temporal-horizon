@@ -16,16 +16,16 @@ MODELS_DIR = Path("experiments/lorenz/models")
 
 def load_model(model_path):
     checkpoint = torch.load(model_path, weights_only=False)
-    state_dict = checkpoint['model_state_dict']
+    state_dict = checkpoint["model_state_dict"]
 
-    cfg = checkpoint['config']
+    cfg = checkpoint["config"]
     config = MLPConfig(
-        input_size=cfg['input_size'],
-        output_size=cfg['output_size'],
-        layer_widths=cfg['layer_widths'],
-        residual_connections=cfg['residual_connections'],
-        k=cfg.get('k'),
-        activation=nn.ReLU()
+        input_size=cfg["input_size"],
+        output_size=cfg["output_size"],
+        layer_widths=cfg["layer_widths"],
+        residual_connections=cfg["residual_connections"],
+        k=cfg.get("k"),
+        activation=nn.ReLU(),
     )
 
     model = MLP(config, random_seed=42)
@@ -37,8 +37,12 @@ def load_model(model_path):
 
 def cross_validate_models(train_Ts, val_Ts, models_dir=MODELS_DIR, device="cpu"):
     max_val_T = max(val_Ts)
-    eval_dataset = LorenzDataset(num_trajectories=100, steps_per_trajectory=1000, T=max_val_T, normalize=True)
-    eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
+    eval_dataset = LorenzDataset(
+        num_trajectories=100, steps_per_trajectory=1000, T=max_val_T, normalize=True
+    )
+    eval_loader = DataLoader(
+        eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn
+    )
 
     mse_matrix = {}
 
@@ -66,18 +70,22 @@ def gradient_scaling(model_path, max_T):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
 
-    adaptive = "adaptive" in args.model.lower()
-    train_T = checkpoint.get('train_T') if not adaptive else None
+    adaptive = "adaptive" in model_path
+    train_T = checkpoint.get("train_T") if not adaptive else None
 
-    eval_dataset = LorenzDataset(num_trajectories=100, steps_per_trajectory=1000, T=max_T, normalize=True)
-    eval_loader = DataLoader(eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
+    eval_dataset = LorenzDataset(
+        num_trajectories=100, steps_per_trajectory=1000, T=max_T, normalize=True
+    )
+    eval_loader = DataLoader(
+        eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn
+    )
 
     T_vals = list(range(1, max_T + 1))
     g_vals = compute_g_T(model, eval_loader, T_vals)
     plot_g_T(g_vals, SAVE_DIR, train_T=train_T, adaptive=adaptive)
 
 
-def cross_evaluation(max_train_T, max_val_T, save_dir=SAVE_DIR):
+def cross_validation(max_train_T, max_val_T, save_dir=SAVE_DIR):
     train_Ts = list(range(1, max_train_T + 1))
     val_Ts = list(range(1, max_val_T + 1))
     mse_matrix = cross_validate_models(train_Ts, val_Ts)
@@ -91,15 +99,30 @@ def cross_evaluation(max_train_T, max_val_T, save_dir=SAVE_DIR):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["grad-scaling", "cross-val"], default="g_T", help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models")
-    parser.add_argument("--model", "-m", type=str, help="Path to saved model (only needed for g_T mode)")
-    parser.add_argument("--max-train-T", "max-train-T", type=int, default=20, help="Maximum training T (only needed for cross-eval mode)")
-    parser.add_argument("--max-eval-T", "max-eval-T", type=int, default=20, help="Maximum T for evaluation")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["grad-scaling", "cross-val"],
+        default="grad-scaling",
+        help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models",
+    )
+    parser.add_argument(
+        "--model", "-m", type=str, help="Path to saved model (only needed for g_T mode)"
+    )
+    parser.add_argument(
+        "--max-train-T",
+        type=int,
+        default=20,
+        help="Maximum training T (only needed for cross-eval mode)",
+    )
+    parser.add_argument(
+        "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"
+    )
     args = parser.parse_args()
 
-    if args.mode == "cross-eval":
-        cross_evaluation(args.max_train_T, args.max_eval_T, save_dir=SAVE_DIR)
-    elif args.mode == "g_T":
+    if args.mode == "cross-val":
+        cross_validation(args.max_train_T, args.max_eval_T, save_dir=SAVE_DIR)
+    elif args.mode == "grad-scaling":
         gradient_scaling(args.model, args.max_eval_T)
 
 

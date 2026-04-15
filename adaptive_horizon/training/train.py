@@ -5,8 +5,16 @@ import argparse
 
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
-from adaptive_horizon.data.adaptive_dataset import AdaptiveLorenzDataset, collate_fn_adaptive
-from adaptive_horizon.training.loss import batch_loss, validation_loss, adaptive_batch_loss, adaptive_validation_loss
+from adaptive_horizon.data.adaptive_dataset import (
+    AdaptiveLorenzDataset,
+    collate_fn_adaptive,
+)
+from adaptive_horizon.training.loss import (
+    batch_loss,
+    validation_loss,
+    adaptive_batch_loss,
+    adaptive_validation_loss,
+)
 from adaptive_horizon.visualization.plotting import save_losses, save_model
 
 
@@ -14,10 +22,19 @@ SAVE_DIR = Path("experiments/lorenz")
 LAYER_WIDTH = 10
 
 
-def train(model, train_loader, val_loader, optimizer, epochs, device="cpu", T=None, adaptive=False):
+def train(
+    model,
+    train_loader,
+    val_loader,
+    optimizer,
+    epochs,
+    device="cpu",
+    T=None,
+    adaptive=False,
+):
     """
     Train model with fixed temporal horizon T.
-    
+
     Args:
         model: MLP model
         train_loader: Training DataLoader
@@ -27,14 +44,14 @@ def train(model, train_loader, val_loader, optimizer, epochs, device="cpu", T=No
         device: CPU or GPU
         T: Temporal horizon (only if non-adaptive)
         adaptive: Whether to use the adaptive temporal horizon
-        
+
     Returns:
         losses: List of training_results losses
         val_losses: List of validation losses
     """
     train_losses = []
     val_losses = []
-    
+
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
@@ -50,25 +67,35 @@ def train(model, train_loader, val_loader, optimizer, epochs, device="cpu", T=No
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        
+
         avg_loss = epoch_loss / len(train_loader)
         train_losses.append(avg_loss)
-        
-        val_loss = validation_loss(model, val_loader, T, device) if not adaptive else adaptive_validation_loss(model, val_loader, device)
+
+        val_loss = (
+            validation_loss(model, val_loader, T, device)
+            if not adaptive
+            else adaptive_validation_loss(model, val_loader, device)
+        )
         val_losses.append(val_loss)
 
-        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
-    
+        print(
+            f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+        )
+
     return train_losses, val_losses
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--adaptive", action="store_true", help="Use adaptive temporal horizon")
+    parser.add_argument(
+        "--adaptive", action="store_true", help="Use adaptive temporal horizon"
+    )
     parser.add_argument("-T", type=int, default=1, help="Temporal horizon")
-    parser.add_argument("--epochs", "-e", type=int, default=100, help="Number of training epochs")
+    parser.add_argument(
+        "--epochs", "-e", type=int, default=100, help="Number of training epochs"
+    )
     args = parser.parse_args()
-    
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}\n")
 
@@ -77,22 +104,34 @@ def main():
         output_size=3,
         layer_widths=[LAYER_WIDTH, LAYER_WIDTH, LAYER_WIDTH],
         residual_connections=True,
-        k = 1,
-        activation=torch.nn.ReLU()
+        k=1,
+        activation=torch.nn.ReLU(),
     )
     model = MLP(config, random_seed=42).to(device)
 
     if args.adaptive:
-        train_dataset = AdaptiveLorenzDataset(num_trajectories=100, steps_per_trajectory=1000, normalize=True)
-        val_dataset = AdaptiveLorenzDataset(num_trajectories=20, steps_per_trajectory=1000, normalize=True)
+        train_dataset = AdaptiveLorenzDataset(
+            num_trajectories=100, steps_per_trajectory=1000, normalize=True
+        )
+        val_dataset = AdaptiveLorenzDataset(
+            num_trajectories=20, steps_per_trajectory=1000, normalize=True
+        )
         collate_function = collate_fn_adaptive
     else:
-        train_dataset = LorenzDataset(num_trajectories=100, steps_per_trajectory=1000, T=args.T, normalize=True)
-        val_dataset = LorenzDataset(num_trajectories=20, steps_per_trajectory=1000, T=args.T, normalize=True)
+        train_dataset = LorenzDataset(
+            num_trajectories=100, steps_per_trajectory=1000, T=args.T, normalize=True
+        )
+        val_dataset = LorenzDataset(
+            num_trajectories=20, steps_per_trajectory=1000, T=args.T, normalize=True
+        )
         collate_function = collate_fn
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=collate_function)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, collate_fn=collate_function)
+    train_loader = DataLoader(
+        train_dataset, batch_size=32, shuffle=True, collate_fn=collate_function
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=32, shuffle=False, collate_fn=collate_function
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     train_losses, val_losses = train(
@@ -103,7 +142,7 @@ def main():
         epochs=args.epochs,
         device=device,
         T=args.T,
-        adaptive=args.adaptive
+        adaptive=args.adaptive,
     )
 
     save_losses(train_losses, val_losses, SAVE_DIR, args.T, adaptive=args.adaptive)

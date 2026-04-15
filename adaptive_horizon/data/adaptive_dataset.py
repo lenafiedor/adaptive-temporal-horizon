@@ -16,7 +16,7 @@ class AdaptiveLorenzDataset(Dataset):
         steps_per_trajectory: int = 10000,
         dt: float = 0.01,
         normalize: bool = True,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
     ):
         """
         Args:
@@ -39,13 +39,11 @@ class AdaptiveLorenzDataset(Dataset):
             initial_state = [
                 np.random.uniform(-20, 20),
                 np.random.uniform(-20, 20),
-                np.random.uniform(0, 50)
+                np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state,
-                dt=dt,
-                steps=steps_per_trajectory
-            ) #  [steps_per_trajectory, 3]
+                initial_state=initial_state, dt=dt, steps=steps_per_trajectory
+            )  #  [steps_per_trajectory, 3]
             trajectories.append(traj)
 
             # Compute local Lyapunov exponents for this trajectory
@@ -56,7 +54,9 @@ class AdaptiveLorenzDataset(Dataset):
             self.horizons.append(self._lle_to_horizon(lle_max, dt))
             print(f"Initialized a trajectory with LLE max: {np.max(lle_max)}")
 
-        self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)  # [num_trajectories, steps_per_trajectory, 3]
+        self.trajectories = torch.tensor(
+            np.array(trajectories), dtype=torch.float32
+        )  # [num_trajectories, steps_per_trajectory, 3]
 
         # Z-score normalization
         if self.normalize:
@@ -79,7 +79,7 @@ class AdaptiveLorenzDataset(Dataset):
                 T = horizon[m]
                 if m + T < seq_len:
                     input_state = traj[m]  # [3,]
-                    target_state = traj[m+1: m+T+1]  # [T, 3]
+                    target_state = traj[m + 1 : m + T + 1]  # [T, 3]
                     samples.append((input_state, target_state, T))
 
         return samples
@@ -107,7 +107,7 @@ def collate_fn_adaptive(batch):
     """Custom collate function for DataLoader."""
     inputs = torch.stack([item[0] for item in batch])  # [batch size, 3]
     T = torch.stack([item[2] for item in batch])  # [B]
-    
+
     # Pad targets to max_T in batch
     max_T = int(T.max().item())
     padded_targets = []
@@ -118,6 +118,6 @@ def collate_fn_adaptive(batch):
             padding = torch.zeros(max_T - T_i, 3)
             target = torch.cat([target, padding], dim=0)
         padded_targets.append(target)
-    
+
     targets = torch.stack(padded_targets)  # [batch size, max_T, 3]
     return inputs, targets, T

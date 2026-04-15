@@ -25,15 +25,21 @@ class MLP(torch.nn.Module):
 
         super(MLP, self).__init__()
         self.layer_widths = config.layer_widths
-        self.embedding = nn.Linear(config.input_size, config.layer_widths[0], bias=False)
-        self.unembedding = nn.Linear(config.layer_widths[-1], config.output_size, bias=False)
+        self.embedding = nn.Linear(
+            config.input_size, config.layer_widths[0], bias=False
+        )
+        self.unembedding = nn.Linear(
+            config.layer_widths[-1], config.output_size, bias=False
+        )
         self.blocks = nn.ModuleList()
 
         if config.residual_connections:
             if config.k is None:
                 raise ValueError("Residual connections require a k value.")
             for i in range(len(self.layer_widths)):
-                self.blocks.append(ResidualBlock(self.layer_widths[i], config.k, config.activation))
+                self.blocks.append(
+                    ResidualBlock(self.layer_widths[i], config.k, config.activation)
+                )
         else:
             for i in range(len(self.layer_widths)):
                 self.blocks.append(DenseBlock(self.layer_widths[i], config.activation))

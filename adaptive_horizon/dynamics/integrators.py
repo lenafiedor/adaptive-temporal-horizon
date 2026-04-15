@@ -6,7 +6,7 @@ def rk4_step(f, x, dt, *args):
     k2 = f(x + 0.5 * dt * k1, *args)
     k3 = f(x + 0.5 * dt * k2, *args)
     k4 = f(x + dt * k3, *args)
-    return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+    return x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 def rk4_step_coupled(x, Q, dt, f, jacobian):
@@ -37,7 +37,7 @@ def rk4_step_coupled(x, Q, dt, f, jacobian):
     J4 = np.array(jacobian(*x4))
     k4_Q = J4 @ Q4
 
-    x_next = x + (dt / 6.0) * (k1_x + 2*k2_x + 2*k3_x + k4_x)
-    Q_next = Q + (dt / 6.0) * (k1_Q + 2*k2_Q + 2*k3_Q + k4_Q)
+    x_next = x + (dt / 6.0) * (k1_x + 2 * k2_x + 2 * k3_x + k4_x)
+    Q_next = Q + (dt / 6.0) * (k1_Q + 2 * k2_Q + 2 * k3_Q + k4_Q)
 
     return x_next, Q_next
