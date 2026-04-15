@@ -52,7 +52,6 @@ class AdaptiveLorenzDataset(Dataset):
 
             self.lles.append(lle_max)
             self.horizons.append(self._lle_to_horizon(lle_max, dt))
-            print(f"Initialized a trajectory with LLE max: {np.max(lle_max)}")
 
         self.trajectories = torch.tensor(
             np.array(trajectories), dtype=torch.float32

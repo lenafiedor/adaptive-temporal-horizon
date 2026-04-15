@@ -50,11 +50,11 @@ poetry run train-mlp --adaptive   # With adaptive training horizon
 
 **Args:**
 
-| Name                  | Description                                          | Default value |
-|-----------------------|------------------------------------------------------|---------------|
-| `--adaptive`, `-a`    | Whether to use the adaptive training horizon or not. | False         |
-| `-T`                  | Training horizon (only in fixed horizon mode).       | 1             |
-| `--epochs`, `-e`      | Number of epochs to train the model.                 | 100           |
+| Name               | Description                                         | Values            | Default value |
+|--------------------|-----------------------------------------------------|-------------------|---------------|
+| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not | `true` \| `false` | false         |
+| `-T`               | Training horizon (only in fixed horizon mode)       | int               | 1             |
+| `--epochs`, `-e`   | Number of epochs to train the model                 | int               | 100           |
 
 
 ### MLP Evaluation
@@ -85,9 +85,9 @@ poetry run evaluate-mlp --mode=cross-val
 
 **Args:**
 
-| Name            | Description                                           | Default value |
-|-----------------|-------------------------------------------------------|---------------|
-| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | 20            |
+| Name           | Description                                           | Values | Default value |
+|----------------|-------------------------------------------------------|--------|---------------|
+| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation | int    | 20            |
 
 ### Computing Lyapunov Exponents
 
@@ -99,7 +99,7 @@ poetry run compute-lyapunov [--mode=global|local] [--plot]
 
 **Args:**
 
-| Name     | Description                                                                            | Default value |
-|----------|----------------------------------------------------------------------------------------|---------------|
-| `--mode` | Specifies whether to compute global or local Lyapunov exponents. (`global` or `local`) | global        |
-| `--plot` | If set, generates a plot of the Lorenz attractor dynamics.                             | False         |
+| Name     | Description                                                     | Values              | Default value |
+|----------|-----------------------------------------------------------------|---------------------|---------------|
+| `--mode` | Specifies whether to compute global or local Lyapunov exponents | `global` \| `local` | global        |
+| `--plot` | If set, generates a plot of the Lorenz attractor dynamics       | `true` \| `false`   | false         |

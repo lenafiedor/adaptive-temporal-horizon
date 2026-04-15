@@ -139,7 +139,7 @@ def plot_mse_cross_validation(
     ax.set_xticks(range(len(plot_train_Ts)))
     ax.set_xticklabels([str(t) for t in plot_train_Ts])
     ax.grid(True, alpha=0.3)
-    ax.legend(title="Validation Horizon", loc="lower right", ncol=2)
+    ax.legend(title="Validation Horizon", loc="lower right")
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
