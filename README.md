@@ -9,7 +9,7 @@ Specifically, we implement an adaptive temporal horizon for training a multi-lay
 - Python 3.13
 - Poetry package manager
 
-## Usage
+## Before you begin
 
 ### Setup
 
@@ -21,7 +21,20 @@ pip install poetry
 poetry install
 ```
 
-Form now on, we will use the `poetry` command wrapper to run scripts.
+From now on, we will use the `poetry` command wrapper to run scripts.
+
+### Linter & Formatter
+
+We use [Ruff package](https://docs.astral.sh/ruff/) for linting and formatting.
+
+Before committing, please make sure to run the following commands:
+
+```bash
+poetry run ruff check
+poetry run ruff format
+```
+
+## Usage
 
 ### MLP Training
 
@@ -73,8 +86,7 @@ poetry run evaluate-mlp --mode=cross-val
 **Args:**
 
 | Name            | Description                                           | Default value |
-|-----------------|-------------------------------------------------------|---------------| 
-| `--max-train-T` | Maximum training horizon to consider for evaluation   | 20            |
+|-----------------|-------------------------------------------------------|---------------|
 | `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | 20            |
 
 ### Computing Lyapunov Exponents
@@ -91,15 +103,3 @@ poetry run compute-lyapunov [--mode=global|local] [--plot]
 |----------|----------------------------------------------------------------------------------------|---------------|
 | `--mode` | Specifies whether to compute global or local Lyapunov exponents. (`global` or `local`) | global        |
 | `--plot` | If set, generates a plot of the Lorenz attractor dynamics.                             | False         |
-
-
-### Linter & Formatter
-
-We use [Ruff package]{https://docs.astral.sh/ruff/) for linting and formatting.
-
-Before committing, please make sure to run the following commands:
-
-```bash
-poetry run ruff check
-poetry run ruff format
-```

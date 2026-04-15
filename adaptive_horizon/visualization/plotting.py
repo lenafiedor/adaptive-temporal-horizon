@@ -92,7 +92,7 @@ def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
 
 
 def plot_mse_cross_validation(
-    mse_matrix, train_Ts, val_Ts, save_dir="experiments/lorenz/evaluation"
+    mse_matrix, train_Ts, val_Ts, save_dir="experiments/lorenz/evaluation", adaptive_mse=None
 ):
     """
     Plot MSE cross-validation: X = training horizon, Y = validation MSE,
@@ -103,6 +103,7 @@ def plot_mse_cross_validation(
         train_Ts: list of training horizons
         val_Ts: list of validation horizons
         save_dir: directory to save plot
+        adaptive_mse: dict of {val_T: mse_value} for adaptive model (optional)
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -111,13 +112,17 @@ def plot_mse_cross_validation(
     cmap = plt.cm.tab20
     colors = [cmap(i / len(val_Ts)) for i in range(len(val_Ts))]
 
+    plot_train_Ts = train_Ts + ["adaptive"] if adaptive_mse else train_Ts
+
     for i, val_T in enumerate(val_Ts):
         mse_values = [mse_matrix[train_T][val_T] for train_T in train_Ts]
+        if adaptive_mse and val_T in adaptive_mse:
+            mse_values.append(adaptive_mse[val_T])
         ax.plot(
-            train_Ts,
+            range(len(plot_train_Ts)),
             mse_values,
             color=colors[i],
-            label=f"Val T={val_T}",
+            label=f"$t_L={val_T}$",
             linewidth=1.5,
             marker=".",
             markersize=4,
@@ -127,10 +132,11 @@ def plot_mse_cross_validation(
     ax.set_ylabel("Validation MSE")
     ax.set_title("Cross-Validation MSE: Training vs Validation Horizons")
     ax.set_yscale("log")
-    ax.set_xticks(train_Ts)
+    ax.set_xticks(range(len(plot_train_Ts)))
+    ax.set_xticklabels([str(t) for t in plot_train_Ts])
     ax.grid(True, alpha=0.3)
     ax.legend(
-        title="Validation Horizon", loc="upper right", bbox_to_anchor=(1.05, 1), ncol=2
+        title="Validation Horizon", loc="lower right", ncol=2
     )
 
     plt.tight_layout()
