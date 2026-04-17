@@ -23,6 +23,57 @@ LAYER_WIDTH = 10
 RANDOM_SEED = 42
 
 
+def create_model_and_loaders(seed, adaptive, device, T=None):
+    """
+    Create model, data loaders, optimizer, and config for training.
+
+    Args:
+        T: Temporal horizon (ignored if adaptive=True)
+        seed: Random seed
+        adaptive: Whether to use adaptive temporal horizon
+        device: CPU or GPU
+
+    Returns:
+        model, train_loader, val_loader, optimizer, config
+    """
+    config = MLPConfig(
+        input_size=3,
+        output_size=3,
+        layer_widths=[LAYER_WIDTH, LAYER_WIDTH, LAYER_WIDTH],
+        residual_connections=True,
+        k=1,
+        activation=torch.nn.ReLU(),
+    )
+    model = MLP(config, random_seed=seed).to(device)
+
+    if adaptive:
+        train_dataset = AdaptiveLorenzDataset(
+            num_trajectories=100, steps_per_trajectory=1000, normalize=True, seed=seed
+        )
+        val_dataset = AdaptiveLorenzDataset(
+            num_trajectories=20, steps_per_trajectory=1000, normalize=True, seed=seed + 1000
+        )
+        collate_function = collate_fn_adaptive
+    else:
+        train_dataset = LorenzDataset(
+            num_trajectories=100, steps_per_trajectory=1000, T=T, normalize=True, seed=seed
+        )
+        val_dataset = LorenzDataset(
+            num_trajectories=20, steps_per_trajectory=1000, T=T, normalize=True, seed=seed + 1000
+        )
+        collate_function = collate_fn
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=32, shuffle=True, collate_fn=collate_function
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=32, shuffle=False, collate_fn=collate_function
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    return model, train_loader, val_loader, optimizer, config
+
+
 def train(
     model,
     train_loader,
@@ -95,45 +146,13 @@ def main():
     parser.add_argument(
         "--epochs", "-e", type=int, default=100, help="Number of training epochs"
     )
+    parser.add_argument("--seed", "-s", type=int, default=RANDOM_SEED, help="Random seed")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}\n")
 
-    config = MLPConfig(
-        input_size=3,
-        output_size=3,
-        layer_widths=[LAYER_WIDTH, LAYER_WIDTH, LAYER_WIDTH],
-        residual_connections=True,
-        k=1,
-        activation=torch.nn.ReLU(),
-    )
-    model = MLP(config, random_seed=RANDOM_SEED).to(device)
-
-    if args.adaptive:
-        train_dataset = AdaptiveLorenzDataset(
-            num_trajectories=100, steps_per_trajectory=1000, normalize=True
-        )
-        val_dataset = AdaptiveLorenzDataset(
-            num_trajectories=20, steps_per_trajectory=1000, normalize=True
-        )
-        collate_function = collate_fn_adaptive
-    else:
-        train_dataset = LorenzDataset(
-            num_trajectories=100, steps_per_trajectory=1000, T=args.T, normalize=True
-        )
-        val_dataset = LorenzDataset(
-            num_trajectories=20, steps_per_trajectory=1000, T=args.T, normalize=True
-        )
-        collate_function = collate_fn
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=32, shuffle=True, collate_fn=collate_function
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=32, shuffle=False, collate_fn=collate_function
-    )
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model, train_loader, val_loader, optimizer, config = create_model_and_loaders(args.seed, args.adaptive, device, args.T)
 
     train_losses, val_losses = train(
         model,
@@ -147,7 +166,7 @@ def main():
     )
 
     save_losses(train_losses, val_losses, SAVE_DIR, args.T, adaptive=args.adaptive)
-    save_model(model, config, SAVE_DIR, args.T, adaptive=args.adaptive)
+    save_model(model, config, args.seed, SAVE_DIR, args.T, args.adaptive)
 
 
 if __name__ == "__main__":

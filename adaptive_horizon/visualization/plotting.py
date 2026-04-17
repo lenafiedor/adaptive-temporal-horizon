@@ -44,15 +44,22 @@ def save_losses(
     print(f"Min loss values saved to {loss_path}.txt")
 
 
-def save_model(model, config, save_dir, T=None, adaptive=False):
+def save_model(model, config, seed, save_dir, T=None, adaptive=False):
     model_dir = save_dir / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"mlp_T{T}.pt" if not adaptive else "adaptive_mlp.pt"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if adaptive:
+        filename = f"adaptive_mlp_seed{seed}_{timestamp}.pt"
+    else:
+        filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
+
     model_path = model_dir / filename
 
     save_dict = {
         "model_state_dict": model.state_dict(),
         "train_T": T,
+        "seed": seed,
         "config": {
             "input_size": config.input_size,
             "output_size": config.output_size,
@@ -64,6 +71,7 @@ def save_model(model, config, save_dir, T=None, adaptive=False):
 
     torch.save(save_dict, model_path)
     print(f"Model saved to {model_path}")
+    return model_path
 
 
 def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
@@ -147,6 +155,66 @@ def plot_mse_cross_validation(
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")
+
+
+def plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
+    """
+    Plot MSE for each validation T as separate lines (like cross-val mode).
+    Adaptive model minimum MSEW is plotted as a dashed horizontal line for each val_T.
+
+    Args:
+        train_Ts: list of training horizons
+        val_Ts: list of validation horizons
+        stats: dict of {train_T: {val_T: (mean, std)}}
+        adaptive_stats: dict of {val_T: (mean, std)}
+        save_dir: directory to save plot
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    cmap = plt.cm.tab20
+    colors = [cmap(i / len(val_Ts)) for i in range(len(val_Ts))]
+
+    for i, val_T in enumerate(val_Ts):
+        means = [stats[train_T][val_T][0] for train_T in train_Ts]
+        stds = [stats[train_T][val_T][1] for train_T in train_Ts]
+
+        ax.errorbar(
+            train_Ts,
+            means,
+            yerr=stds,
+            color=colors[i],
+            label=f"$t_L={val_T}$",
+            linewidth=1.5,
+            marker=".",
+            markersize=6,
+            capsize=3,
+        )
+
+        adaptive_mean = adaptive_stats[val_T][0]
+        ax.axhline(
+            y=adaptive_mean,
+            color=colors[i],
+            linestyle="--",
+            linewidth=1.0,
+            alpha=0.7,
+        )
+
+    ax.set_xlabel("Training Horizon (T)")
+    ax.set_ylabel("Validation MSE (mean ± std)")
+    ax.set_title("Aggregate Cross-Validation MSE (dashed = adaptive)")
+    ax.set_yscale("log")
+    ax.set_xticks(train_Ts)
+    ax.grid(True, alpha=0.3)
+    ax.legend(title="Validation Horizon", loc="lower right")
+
+    plt.tight_layout()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = save_dir / f"aggregate_mse_{timestamp}.png"
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Aggregate MSE plot saved to {save_path}")
 
 
 def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
