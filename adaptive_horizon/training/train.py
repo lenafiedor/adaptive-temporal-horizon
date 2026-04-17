@@ -1,8 +1,8 @@
 import torch
 from torch.utils.data import DataLoader
-from pathlib import Path
 import argparse
 
+from adaptive_horizon.config import SEEDS, LAYER_WIDTH
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
@@ -18,20 +18,15 @@ from adaptive_horizon.training.loss import (
 from adaptive_horizon.visualization.plotting import save_losses, save_model
 
 
-SAVE_DIR = Path("experiments/lorenz")
-LAYER_WIDTH = 10
-RANDOM_SEED = 42
-
-
 def create_model_and_loaders(seed, adaptive, device, T=None):
     """
     Create model, data loaders, optimizer, and config for training.
 
     Args:
-        T: Temporal horizon (ignored if adaptive=True)
         seed: Random seed
         adaptive: Whether to use adaptive temporal horizon
         device: CPU or GPU
+        T: Temporal horizon (ignored if adaptive=True)
 
     Returns:
         model, train_loader, val_loader, optimizer, config
@@ -51,15 +46,26 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
             num_trajectories=100, steps_per_trajectory=1000, normalize=True, seed=seed
         )
         val_dataset = AdaptiveLorenzDataset(
-            num_trajectories=20, steps_per_trajectory=1000, normalize=True, seed=seed + 1000
+            num_trajectories=20,
+            steps_per_trajectory=1000,
+            normalize=True,
+            seed=seed + 1000,
         )
         collate_function = collate_fn_adaptive
     else:
         train_dataset = LorenzDataset(
-            num_trajectories=100, steps_per_trajectory=1000, T=T, normalize=True, seed=seed
+            num_trajectories=100,
+            steps_per_trajectory=1000,
+            T=T,
+            normalize=True,
+            seed=seed,
         )
         val_dataset = LorenzDataset(
-            num_trajectories=20, steps_per_trajectory=1000, T=T, normalize=True, seed=seed + 1000
+            num_trajectories=20,
+            steps_per_trajectory=1000,
+            T=T,
+            normalize=True,
+            seed=seed + 1000,
         )
         collate_function = collate_fn
 
@@ -146,13 +152,15 @@ def main():
     parser.add_argument(
         "--epochs", "-e", type=int, default=100, help="Number of training epochs"
     )
-    parser.add_argument("--seed", "-s", type=int, default=RANDOM_SEED, help="Random seed")
+    parser.add_argument("--seed", "-s", type=int, default=SEEDS[0], help="Random seed")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}\n")
 
-    model, train_loader, val_loader, optimizer, config = create_model_and_loaders(args.seed, args.adaptive, device, args.T)
+    model, train_loader, val_loader, optimizer, config = create_model_and_loaders(
+        args.seed, args.adaptive, device, args.T
+    )
 
     train_losses, val_losses = train(
         model,
@@ -165,8 +173,8 @@ def main():
         adaptive=args.adaptive,
     )
 
-    save_losses(train_losses, val_losses, SAVE_DIR, args.T, adaptive=args.adaptive)
-    save_model(model, config, args.seed, SAVE_DIR, args.T, args.adaptive)
+    save_losses(train_losses, val_losses, T=args.T, adaptive=args.adaptive)
+    save_model(model, config, args.seed, T=args.T, adaptive=args.adaptive)
 
 
 if __name__ == "__main__":

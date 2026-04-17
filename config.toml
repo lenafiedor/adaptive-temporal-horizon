@@ -1,0 +1,12 @@
+[paths]
+models_dir = "experiments/lorenz/models"
+eval_dir = "experiments/lorenz/evaluation"
+loss_dir = "experiments/lorenz/training_results"
+analysis_dir = "experiments/lorenz/analysis"
+
+[training]
+train_Ts = [1, 2, 4, 8, 12, 16, 20]
+seeds = [42, 123, 456, 789, 1011, 1213, 1415, 1617, 1819, 2021]
+
+[model]
+layer_width = 10

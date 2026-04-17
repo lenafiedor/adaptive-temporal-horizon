@@ -38,13 +38,15 @@ poetry run ruff format
 
 ### MLP Training
 
+### Single MLP
+
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
 
-First, train the MLP to learn Lorenz attractor dynamics.
+First, train a single MLP to learn Lorenz attractor dynamics.
 
 ```bash
-poetry run train-mlp              # With static training horizon (T=1)
+poetry run train-mlp              # With static training horizon
 poetry run train-mlp --adaptive   # With adaptive training horizon
 ```
 
@@ -56,6 +58,22 @@ poetry run train-mlp --adaptive   # With adaptive training horizon
 | `-T`               | Training horizon (only in fixed horizon mode)       | int               | 1             |
 | `--epochs`, `-e`   | Number of epochs to train the model                 | int               | 100           |
 
+#### Aggregate Training
+
+To run the aggregate training script, run the following command:
+
+```bash
+poetry run train-aggregate-mlp                  # All training horizons + adaptive training horizon
+poetry run train-aggregate-mlp --adaptive-only  # Only adaptive training horizon
+```
+
+The script will iterate over temporal horizons and seeds specified in the `config.toml` file and train the MLP for each combination.
+Seeds are fixed for reproducibility.
+
+The trained models are saved in the `experiments/lorenz/models` directory by default.
+There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
+
+To customize the settings, edit `config.toml` directly.
 
 ### MLP Evaluation
 
@@ -74,6 +92,9 @@ Which represents the gradient scaling with respect to $T$.
 ```bash
 poetry run evaluate-mlp --model=path/to/trained/model.pt
 ```
+
+> [!NOTE]
+> We strongly reccommend to set a larger `max-eval-T` value than the default one (20) to observe the exponential growth of gradient scaling.
 
 #### Cross-validation on all trained models
 

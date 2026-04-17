@@ -5,23 +5,24 @@ from datetime import datetime
 from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
+from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
+
 
 def save_losses(
     train_losses: torch.Tensor,
     val_losses: torch.Tensor,
-    save_dir: Path,
-    T=None,
-    adaptive=False,
+    save_dir: Path = LOSS_DIR,
+    T: int = None,
+    adaptive: bool = False,
 ):
     """Save training history"""
-    loss_dir = save_dir / "training_results"
-    loss_dir.mkdir(parents=True, exist_ok=True)
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = (
         f"loss_T{T}_{timestamp}" if not adaptive else f"adaptive_loss_{timestamp}"
     )
-    loss_path = loss_dir / filename
+    loss_path = save_dir / filename
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
 
     fig, ax1 = plt.subplots(figsize=(10, 6))
@@ -44,9 +45,8 @@ def save_losses(
     print(f"Min loss values saved to {loss_path}.txt")
 
 
-def save_model(model, config, seed, save_dir, T=None, adaptive=False):
-    model_dir = save_dir / "models"
-    model_dir.mkdir(parents=True, exist_ok=True)
+def save_model(model, config, seed, save_dir=MODEL_DIR, T=None, adaptive=False):
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
@@ -54,7 +54,7 @@ def save_model(model, config, seed, save_dir, T=None, adaptive=False):
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
-    model_path = model_dir / filename
+    model_path = save_dir / filename
 
     save_dict = {
         "model_state_dict": model.state_dict(),
@@ -74,7 +74,7 @@ def save_model(model, config, seed, save_dir, T=None, adaptive=False):
     return model_path
 
 
-def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
+def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     Ts = list(g_values.keys())
     values = list(g_values.values())
 
@@ -83,7 +83,7 @@ def plot_g_T(g_values, save_dir: Path, train_T=None, adaptive=False):
     filename = (
         f"gradient_scaling_T{train_T}_{timestamp}.png"
         if not adaptive
-        else f"adaptive_gradient_scaling_{timestamp}.png"
+        else f"gradient_scaling_adaptive_{timestamp}.png"
     )
     plot_path = save_dir / filename
 
@@ -103,7 +103,7 @@ def plot_mse_cross_validation(
     mse_matrix,
     train_Ts,
     val_Ts,
-    save_dir="experiments/lorenz/evaluation",
+    save_dir=EVAL_DIR,
     adaptive_mse=None,
 ):
     """
@@ -217,7 +217,7 @@ def plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
     print(f"Aggregate MSE plot saved to {save_path}")
 
 
-def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/analysis"):
+def plot_lyapunov_exponents(exponents, window, save_dir=ANALYSIS_DIR):
     """
     Plot histograms of all 3 Lyapunov exponents.
 
@@ -260,7 +260,7 @@ def plot_lyapunov_exponents(exponents, window, save_dir="experiments/lorenz/anal
 
 
 def plot_trajectory_heatmap(
-    trajectory, exponents, window, burn_in, save_dir="experiments/lorenz/analysis"
+    trajectory, exponents, window, burn_in, save_dir=ANALYSIS_DIR
 ):
     """
     Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
