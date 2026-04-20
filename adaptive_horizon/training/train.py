@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from adaptive_horizon.config import SEEDS, LAYER_WIDTH, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY
+from adaptive_horizon.config import LAYER_WIDTH, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
@@ -152,7 +152,7 @@ def main():
     parser.add_argument(
         "--epochs", "-e", type=int, default=100, help="Number of training epochs"
     )
-    parser.add_argument("--seed", "-s", type=int, default=SEEDS[0], help="Random seed")
+    parser.add_argument("--seed", "-s", type=int, default=0, help="Random seed")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

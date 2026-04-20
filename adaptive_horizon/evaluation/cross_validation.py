@@ -1,36 +1,13 @@
-import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 import argparse
 import re
 import numpy as np
 
 from adaptive_horizon.config import MODEL_DIR, EVAL_DIR
-from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
-from adaptive_horizon.training.loss import compute_g_T, validation_loss
-from adaptive_horizon.visualization.plotting import plot_g_T, plot_mse
-
-
-def load_model(model_path):
-    checkpoint = torch.load(model_path, weights_only=False)
-    state_dict = checkpoint["model_state_dict"]
-
-    cfg = checkpoint["config"]
-    config = MLPConfig(
-        input_size=cfg["input_size"],
-        output_size=cfg["output_size"],
-        layer_widths=cfg["layer_widths"],
-        residual_connections=cfg["residual_connections"],
-        k=cfg.get("k"),
-        activation=nn.ReLU(),
-    )
-
-    model = MLP(config, random_seed=42)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    return model, checkpoint
+from adaptive_horizon.training.loss import validation_loss
+from adaptive_horizon.visualization.plotting import plot_mse
+from adaptive_horizon.evaluation.utils import load_model
 
 
 def get_train_Ts(model_dir=MODEL_DIR):
@@ -135,25 +112,6 @@ def cross_validate_models(
     return mse_matrix, adaptive_mse
 
 
-def gradient_scaling(model_path, max_T):
-    model, checkpoint = load_model(model_path)
-    print(f"Loaded model from {model_path}")
-
-    adaptive = "adaptive" in model_path
-    train_T = checkpoint.get("train_T") if not adaptive else None
-
-    eval_dataset = LorenzDataset(
-        num_trajectories=100, steps_per_trajectory=1000, T=max_T, normalize=True
-    )
-    eval_loader = DataLoader(
-        eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn
-    )
-
-    T_vals = list(range(1, max_T + 1))
-    g_vals = compute_g_T(model, eval_loader, T_vals)
-    plot_g_T(g_vals, train_T=train_T, adaptive=adaptive)
-
-
 def compute_statistics(mse_matrix, train_Ts, val_Ts, adaptive_mse):
     """
     Compute mean and std for each (train_T, val_T) combination.
@@ -179,37 +137,9 @@ def compute_statistics(mse_matrix, train_Ts, val_Ts, adaptive_mse):
     return stats, adaptive_stats
 
 
-def load_mse_results(save_dir=EVAL_DIR):
-    """Load MSE results from CSV and reconstruct stats dicts."""
-    results_file = save_dir / "mse_results.csv"
-
-    stats = {}
-    adaptive_stats = {}
-    train_Ts = set()
-    val_Ts = set()
-
-    with open(results_file, "r") as f:
-        next(f)
-        for line in f:
-            train_T, val_T, mean, std = line.strip().split(",")
-            val_T = int(val_T)
-            val_Ts.add(val_T)
-
-            if train_T == "adaptive":
-                adaptive_stats[val_T] = (float(mean), float(std))
-            else:
-                train_T = int(train_T)
-                train_Ts.add(train_T)
-                if train_T not in stats:
-                    stats[train_T] = {}
-                stats[train_T][val_T] = (float(mean), float(std))
-
-    return stats, adaptive_stats, sorted(train_Ts), sorted(val_Ts)
-
-
 def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR):
     """
-    Save MSE results to a CSV file for later plotting without re-evaluation.
+    Save MSE results to a CSV file.
 
     Format: train_T,val_T,mean,std
     Adaptive models have train_T = "adaptive"
@@ -260,30 +190,11 @@ def cross_validation(max_val_T, save_dir=EVAL_DIR, device="cpu"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["grad-scaling", "cross-val", "plot-mse"],
-        default="grad-scaling",
-        help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models",
-    )
-    parser.add_argument(
-        "--model",
-        "-m",
-        type=str,
-        help="Path to saved model (only needed for grad-scaling mode)",
-    )
-    parser.add_argument(
         "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"
     )
     args = parser.parse_args()
 
-    if args.mode == "cross-val":
-        cross_validation(args.max_eval_T)
-    elif args.mode == "plot-mse":
-        stats, adaptive_stats, train_Ts, val_Ts = load_mse_results()
-        plot_mse(train_Ts, val_Ts, stats, adaptive_stats, EVAL_DIR)
-    elif args.mode == "grad-scaling":
-        gradient_scaling(args.model, args.max_eval_T)
+    cross_validation(args.max_eval_T)
 
 
 if __name__ == "__main__":

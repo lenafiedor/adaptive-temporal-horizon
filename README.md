@@ -91,11 +91,8 @@ $$
 Which represents the gradient scaling with respect to $T$.
 
 ```bash
-poetry run evaluate-mlp --model=path/to/trained/model.pt
+poetry run gradient-scaling --model=path/to/trained/model.pt
 ```
-
-> [!NOTE]
-> We strongly reccommend to set a larger `max-eval-T` value than the default one (20) to observe the exponential growth of gradient scaling.
 
 #### Cross-validation on all trained models
 
@@ -110,7 +107,7 @@ Models will be then additionally validated at each T value divisible by 10 that 
 - Each model will be evaluated with `T = [1, 2, 4, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]`
 
 ```bash
-poetry run evaluate-mlp --mode=cross-val
+poetry run cross-validation
 ```
 
 **Args:**

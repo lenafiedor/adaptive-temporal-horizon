@@ -153,7 +153,7 @@ def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"aggregate_mse_{timestamp}.png"
+    save_path = save_dir / f"mse_{timestamp}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Aggregate MSE plot saved to {save_path}")
