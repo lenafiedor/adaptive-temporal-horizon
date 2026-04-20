@@ -17,6 +17,7 @@ class LorenzDataset(Dataset):
         dt: float = 0.01,
         normalize: bool = True,
         seed: Optional[int] = None,
+        burn_in: int = 0,
     ):
         """
         Args:
@@ -26,6 +27,7 @@ class LorenzDataset(Dataset):
             dt: Time step for simulation
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
+            burn_in: Number of initial steps to discard (transient period)
         """
         self.T = T
         self.normalize = normalize
@@ -41,18 +43,19 @@ class LorenzDataset(Dataset):
                 np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state, dt=dt, steps=steps_per_trajectory
-            )  #  [steps_per_trajectory, 3]
+                initial_state=initial_state, dt=dt, steps=steps_per_trajectory + burn_in
+            )
+            traj = traj[burn_in:]
             trajectories.append(traj)
 
         self.trajectories = torch.tensor(
             np.array(trajectories), dtype=torch.float32
-        )  # [num_trajectories, steps_per_trajectory, 3]
+        )
 
         # Z-score normalization
         if self.normalize:
-            self.mean = self.trajectories.mean(dim=(0, 1))  # scalar
-            self.std = self.trajectories.std(dim=(0, 1))  # scalar
+            self.mean = self.trajectories.mean(dim=(0, 1))
+            self.std = self.trajectories.std(dim=(0, 1))
             self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
 
         self.samples = self._create_samples()

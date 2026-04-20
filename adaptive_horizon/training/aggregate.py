@@ -1,7 +1,7 @@
 import torch
 import argparse
 
-from adaptive_horizon.config import MODEL_DIR, TRAIN_TS, SEEDS
+from adaptive_horizon.config import MODEL_DIR, TRAIN_TS
 from adaptive_horizon.training.train import train, create_model_and_loaders
 from adaptive_horizon.visualization.plotting import save_model
 
@@ -25,14 +25,14 @@ def train_single_model(seed, epochs, device, T=None, adaptive=False):
     return save_model(model, config, seed, MODEL_DIR, T=T, adaptive=adaptive)
 
 
-def train_adaptive_models(seeds, epochs, device):
+def train_adaptive_models(n_seeds, epochs, device):
     adaptive_paths = []
 
     print(f"\n{'=' * 50}")
     print("Training adaptive models")
     print(f"{'=' * 50}")
 
-    for seed in seeds:
+    for seed in range(n_seeds):
         print(f"\n--- Adaptive Seed {seed} ---")
         model_path = train_single_model(seed, epochs, device, adaptive=True)
         adaptive_paths.append(model_path)
@@ -40,7 +40,7 @@ def train_adaptive_models(seeds, epochs, device):
     return adaptive_paths
 
 
-def train_all_models(train_Ts, seeds, epochs, device):
+def train_all_models(train_Ts, n_seeds, epochs, device):
     model_paths = {T: [] for T in train_Ts}
 
     for T in train_Ts:
@@ -48,12 +48,12 @@ def train_all_models(train_Ts, seeds, epochs, device):
         print(f"Training models for T={T}")
         print(f"{'=' * 50}")
 
-        for seed in seeds:
+        for seed in range(n_seeds):
             print(f"\n--- Seed {seed} ---")
             model_path = train_single_model(seed, epochs, device, T=T)
             model_paths[T].append(model_path)
 
-    adaptive_paths = train_adaptive_models(seeds, epochs, device)
+    adaptive_paths = train_adaptive_models(n_seeds, epochs, device)
 
     return model_paths, adaptive_paths
 
@@ -68,6 +68,7 @@ def main():
         action="store_true",
         help="Train only adaptive models (skip fixed-T models)",
     )
+    parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -76,9 +77,9 @@ def main():
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.adaptive_only:
-        train_adaptive_models(SEEDS, args.epochs, device)
+        train_adaptive_models(args.n_seeds, args.epochs, device)
     else:
-        train_all_models(TRAIN_TS, SEEDS, args.epochs, device)
+        train_all_models(TRAIN_TS, args.n_seeds, args.epochs, device)
 
     print("\n" + "=" * 50)
     print("Training Complete")

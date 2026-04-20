@@ -6,7 +6,9 @@ analysis_dir = "experiments/lorenz/analysis"
 
 [training]
 train_Ts = [1, 2, 4, 8, 12, 16, 20]
-seeds = [42, 123, 456, 789, 1011, 1213, 1415, 1617, 1819, 2021]
+batch_size = 512
+learning_rate = 3e-4
+weight_decay = 1e-2
 
 [model]
 layer_width = 10

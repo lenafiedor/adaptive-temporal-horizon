@@ -63,8 +63,9 @@ poetry run train-mlp --adaptive   # With adaptive training horizon
 To run the aggregate training script, run the following command:
 
 ```bash
-poetry run train-aggregate-mlp                  # All training horizons + adaptive training horizon
-poetry run train-aggregate-mlp --adaptive-only  # Only adaptive training horizon
+poetry run train-mlp-aggregate                 # All training horizons + adaptive training horizon
+poetry run train-mlp-aggregate --n-seeds n     # Specify number of seeds to train on (default: 10)
+poetry run train-mlp-aggregate --adaptive-only  # Only adaptive training horizon
 ```
 
 The script will iterate over temporal horizons and seeds specified in the `config.toml` file and train the MLP for each combination.
@@ -128,7 +129,8 @@ poetry run compute-lyapunov [--mode=global|local] [--plot]
 
 **Args:**
 
-| Name     | Description                                                     | Values              | Default value |
-|----------|-----------------------------------------------------------------|---------------------|---------------|
-| `--mode` | Specifies whether to compute global or local Lyapunov exponents | `global` \| `local` | global        |
-| `--plot` | If set, generates a plot of the Lorenz attractor dynamics       | `true` \| `false`   | false         |
+| Name             | Description                                                     | Values              | Default value |
+|------------------|-----------------------------------------------------------------|---------------------|---------------|
+| `--mode`         | Specifies whether to compute global or local Lyapunov exponents | `global` \| `local` | global        |
+| `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | `true` \| `false`   | false         |
+| `--window`, `-w` | Window size for computing local Lyapunov exponents              | int                 | 10            |

@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 
-from adaptive_horizon.config import SEEDS, LAYER_WIDTH
+from adaptive_horizon.config import SEEDS, LAYER_WIDTH, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
@@ -57,6 +57,7 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
             num_trajectories=100,
             steps_per_trajectory=1000,
             T=T,
+            dt=0.04,
             normalize=True,
             seed=seed,
         )
@@ -70,12 +71,12 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
         collate_function = collate_fn
 
     train_loader = DataLoader(
-        train_dataset, batch_size=32, shuffle=True, collate_fn=collate_function
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_function
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=32, shuffle=False, collate_fn=collate_function
+        val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_function
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     return model, train_loader, val_loader, optimizer, config
 
@@ -136,9 +137,8 @@ def train(
         )
         val_losses.append(val_loss)
 
-        print(
-            f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
-        )
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
 
     return train_losses, val_losses
 

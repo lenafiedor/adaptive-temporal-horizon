@@ -99,68 +99,10 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def plot_mse_cross_validation(
-    mse_matrix,
-    train_Ts,
-    val_Ts,
-    save_dir=EVAL_DIR,
-    adaptive_mse=None,
-):
-    """
-    Plot MSE cross-validation: X = training horizon, Y = validation MSE,
-    with colored lines for each validation horizon.
-
-    Args:
-        mse_matrix: dict of {train_T: {val_T: mse_value}}
-        train_Ts: list of training horizons
-        val_Ts: list of validation horizons
-        save_dir: directory to save plot
-        adaptive_mse: dict of {val_T: mse_value} for adaptive model (optional)
-    """
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    cmap = plt.cm.tab20
-    colors = [cmap(i / len(val_Ts)) for i in range(len(val_Ts))]
-
-    plot_train_Ts = train_Ts + ["adaptive"] if adaptive_mse else train_Ts
-
-    for i, val_T in enumerate(val_Ts):
-        mse_values = [mse_matrix[train_T][val_T] for train_T in train_Ts]
-        if adaptive_mse and val_T in adaptive_mse:
-            mse_values.append(adaptive_mse[val_T])
-        ax.plot(
-            range(len(plot_train_Ts)),
-            mse_values,
-            color=colors[i],
-            label=f"$t_L={val_T}$",
-            linewidth=1.5,
-            marker=".",
-            markersize=4,
-        )
-
-    ax.set_xlabel("Training Horizon (T)")
-    ax.set_ylabel("Validation MSE")
-    ax.set_title("Cross-Validation MSE: Training vs Validation Horizons")
-    ax.set_yscale("log")
-    ax.set_xticks(range(len(plot_train_Ts)))
-    ax.set_xticklabels([str(t) for t in plot_train_Ts])
-    ax.grid(True, alpha=0.3)
-    ax.legend(title="Validation Horizon", loc="lower right")
-
-    plt.tight_layout()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"mse_cross_validation_{timestamp}.png"
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Cross-validation MSE plot saved to {save_path}")
-
-
-def plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
+def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
     """
     Plot MSE for each validation T as separate lines (like cross-val mode).
-    Adaptive model minimum MSEW is plotted as a dashed horizontal line for each val_T.
+    Adaptive model minimum MSE is plotted as a dashed horizontal line for each val_T.
 
     Args:
         train_Ts: list of training horizons
@@ -203,7 +145,7 @@ def plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
 
     ax.set_xlabel("Training Horizon (T)")
     ax.set_ylabel("Validation MSE (mean ± std)")
-    ax.set_title("Aggregate Cross-Validation MSE (dashed = adaptive)")
+    ax.set_title("Cross-Validation MSE")
     ax.set_yscale("log")
     ax.set_xticks(train_Ts)
     ax.grid(True, alpha=0.3)
@@ -217,14 +159,13 @@ def plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir):
     print(f"Aggregate MSE plot saved to {save_path}")
 
 
-def plot_lyapunov_exponents(exponents, window, save_dir=ANALYSIS_DIR):
+def plot_lyapunov_exponents(exponents, window):
     """
     Plot histograms of all 3 Lyapunov exponents.
 
     Args:
         exponents: array of shape [N, 3] with local Lyapunov exponents
         window: window size used for computation
-        save_dir: directory to save plot
     """
     exponents = np.array(exponents)
     labels = [r"$\lambda_1$", r"$\lambda_2$", r"$\lambda_3$"]
@@ -250,18 +191,10 @@ def plot_lyapunov_exponents(exponents, window, save_dir=ANALYSIS_DIR):
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / f"lle_histogram_W{window}.png"
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Plot saved to {save_path}")
+    save_figure(fig, f"lle_histogram_W{window}.png")
 
 
-def plot_trajectory_heatmap(
-    trajectory, exponents, window, burn_in, save_dir=ANALYSIS_DIR
-):
+def plot_trajectory_heatmap(trajectory, exponents, window, burn_in):
     """
     Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
 
@@ -270,7 +203,6 @@ def plot_trajectory_heatmap(
         exponents: array of shape [N-window, 3] with local Lyapunov exponents
         window: window size used for computation
         burn_in: number of initial steps to ignore
-        save_dir: directory to save plot
     """
     trajectory = np.array(trajectory)
     exponents = np.array(exponents)
@@ -312,10 +244,12 @@ def plot_trajectory_heatmap(
         cbar.set_label(f"Local {labels[i]}")
 
     plt.tight_layout()
+    save_figure(fig, f"lorenz_lle_heatmap_W{window}.png")
 
+
+def save_figure(fig, filename, save_dir=ANALYSIS_DIR, dpi=150):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / f"lorenz_lle_heatmap_W{window}.png"
-    plt.savefig(save_path, dpi=150)
-    plt.close()
+    save_path = save_dir / filename
+    fig.savefig(save_path, dpi=dpi)
     print(f"Plot saved to {save_path}")

@@ -9,7 +9,7 @@ from adaptive_horizon.config import MODEL_DIR, EVAL_DIR
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T, validation_loss
-from adaptive_horizon.visualization.plotting import plot_g_T, plot_aggregate_mse
+from adaptive_horizon.visualization.plotting import plot_g_T, plot_mse
 
 
 def load_model(model_path):
@@ -33,9 +33,9 @@ def load_model(model_path):
     return model, checkpoint
 
 
-def get_train_Ts(models_dir):
+def get_train_Ts(model_dir=MODEL_DIR):
     """Get unique train_T values from model files matching mlp_T{T}*.pt"""
-    model_files = list(models_dir.glob("mlp_T*.pt"))
+    model_files = list(model_dir.glob("mlp_T*.pt"))
     train_Ts = set()
     for f in model_files:
         match = re.search(r"mlp_T(\d+)", f.name)
@@ -44,10 +44,10 @@ def get_train_Ts(models_dir):
     return sorted(train_Ts)
 
 
-def get_model_paths(models_dir, train_Ts):
+def get_model_paths(train_Ts, model_dir=MODEL_DIR):
     """Get all model paths for each train_T."""
     model_paths = {T: [] for T in train_Ts}
-    for f in models_dir.glob("mlp_T*.pt"):
+    for f in model_dir.glob("mlp_T*.pt"):
         match = re.search(r"mlp_T(\d+)", f.name)
         if match:
             T = int(match.group(1))
@@ -56,13 +56,12 @@ def get_model_paths(models_dir, train_Ts):
     return model_paths
 
 
-def get_adaptive_paths(models_dir):
-    """Get all adaptive model paths, including files with seeds/timestamps."""
-    return list(models_dir.glob("adaptive_mlp*.pt"))
+def get_adaptive_paths(model_dir=MODEL_DIR):
+    """Get all adaptive model paths."""
+    return list(model_dir.glob("adaptive_mlp*.pt"))
 
 
 def get_val_Ts(train_Ts, max_val_T):
-    # Start with train_Ts that are <= max_val_T
     val_Ts = [T for T in train_Ts if T <= max_val_T]
     if not val_Ts:
         val_Ts = [max_val_T]
@@ -180,6 +179,34 @@ def compute_statistics(mse_matrix, train_Ts, val_Ts, adaptive_mse):
     return stats, adaptive_stats
 
 
+def load_mse_results(save_dir=EVAL_DIR):
+    """Load MSE results from CSV and reconstruct stats dicts."""
+    results_file = save_dir / "mse_results.csv"
+
+    stats = {}
+    adaptive_stats = {}
+    train_Ts = set()
+    val_Ts = set()
+
+    with open(results_file, "r") as f:
+        next(f)
+        for line in f:
+            train_T, val_T, mean, std = line.strip().split(",")
+            val_T = int(val_T)
+            val_Ts.add(val_T)
+
+            if train_T == "adaptive":
+                adaptive_stats[val_T] = (float(mean), float(std))
+            else:
+                train_T = int(train_T)
+                train_Ts.add(train_T)
+                if train_T not in stats:
+                    stats[train_T] = {}
+                stats[train_T][val_T] = (float(mean), float(std))
+
+    return stats, adaptive_stats, sorted(train_Ts), sorted(val_Ts)
+
+
 def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR):
     """
     Save MSE results to a CSV file for later plotting without re-evaluation.
@@ -205,17 +232,17 @@ def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR)
     print(f"MSE results saved to {results_file}")
 
 
-def cross_validation(max_val_T, models_dir=MODEL_DIR, save_dir=EVAL_DIR, device="cpu"):
-    train_Ts = get_train_Ts(models_dir)
+def cross_validation(max_val_T, save_dir=EVAL_DIR, device="cpu"):
+    train_Ts = get_train_Ts()
     if not train_Ts:
         print("No models found to evaluate")
         return
 
     val_Ts = get_val_Ts(train_Ts, max_val_T)
-    model_paths = get_model_paths(models_dir, train_Ts)
-    adaptive_paths = get_adaptive_paths(models_dir)
+    model_paths = get_model_paths(train_Ts)
+    adaptive_paths = get_adaptive_paths()
 
-    print(f"Found models for T: {train_Ts}")
+    print(f"Training T values: {train_Ts}")
     print(f"Validation T values: {val_Ts}")
 
     mse_matrix, adaptive_mse = cross_validate_models(
@@ -227,21 +254,7 @@ def cross_validation(max_val_T, models_dir=MODEL_DIR, save_dir=EVAL_DIR, device=
     )
 
     save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir)
-
-    print("\n" + "=" * 50)
-    print("Results Summary")
-    print("=" * 50)
-    for T in train_Ts:
-        n_models = len(model_paths[T])
-        min_mse_mean = min(stats[T][vT][0] for vT in val_Ts)
-        print(f"T={T:2d} ({n_models} models): min mean MSE = {min_mse_mean:.6f}")
-
-    if adaptive_stats:
-        n_adaptive = len(adaptive_paths)
-        adaptive_min_mean = min(adaptive_stats[vT][0] for vT in val_Ts)
-        print(f"Adaptive ({n_adaptive} models): min mean MSE = {adaptive_min_mean:.6f}")
-
-    plot_aggregate_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir)
+    plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir)
 
 
 def main():
@@ -249,7 +262,7 @@ def main():
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["grad-scaling", "cross-val"],
+        choices=["grad-scaling", "cross-val", "plot-mse"],
         default="grad-scaling",
         help="Evaluation mode: 'grad-scaling' to compute g(T), 'cross-val' to validate multiple models",
     )
@@ -266,6 +279,9 @@ def main():
 
     if args.mode == "cross-val":
         cross_validation(args.max_eval_T)
+    elif args.mode == "plot-mse":
+        stats, adaptive_stats, train_Ts, val_Ts = load_mse_results()
+        plot_mse(train_Ts, val_Ts, stats, adaptive_stats, EVAL_DIR)
     elif args.mode == "grad-scaling":
         gradient_scaling(args.model, args.max_eval_T)
 

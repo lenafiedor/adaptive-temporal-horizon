@@ -17,6 +17,7 @@ class AdaptiveLorenzDataset(Dataset):
         dt: float = 0.01,
         normalize: bool = True,
         seed: Optional[int] = None,
+        burn_in: int = 0,
     ):
         """
         Args:
@@ -25,6 +26,7 @@ class AdaptiveLorenzDataset(Dataset):
             dt: Time step for simulation
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
+            burn_in: Number of initial steps to discard (transient period)
         """
         self.normalize = normalize
 
@@ -42,12 +44,15 @@ class AdaptiveLorenzDataset(Dataset):
                 np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state, dt=dt, steps=steps_per_trajectory
-            )  #  [steps_per_trajectory, 3]
+                initial_state=initial_state, dt=dt, steps=steps_per_trajectory + burn_in
+            )
+            lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=5)
+            
+            # Discard the burn-in period from trajectory and LLEs
+            traj = traj[burn_in:]
+            lles = lles[burn_in:]
             trajectories.append(traj)
 
-            # Compute local Lyapunov exponents for this trajectory
-            lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=5)
             lle_max = lles[:, 0]  # Take the largest exponents
 
             self.lles.append(lle_max)
