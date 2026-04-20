@@ -48,9 +48,7 @@ class LorenzDataset(Dataset):
             traj = traj[burn_in:]
             trajectories.append(traj)
 
-        self.trajectories = torch.tensor(
-            np.array(trajectories), dtype=torch.float32
-        )
+        self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
 
         # Z-score normalization
         if self.normalize:

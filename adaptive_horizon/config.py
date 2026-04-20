@@ -17,6 +17,7 @@ EVAL_DIR = Path(_config["paths"]["eval_dir"])
 LOSS_DIR = Path(_config["paths"]["loss_dir"])
 ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
 TRAIN_TS = _config["training"]["train_Ts"]
+EPOCHS = _config["training"]["epochs"]
 BATCH_SIZE = _config["training"]["batch_size"]
 LEARNING_RATE = _config["training"]["learning_rate"]
 WEIGHT_DECAY = _config["training"]["weight_decay"]

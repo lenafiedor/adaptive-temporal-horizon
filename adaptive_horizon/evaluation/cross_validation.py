@@ -10,6 +10,16 @@ from adaptive_horizon.visualization.plotting import plot_mse
 from adaptive_horizon.evaluation.utils import load_model
 
 
+def get_last_run():
+    """Read last_run.txt and return the corresponding model directory."""
+    last_run_file = MODEL_DIR / "last_run.txt"
+    if not last_run_file.exists():
+        return MODEL_DIR
+    with open(last_run_file, "r") as f:
+        timestamp = f.read().strip()
+    return MODEL_DIR / timestamp
+
+
 def get_train_Ts(model_dir=MODEL_DIR):
     """Get unique train_T values from model files matching mlp_T{T}*.pt"""
     model_files = list(model_dir.glob("mlp_T*.pt"))
@@ -90,9 +100,9 @@ def cross_validate_models(
             for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 mse_matrix[T][val_T].append(mse)
-
-            min_mse = min(mse_matrix[T][vT][-1] for vT in val_Ts)
-            print(f"  Model {model_path.name}: min MSE = {min_mse:.6f}")
+            print(
+                f"  Model {model_path.name}: mean MSE = {np.mean([mse_matrix[T][vT][-1] for vT in val_Ts]):.6f}"
+            )
 
     adaptive_mse = {vT: [] for vT in val_Ts}
 
@@ -105,9 +115,6 @@ def cross_validate_models(
             for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 adaptive_mse[val_T].append(mse)
-
-            min_mse = min(adaptive_mse[vT][-1] for vT in val_Ts)
-            print(f"  Model {model_path.name}: min MSE = {min_mse:.6f}")
 
     return mse_matrix, adaptive_mse
 
@@ -162,15 +169,27 @@ def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR)
     print(f"MSE results saved to {results_file}")
 
 
-def cross_validation(max_val_T, save_dir=EVAL_DIR, device="cpu"):
-    train_Ts = get_train_Ts()
+def cross_validation(
+    max_val_T, model_dir=None, max_train_T=None, save_dir=EVAL_DIR, device="cpu"
+):
+    if model_dir is None:
+        model_dir = get_last_run()
+    print(f"Using model directory: {model_dir}")
+
+    train_Ts = get_train_Ts(model_dir)
     if not train_Ts:
         print("No models found to evaluate")
         return
 
+    if max_train_T is not None:
+        train_Ts = [T for T in train_Ts if T <= max_train_T]
+        if not train_Ts:
+            print(f"No models found with T <= {max_train_T}")
+            return
+
     val_Ts = get_val_Ts(train_Ts, max_val_T)
-    model_paths = get_model_paths(train_Ts)
-    adaptive_paths = get_adaptive_paths()
+    model_paths = get_model_paths(train_Ts, model_dir)
+    adaptive_paths = get_adaptive_paths(model_dir)
 
     print(f"Training T values: {train_Ts}")
     print(f"Validation T values: {val_Ts}")
@@ -190,11 +209,25 @@ def cross_validation(max_val_T, save_dir=EVAL_DIR, device="cpu"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--model-dir",
+        type=str,
+        default=None,
+        help="Directory containing models (default: reads from last_run.txt)",
+    )
+    parser.add_argument(
+        "--max-train-T",
+        type=int,
+        default=None,
+        help="Include only models trained with T <= this value",
+    )
+    parser.add_argument(
         "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"
     )
     args = parser.parse_args()
 
-    cross_validation(args.max_eval_T)
+    cross_validation(
+        args.max_eval_T, model_dir=args.model_dir, max_train_T=args.max_train_T
+    )
 
 
 if __name__ == "__main__":

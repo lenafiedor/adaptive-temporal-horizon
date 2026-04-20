@@ -1,8 +1,18 @@
 import torch
 from torch.utils.data import DataLoader
 import argparse
+from datetime import datetime
 
-from adaptive_horizon.config import LAYER_WIDTH, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY
+from adaptive_horizon.config import (
+    LAYER_WIDTH,
+    BATCH_SIZE,
+    LEARNING_RATE,
+    WEIGHT_DECAY,
+    MODEL_DIR,
+    LOSS_DIR,
+    TRAIN_TS,
+    EPOCHS,
+)
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
@@ -76,7 +86,9 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
     val_loader = DataLoader(
         val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_function
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+    )
 
     return model, train_loader, val_loader, optimizer, config
 
@@ -137,29 +149,19 @@ def train(
         )
         val_losses.append(val_loss)
 
-        if (epoch + 1) % 10 == 0:
-            print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}")
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            print(
+                f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+            )
 
     return train_losses, val_losses
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--adaptive", action="store_true", help="Use adaptive temporal horizon"
-    )
-    parser.add_argument("-T", type=int, default=1, help="Temporal horizon")
-    parser.add_argument(
-        "--epochs", "-e", type=int, default=100, help="Number of training epochs"
-    )
-    parser.add_argument("--seed", "-s", type=int, default=0, help="Random seed")
-    args = parser.parse_args()
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}\n")
-
+def train_single_model(
+    seed, epochs, device, model_save_dir, loss_save_dir, T=None, adaptive=False
+):
     model, train_loader, val_loader, optimizer, config = create_model_and_loaders(
-        args.seed, args.adaptive, device, args.T
+        seed, adaptive, device, T
     )
 
     train_losses, val_losses = train(
@@ -167,14 +169,91 @@ def main():
         train_loader,
         val_loader,
         optimizer,
-        epochs=args.epochs,
+        epochs=epochs,
         device=device,
-        T=args.T,
-        adaptive=args.adaptive,
+        T=T,
+        adaptive=adaptive,
     )
 
-    save_losses(train_losses, val_losses, T=args.T, adaptive=args.adaptive)
-    save_model(model, config, args.seed, T=args.T, adaptive=args.adaptive)
+    save_losses(
+        train_losses, val_losses, save_dir=loss_save_dir, T=T, adaptive=adaptive
+    )
+    save_model(model, config, seed, save_dir=model_save_dir, T=T, adaptive=adaptive)
+
+
+def train_fixed_models(
+    train_Ts, n_seeds, epochs, device, model_save_dir, loss_save_dir
+):
+    for T in train_Ts:
+        print(f"\n{'=' * 50}")
+        print(f"Training models for T={T}")
+        print(f"{'=' * 50}")
+
+        for seed in range(n_seeds):
+            print(f"\n--- Seed {seed} ---")
+            train_single_model(seed, epochs, device, model_save_dir, loss_save_dir, T=T)
+
+
+def train_adaptive_models(n_seeds, epochs, device, model_save_dir, loss_save_dir):
+    print(f"\n{'=' * 50}")
+    print("Training adaptive models")
+    print(f"{'=' * 50}")
+
+    for seed in range(n_seeds):
+        print(f"\n--- Adaptive Seed {seed} ---")
+        train_single_model(
+            seed, epochs, device, model_save_dir, loss_save_dir, adaptive=True
+        )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--epochs", "-e", type=int, default=EPOCHS, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--fixed", "-f", action="store_true", help="Train only fixed T models"
+    )
+    parser.add_argument(
+        "--adaptive", "-a", action="store_true", help="Train only adaptive models"
+    )
+    parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
+    args = parser.parse_args()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_dir = MODEL_DIR / timestamp
+    loss_save_dir = LOSS_DIR / timestamp
+    model_save_dir.mkdir(parents=True, exist_ok=True)
+    loss_save_dir.mkdir(parents=True, exist_ok=True)
+
+    last_run_file = MODEL_DIR / "last_run.txt"
+    with open(last_run_file, "w") as f:
+        f.write(timestamp)
+
+    if args.fixed:
+        train_fixed_models(
+            TRAIN_TS, args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir
+        )
+    elif args.adaptive:
+        train_adaptive_models(
+            args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir
+        )
+    else:
+        train_fixed_models(
+            TRAIN_TS, args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir
+        )
+        train_adaptive_models(
+            args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir
+        )
+
+    print("\n" + "=" * 50)
+    print("Training Complete")
+    print("=" * 50)
+    print(f"Models saved to {model_save_dir}")
+    print(f"Losses saved to {loss_save_dir}")
 
 
 if __name__ == "__main__":

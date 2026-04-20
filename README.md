@@ -38,40 +38,28 @@ poetry run ruff format
 
 ### MLP Training
 
-### Single MLP
-
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
 
-First, train a single MLP to learn Lorenz attractor dynamics.
+Train MLPs to learn Lorenz attractor dynamics.
+The script iterates over temporal horizons specified in the `config.toml` file and trains the MLP for each combination.
 
 ```bash
-poetry run train-mlp              # With static training horizon
-poetry run train-mlp --adaptive   # With adaptive training horizon
+poetry run train-mlp             # Train MLPs with both fixed and adaptive training horizon
+poetry run train-mlp --fixed     # Train only with fixed T
+poetry run train-mlp --adaptive  # Train only with adaptive T
 ```
 
 **Args:**
 
 | Name               | Description                                         | Values            | Default value |
 |--------------------|-----------------------------------------------------|-------------------|---------------|
+| `--epochs` `-e`    | Number of epochs to train the model                 | int               | 100           |
+| `--fixed`, `-f`    | Train only the models                               | `true` \| `false` | false         |
 | `--adaptive`, `-a` | Whether to use the adaptive training horizon or not | `true` \| `false` | false         |
-| `-T`               | Training horizon (only in fixed horizon mode)       | int               | 1             |
-| `--epochs`, `-e`   | Number of epochs to train the model                 | int               | 100           |
+| `--n-seeds` `-s`   | Number of seeds to use for training                 | int               | 10            |
 
-#### Aggregate Training
-
-To run the aggregate training script, run the following command:
-
-```bash
-poetry run train-mlp-aggregate                 # All training horizons + adaptive training horizon
-poetry run train-mlp-aggregate --n-seeds n     # Specify number of seeds to train on (default: 10)
-poetry run train-mlp-aggregate --adaptive-only  # Only adaptive training horizon
-```
-
-The script will iterate over temporal horizons and seeds specified in the `config.toml` file and train the MLP for each combination.
-Seeds are fixed for reproducibility.
-
-The trained models are saved in the `experiments/lorenz/models` directory by default.
+The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
 There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
 
 To customize the settings, edit `config.toml` directly.
@@ -94,16 +82,23 @@ Which represents the gradient scaling with respect to $T$.
 poetry run gradient-scaling --model=path/to/trained/model.pt
 ```
 
+**Args:**
+
+| Name           | Description                                            | Values | Default value |
+|----------------|--------------------------------------------------------|--------|---------------|
+| `--model` `-m` | Path to the trained model                              | str    | None          |
+| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 20            |
+
 #### Cross-validation on all trained models
 
-This script will evaluate all trained models (`experiments/lorenz/models`) on a set of evaluation horizons.
+This script will evaluate all trained models from the last test run (timestamp saved at `experiments/lorenz/models/last_run.txt`) on a set of evaluation horizons.
 
 T values for evaluation are dynamically set to the same as found trained models, but you can also specify a maximum value.
 Models will be then additionally validated at each T value divisible by 10 that is greater than the maximum T found in the training set.
 
 **Example:**
 - You have trained models with `T = [1, 2, 4, 8, 12, 16, 20]`
-- `max_val_T` is set to 100
+- `max_eval_T` is set to 100
 - Each model will be evaluated with `T = [1, 2, 4, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]`
 
 ```bash
@@ -112,9 +107,11 @@ poetry run cross-validation
 
 **Args:**
 
-| Name           | Description                                           | Values | Default value |
-|----------------|-------------------------------------------------------|--------|---------------|
-| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation | int    | 20            |
+| Name            | Description                                           | Values | Default value                      |
+|-----------------|-------------------------------------------------------|--------|------------------------------------|
+| `--model-dir`   | Path to the directory containing trained models       | str    | Read from last_run.txt             |
+| `--max-train-T` | Maximum training horizon to consider for evaluation   | int    | Max T found in the model directory |
+| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | 20                                 |
 
 ### Computing Lyapunov Exponents
 

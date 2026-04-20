@@ -47,7 +47,7 @@ class AdaptiveLorenzDataset(Dataset):
                 initial_state=initial_state, dt=dt, steps=steps_per_trajectory + burn_in
             )
             lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=5)
-            
+
             # Discard the burn-in period from trajectory and LLEs
             traj = traj[burn_in:]
             lles = lles[burn_in:]

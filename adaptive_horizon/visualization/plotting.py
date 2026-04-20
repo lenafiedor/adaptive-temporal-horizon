@@ -37,7 +37,7 @@ def save_losses(
     plt.tight_layout()
     plt.savefig(f"{loss_path}.png", dpi=150)
     plt.close()
-    print(f"Loss plot saved to {loss_path}.png")
+    print(f"\nLoss plot saved to {loss_path}.png")
 
     with open(f"{loss_path}.txt", "w") as f:
         f.write("min_train_loss,min_val_loss\n")
