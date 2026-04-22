@@ -67,7 +67,7 @@ def create_model_and_loaders(seed, adaptive, device, dt, T=None):
             seed=seed,
         )
         val_dataset = AdaptiveLorenzDataset(
-            num_trajectories=NUM_TRAJECTORIES / 5,
+            num_trajectories=NUM_TRAJECTORIES // 5,
             steps_per_trajectory=STEPS_PER_TRAJECTORY,
             normalize=True,
             seed=seed + 1000,
@@ -232,7 +232,6 @@ def train_fixed_models(
             torch.tensor(train_losses, dtype=torch.float32).mean(dim=0),
             torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
             save_dir=loss_save_dir,
-            adaptive=True,
         )
 
 

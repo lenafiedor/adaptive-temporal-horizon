@@ -2,12 +2,14 @@ from torch.utils.data import DataLoader
 import argparse
 import re
 import numpy as np
+from datetime import datetime
 
 from adaptive_horizon.config import (
     MODEL_DIR,
     EVAL_DIR,
     NUM_TRAJECTORIES,
     STEPS_PER_TRAJECTORY,
+    BATCH_SIZE,
 )
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -94,7 +96,7 @@ def cross_validate_models(
         normalize=True,
     )
     eval_loader = DataLoader(
-        eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn
+        eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
     )
 
     mse_matrix = {T: {vT: [] for vT in val_Ts} for T in train_Ts}
@@ -108,6 +110,7 @@ def cross_validate_models(
             for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 mse_matrix[T][val_T].append(mse)
+                print(f"    Validation T={val_T}: MSE = {mse:.6f}")
             print(
                 f"  Model {model_path.name}: mean MSE = {np.mean([mse_matrix[T][vT][-1] for vT in val_Ts]):.6f}"
             )
@@ -123,6 +126,8 @@ def cross_validate_models(
             for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 adaptive_mse[val_T].append(mse)
+                print(f"    Validation T={val_T}: MSE = {mse:.6f}")
+            print(f"  Model {model_path.name}: mean MSE = {np.mean([adaptive_mse[vT][-1] for vT in val_Ts]):.6f}")
 
     return mse_matrix, adaptive_mse
 
@@ -161,7 +166,8 @@ def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR)
     """
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    results_file = save_dir / "mse_results.csv"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_file = save_dir / f"mse_results_{timestamp}.csv"
     with open(results_file, "w") as f:
         f.write("train_T,val_T,mean,std\n")
         for train_T in train_Ts:
