@@ -45,22 +45,35 @@ Train MLPs to learn Lorenz attractor dynamics.
 The script iterates over temporal horizons specified in the `config.toml` file and trains the MLP for each combination.
 
 ```bash
-poetry run train-mlp             # Train MLPs with both fixed and adaptive training horizon
-poetry run train-mlp --fixed     # Train only with fixed T
-poetry run train-mlp --adaptive  # Train only with adaptive T
+poetry run train-mlp                # Train MLPs with both fixed and adaptive training horizon
+poetry run train-mlp --single       # Train a single model with T = 1
+poetry run train-mlp --single -T 10 # Train a single model with T = 10
+poetry run train-mlp --fixed        # Train only with fixed T
+poetry run train-mlp --fixed --T-vals 1,4,8 # Train only fixed models for selected horizons
+poetry run train-mlp --adaptive     # Train only with adaptive T
+poetry run train-mlp --T-vals 2,6,10 # Override fixed horizons in aggregate mode
 ```
 
 **Args:**
 
-| Name               | Description                                         | Values        | Default value |
-|--------------------|-----------------------------------------------------|---------------|---------------|
-| `--epochs` `-e`    | Number of epochs to train the model                 | int           | 100           |
-| `--fixed`, `-f`    | Train only the models                               | true \| false | false         |
-| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not | true \| false | false         |
-| `--n-seeds` `-s`   | Number of seeds to use for training                 | int           | 10            |
+| Name               | Description                                   | Values        | Default value |
+|--------------------|-----------------------------------------------|---------------|---------------|
+| `--epochs` `-e`    | Number of epochs to train the model           | int           | 100           |
+| `--single`         | Train a single fixed-horizon model            | true \| false | false         |
+| `-T`               | Training horizon used with `--single`         | int           | 1             |
+| `--fixed`, `-f`    | Train only the fixed horizon models           | true \| false | false         |
+| `--adaptive`, `-a` | Train only the adaptive horizon models        | true \| false | false         |
+| `--T-vals`         | Comma-separated list of fixed horizons        | str           | None          |
+| `--n-seeds` `-s`   | Number of seeds to use for aggregate training | int           | 10            |
+| `--dt`             | Time step for the Lorenz attractor simulation | float         | 0.04          |
+
 
 The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
 There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
+
+Notes:
+- `--T-vals` only affects fixed horizon training in aggregate mode. It is ignored when using `--single`.
+- `-T` only affects fixed horizon training in single mode. It is ignored when using `--adaptive` or `--fixed`.
 
 To customize the settings, edit `config.toml` directly.
 
