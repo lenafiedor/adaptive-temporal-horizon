@@ -10,6 +10,8 @@ epochs = 100
 batch_size = 512
 learning_rate = 3e-4
 weight_decay = 1e-2
+num_trajectories = 100
+steps_per_trajectory = 1000
 
 [model]
 layer_width = 10

@@ -3,7 +3,12 @@ import argparse
 import re
 import numpy as np
 
-from adaptive_horizon.config import MODEL_DIR, EVAL_DIR
+from adaptive_horizon.config import (
+    MODEL_DIR,
+    EVAL_DIR,
+    NUM_TRAJECTORIES,
+    STEPS_PER_TRAJECTORY,
+)
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.visualization.plotting import plot_mse
@@ -83,7 +88,10 @@ def cross_validate_models(
         adaptive_mse: dict of {val_T: [list of MSE values]}
     """
     eval_dataset = LorenzDataset(
-        num_trajectories=100, steps_per_trajectory=1000, T=max_val_T, normalize=True
+        num_trajectories=NUM_TRAJECTORIES,
+        steps_per_trajectory=STEPS_PER_TRAJECTORY,
+        T=max_val_T,
+        normalize=True,
     )
     eval_loader = DataLoader(
         eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn

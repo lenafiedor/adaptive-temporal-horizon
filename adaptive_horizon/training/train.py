@@ -8,6 +8,8 @@ from adaptive_horizon.config import (
     BATCH_SIZE,
     LEARNING_RATE,
     WEIGHT_DECAY,
+    NUM_TRAJECTORIES,
+    STEPS_PER_TRAJECTORY,
     MODEL_DIR,
     LOSS_DIR,
     TRAIN_TS,
@@ -53,19 +55,22 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
 
     if adaptive:
         train_dataset = AdaptiveLorenzDataset(
-            num_trajectories=100, steps_per_trajectory=1000, normalize=True, seed=seed
+            num_trajectories=NUM_TRAJECTORIES,
+            steps_per_trajectory=STEPS_PER_TRAJECTORY,
+            normalize=True,
+            seed=seed,
         )
         val_dataset = AdaptiveLorenzDataset(
-            num_trajectories=20,
-            steps_per_trajectory=1000,
+            num_trajectories=NUM_TRAJECTORIES / 5,
+            steps_per_trajectory=STEPS_PER_TRAJECTORY,
             normalize=True,
             seed=seed + 1000,
         )
         collate_function = collate_fn_adaptive
     else:
         train_dataset = LorenzDataset(
-            num_trajectories=100,
-            steps_per_trajectory=1000,
+            num_trajectories=NUM_TRAJECTORIES,
+            steps_per_trajectory=STEPS_PER_TRAJECTORY,
             T=T,
             dt=0.04,
             normalize=True,
@@ -73,7 +78,7 @@ def create_model_and_loaders(seed, adaptive, device, T=None):
         )
         val_dataset = LorenzDataset(
             num_trajectories=20,
-            steps_per_trajectory=1000,
+            steps_per_trajectory=STEPS_PER_TRAJECTORY,
             T=T,
             normalize=True,
             seed=seed + 1000,
@@ -218,6 +223,7 @@ def main():
         "--adaptive", "-a", action="store_true", help="Train only adaptive models"
     )
     parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
+
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -21,7 +21,7 @@ pip install poetry
 poetry install
 ```
 
-From now on, we will use the `poetry` command wrapper to run scripts.
+From now on, we will use the `poetry run` command wrapper to run scripts.
 
 ### Linter & Formatter
 
@@ -52,12 +52,12 @@ poetry run train-mlp --adaptive  # Train only with adaptive T
 
 **Args:**
 
-| Name               | Description                                         | Values            | Default value |
-|--------------------|-----------------------------------------------------|-------------------|---------------|
-| `--epochs` `-e`    | Number of epochs to train the model                 | int               | 100           |
-| `--fixed`, `-f`    | Train only the models                               | `true` \| `false` | false         |
-| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not | `true` \| `false` | false         |
-| `--n-seeds` `-s`   | Number of seeds to use for training                 | int               | 10            |
+| Name               | Description                                         | Values        | Default value |
+|--------------------|-----------------------------------------------------|---------------|---------------|
+| `--epochs` `-e`    | Number of epochs to train the model                 | int           | 100           |
+| `--fixed`, `-f`    | Train only the models                               | true \| false | false         |
+| `--adaptive`, `-a` | Whether to use the adaptive training horizon or not | true \| false | false         |
+| `--n-seeds` `-s`   | Number of seeds to use for training                 | int           | 10            |
 
 The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
 There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
@@ -123,8 +123,8 @@ poetry run compute-lyapunov [--mode=global|local] [--plot]
 
 **Args:**
 
-| Name             | Description                                                     | Values              | Default value |
-|------------------|-----------------------------------------------------------------|---------------------|---------------|
-| `--mode`         | Specifies whether to compute global or local Lyapunov exponents | `global` \| `local` | global        |
-| `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | `true` \| `false`   | false         |
-| `--window`, `-w` | Window size for computing local Lyapunov exponents              | int                 | 10            |
+| Name             | Description                                                     | Values          | Default value |
+|------------------|-----------------------------------------------------------------|-----------------|---------------|
+| `--mode`         | Specifies whether to compute global or local Lyapunov exponents | global \| local | global        |
+| `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | true \| false   | false         |
+| `--window`, `-w` | Window size for computing local Lyapunov exponents              | int             | 10            |

@@ -1,6 +1,7 @@
 from torch.utils.data import DataLoader
 import argparse
 
+from adaptive_horizon.config import BATCH_SIZE, NUM_TRAJECTORIES, STEPS_PER_TRAJECTORY
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.visualization.plotting import plot_g_T
@@ -15,10 +16,13 @@ def gradient_scaling(model_path, max_T):
     train_T = checkpoint.get("train_T") if not adaptive else None
 
     eval_dataset = LorenzDataset(
-        num_trajectories=100, steps_per_trajectory=1000, T=max_T, normalize=True
+        num_trajectories=NUM_TRAJECTORIES,
+        steps_per_trajectory=STEPS_PER_TRAJECTORY,
+        T=max_T,
+        normalize=True,
     )
     eval_loader = DataLoader(
-        eval_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn
+        eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
     )
 
     T_vals = list(range(1, max_T + 1))

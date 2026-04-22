@@ -19,6 +19,7 @@ def batch_loss(model, inputs, targets, T):
     for tau in range(T):
         x_pred = model(x_pred)
         total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
+        # total_loss += torch.linalg.norm(x_pred - targets[:, tau], dim=1).mean()
 
     return total_loss / T
 
@@ -84,49 +85,42 @@ def adaptive_validation_loss(model, val_loader, device="cpu"):
     return total_loss / len(val_loader)
 
 
-def compute_gradient_norm(model, inputs, targets, T):
-    """Compute gradient norm using summed loss per paper Eq. 3."""
-    # Handle tensor T (from batched dataloader)
-    if isinstance(T, torch.Tensor):
-        T = int(T.min().item())
-
+def compute_gradient_norm(model, loader, T, max_batches=5, device="cpu"):
+    """Compute gradient norm using loss per paper Eq. 3."""
     model.zero_grad()
-
-    x_pred = inputs
     total_loss = 0.0
-    for tau in range(T):
-        x_pred = model(x_pred)
-        total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
+    batch_count = 0
 
-    total_loss = total_loss / T
+    for i, (inputs, targets) in enumerate(loader):
+        if i >= max_batches:
+            break
+        inputs, targets = inputs.to(device), targets.to(device)
+        total_loss += batch_loss(model, inputs, targets[:, :T], T)
+        batch_count += 1
+
+    total_loss /= batch_count
     total_loss.backward()
 
-    total_norm = 0.0
+    total_norm = torch.zeros((), device=device)
     for p in model.parameters():
         if p.grad is not None:
-            total_norm += p.grad.norm() ** 2
+            total_norm += p.grad.norm().pow(2)
 
     return torch.sqrt(total_norm)
 
 
-def compute_g_T(model, loader, T_vals, device="cpu"):
+def compute_g_T(model, loader, T_vals, device="cpu", max_batches=5):
     model.eval()
 
-    g_vals = {T: 0.0 for T in T_vals}
-    num_batches = 5
+    g1 = compute_gradient_norm(
+        model, loader, T=1, device=device, max_batches=max_batches
+    )
+    g_vals = {}
 
-    for i, (inputs, targets) in enumerate(loader):
-        if i >= num_batches:
-            break
-
-        inputs, targets = inputs.to(device), targets.to(device)
-        g1 = compute_gradient_norm(model, inputs, targets[:, :1], T=1).detach()
-
-        for T in T_vals:
-            grad_norm = compute_gradient_norm(model, inputs, targets[:, :T], T=T)
-            g_vals[T] += (grad_norm / g1).item()
-
-    for T in g_vals:
-        g_vals[T] /= num_batches
+    for T in T_vals:
+        gT = compute_gradient_norm(
+            model, loader, T=T, device=device, max_batches=max_batches
+        )
+        g_vals[T] = (gT / g1).item()
 
     return g_vals
