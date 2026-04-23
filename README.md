@@ -75,8 +75,8 @@ There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after 
 Notes:
 - `--max-T` only affects fixed-horizon training in aggregate mode. It is ignored when using `--single`.
 - `-T` only affects fixed horizon training in single mode. It is ignored when using `--adaptive` or `--fixed`.
-- `--append` reuses the repo-root-relative model path stored in `experiments/lorenz/models/last_run.txt`.
-- In `--append` mode, fixed-horizon training skips any `T` values that already have checkpoints in the target run directory.
+- `--append` reuses the full model path stored in `experiments/lorenz/models/last_run.txt`.
+- In `--append` mode, training checks seeds `0..n_seeds-1` and only trains the missing ones for each fixed `T` and for adaptive models.
 
 To customize the settings, edit `config.toml` directly.
 
@@ -128,7 +128,7 @@ poetry run cross-validation
 |-----------------|-------------------------------------------------------|--------|------------------------------------|
 | `--model-dir`   | Path to the directory containing trained models       | str    | Read from `last_run.txt`           |
 | `--max-train-T` | Maximum training horizon to consider for evaluation   | int    | Max T found in the model directory |
-| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | 5                                  |
+| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | Max T found in the model directory |
 | `--dt`          | Time step for the Lorenz attractor simulation         | float  | 0.04                               |
 
 ### Computing Lyapunov Exponents

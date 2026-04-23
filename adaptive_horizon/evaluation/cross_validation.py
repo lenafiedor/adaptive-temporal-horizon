@@ -12,7 +12,6 @@ from adaptive_horizon.config import (
     STEPS_PER_TRAJECTORY,
     BATCH_SIZE,
     DT,
-    MAX_T,
 )
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -213,6 +212,9 @@ def cross_validation(
             print(f"No models found with T <= {max_train_T}")
             return
 
+    if max_val_T is None:
+        max_val_T = max(train_Ts)
+
     val_Ts = get_val_Ts(train_Ts, max_val_T)
     model_paths = get_model_paths(train_Ts, model_dir)
     adaptive_paths = get_adaptive_paths(model_dir)
@@ -247,7 +249,10 @@ def main():
         help="Include only models trained with T <= this value",
     )
     parser.add_argument(
-        "--max-eval-T", type=int, default=MAX_T, help="Maximum T for evaluation"
+        "--max-eval-T",
+        type=int,
+        default=None,
+        help="Maximum T for evaluation (default: max trained T in the evaluated model dir)",
     )
     parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
     args = parser.parse_args()

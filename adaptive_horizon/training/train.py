@@ -39,13 +39,24 @@ def get_train_Ts(max_T: int):
     return list(range(1, max_T + 1))
 
 
-def get_existing_models(model_dir: Path):
-    train_Ts = set()
+def get_existing_fixed_model_seeds(model_dir: Path):
+    model_seeds = {}
     for model_path in model_dir.glob("mlp_T*.pt"):
-        match = re.search(r"mlp_T(\d+)", model_path.name)
+        match = re.search(r"mlp_T(\d+)_seed(\d+)", model_path.name)
         if match:
-            train_Ts.add(int(match.group(1)))
-    return sorted(train_Ts)
+            train_T = int(match.group(1))
+            seed = int(match.group(2))
+            model_seeds.setdefault(train_T, set()).add(seed)
+    return model_seeds
+
+
+def get_existing_adaptive_model_seeds(model_dir: Path):
+    model_seeds = set()
+    for model_path in model_dir.glob("adaptive_mlp*.pt"):
+        match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
+        if match:
+            model_seeds.add(int(match.group(1)))
+    return model_seeds
 
 
 def resolve_dirs(append: bool):
@@ -249,14 +260,26 @@ def train_single_model(
 def train_fixed_models(
     train_Ts, n_seeds, epochs, device, model_save_dir, loss_save_dir, dt, append=False
 ):
-    if append:
-        existing_Ts = set(get_existing_models(model_save_dir))
-        skipped_Ts = [T for T in train_Ts if T in existing_Ts]
-        train_Ts = [T for T in train_Ts if T not in existing_Ts]
+    seed_range = range(n_seeds)
+    existing_model_seeds = (
+        get_existing_fixed_model_seeds(model_save_dir) if append else {}
+    )
+    missing_seeds_by_T = {
+        T: [
+            seed
+            for seed in seed_range
+            if seed not in existing_model_seeds.get(T, set())
+        ]
+        for T in train_Ts
+    }
 
-        if skipped_Ts:
-            print(f"Skipping already trained T values: {skipped_Ts}")
+    skipped_Ts = [
+        T for T, missing_seeds in missing_seeds_by_T.items() if not missing_seeds
+    ]
+    if skipped_Ts:
+        print(f"Skipping fixed T values with all seeds present: {skipped_Ts}")
 
+    train_Ts = [T for T in train_Ts if missing_seeds_by_T[T]]
     if not train_Ts:
         print("No new fixed-horizon models to train")
         return
@@ -269,7 +292,13 @@ def train_fixed_models(
         train_losses = []
         val_losses = []
 
-        for seed in range(n_seeds):
+        missing_seeds = missing_seeds_by_T[T]
+        if append and existing_model_seeds.get(T):
+            existing_seeds = sorted(existing_model_seeds[T])
+            print(f"Existing seeds for T={T}: {existing_seeds}")
+            print(f"Training missing seeds for T={T}: {missing_seeds}")
+
+        for seed in missing_seeds:
             print(f"\n--- Seed {seed} ---")
             train_loss, val_loss = train_single_model(
                 seed,
@@ -292,7 +321,9 @@ def train_fixed_models(
         )
 
 
-def train_adaptive_models(n_seeds, epochs, device, model_save_dir, loss_save_dir, dt):
+def train_adaptive_models(
+    n_seeds, epochs, device, model_save_dir, loss_save_dir, dt, append=False
+):
     print(f"\n{'=' * 50}")
     print("Training adaptive models")
     print(f"{'=' * 50}")
@@ -300,7 +331,23 @@ def train_adaptive_models(n_seeds, epochs, device, model_save_dir, loss_save_dir
     train_losses = []
     val_losses = []
 
-    for seed in range(n_seeds):
+    seed_range = range(n_seeds)
+    existing_seeds = (
+        get_existing_adaptive_model_seeds(model_save_dir) if append else set()
+    )
+    missing_seeds = [seed for seed in seed_range if seed not in existing_seeds]
+
+    if append and existing_seeds:
+        print(f"Existing adaptive seeds: {sorted(existing_seeds)}")
+
+    if not missing_seeds:
+        print("No new adaptive models to train")
+        return
+
+    if append:
+        print(f"Training missing adaptive seeds: {missing_seeds}")
+
+    for seed in missing_seeds:
         print(f"\n--- Adaptive Seed {seed} ---")
         train_loss, val_loss = train_single_model(
             seed,
@@ -397,7 +444,13 @@ def main():
         )
     elif args.adaptive:
         train_adaptive_models(
-            args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir, args.dt
+            args.n_seeds,
+            args.epochs,
+            device,
+            model_save_dir,
+            loss_save_dir,
+            args.dt,
+            append=args.append,
         )
     else:
         train_fixed_models(
@@ -411,7 +464,13 @@ def main():
             append=args.append,
         )
         train_adaptive_models(
-            args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir, args.dt
+            args.n_seeds,
+            args.epochs,
+            device,
+            model_save_dir,
+            loss_save_dir,
+            args.dt,
+            append=args.append,
         )
 
     print("\n" + "=" * 50)
