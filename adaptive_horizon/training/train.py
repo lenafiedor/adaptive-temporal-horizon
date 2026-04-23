@@ -378,7 +378,7 @@ def main():
     parser.add_argument(
         "--single",
         action="store_true",
-        help="Train a single fixed-horizon model",
+        help="Train a single model; combine with --adaptive for adaptive training",
     )
     parser.add_argument(
         "-T",
@@ -420,7 +420,10 @@ def main():
 
     if args.single:
         print(f"\n{'=' * 50}")
-        print(f"Training single model for T={args.T}")
+        if args.adaptive:
+            print("Training single adaptive model")
+        else:
+            print(f"Training single model for T={args.T}")
         print(f"{'=' * 50}")
         train_single_model(
             seed=0,
@@ -429,7 +432,8 @@ def main():
             model_save_dir=model_save_dir,
             loss_save_dir=loss_save_dir,
             dt=args.dt,
-            T=args.T,
+            T=None if args.adaptive else args.T,
+            adaptive=args.adaptive,
         )
     elif args.fixed:
         train_fixed_models(
