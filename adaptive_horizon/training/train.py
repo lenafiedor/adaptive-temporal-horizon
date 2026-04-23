@@ -63,12 +63,14 @@ def create_model_and_loaders(seed, adaptive, device, dt, T=None):
         train_dataset = AdaptiveLorenzDataset(
             num_trajectories=NUM_TRAJECTORIES,
             steps_per_trajectory=STEPS_PER_TRAJECTORY,
+            dt=dt,
             normalize=True,
             seed=seed,
         )
         val_dataset = AdaptiveLorenzDataset(
             num_trajectories=NUM_TRAJECTORIES // 5,
             steps_per_trajectory=STEPS_PER_TRAJECTORY,
+            dt=dt,
             normalize=True,
             seed=seed + 1000,
         )
@@ -86,6 +88,7 @@ def create_model_and_loaders(seed, adaptive, device, dt, T=None):
             num_trajectories=20,
             steps_per_trajectory=STEPS_PER_TRAJECTORY,
             T=T,
+            dt=dt,
             normalize=True,
             seed=seed + 1000,
         )

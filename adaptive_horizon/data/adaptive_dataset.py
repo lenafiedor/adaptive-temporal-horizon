@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 from typing import Optional
 
+from adaptive_horizon.config import DT
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import smooth_lle, compute_local_lyapunov
 
@@ -14,7 +15,7 @@ class AdaptiveLorenzDataset(Dataset):
         self,
         num_trajectories: int = 10,
         steps_per_trajectory: int = 10000,
-        dt: float = 0.01,
+        dt: float = DT,
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,

@@ -10,6 +10,7 @@ from adaptive_horizon.config import (
     NUM_TRAJECTORIES,
     STEPS_PER_TRAJECTORY,
     BATCH_SIZE,
+    DT,
 )
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -72,7 +73,7 @@ def get_val_Ts(train_Ts, max_val_T):
 
 
 def cross_validate_models(
-    model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, device="cpu"
+    model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, dt, device="cpu"
 ):
     """
     Evaluate models across different validation horizons.
@@ -83,6 +84,7 @@ def cross_validate_models(
         train_Ts: list of training horizons
         val_Ts: list of validation horizons
         max_val_T: maximum validation T (for dataset)
+        dt: time step for simulation
         device: CPU or GPU
 
     Returns:
@@ -93,6 +95,7 @@ def cross_validate_models(
         num_trajectories=NUM_TRAJECTORIES,
         steps_per_trajectory=STEPS_PER_TRAJECTORY,
         T=max_val_T,
+        dt=dt,
         normalize=True,
     )
     eval_loader = DataLoader(
@@ -127,7 +130,9 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 adaptive_mse[val_T].append(mse)
                 print(f"    Validation T={val_T}: MSE = {mse:.6f}")
-            print(f"  Model {model_path.name}: mean MSE = {np.mean([adaptive_mse[vT][-1] for vT in val_Ts]):.6f}")
+            print(
+                f"  Model {model_path.name}: mean MSE = {np.mean([adaptive_mse[vT][-1] for vT in val_Ts]):.6f}"
+            )
 
     return mse_matrix, adaptive_mse
 
@@ -184,7 +189,7 @@ def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR)
 
 
 def cross_validation(
-    max_val_T, model_dir=None, max_train_T=None, save_dir=EVAL_DIR, device="cpu"
+    max_val_T, dt, model_dir=None, max_train_T=None, save_dir=EVAL_DIR, device="cpu"
 ):
     if model_dir is None:
         model_dir = get_last_run()
@@ -209,7 +214,7 @@ def cross_validation(
     print(f"Validation T values: {val_Ts}")
 
     mse_matrix, adaptive_mse = cross_validate_models(
-        model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, device
+        model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, dt, device
     )
 
     stats, adaptive_stats = compute_statistics(
@@ -237,10 +242,11 @@ def main():
     parser.add_argument(
         "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"
     )
+    parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
     args = parser.parse_args()
 
     cross_validation(
-        args.max_eval_T, model_dir=args.model_dir, max_train_T=args.max_train_T
+        args.max_eval_T, args.dt, model_dir=args.model_dir, max_train_T=args.max_train_T
     )
 
 
