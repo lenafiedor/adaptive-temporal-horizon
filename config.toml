@@ -5,7 +5,7 @@ loss_dir = "experiments/lorenz/training_results"
 analysis_dir = "experiments/lorenz/analysis"
 
 [training]
-train_Ts = [1, 2, 4, 8, 12, 16, 20]
+max_T = 10
 epochs = 100
 batch_size = 512
 learning_rate = 3e-4

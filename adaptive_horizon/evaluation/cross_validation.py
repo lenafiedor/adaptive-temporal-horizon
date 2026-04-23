@@ -3,6 +3,7 @@ import argparse
 import re
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 from adaptive_horizon.config import (
     MODEL_DIR,
@@ -11,6 +12,7 @@ from adaptive_horizon.config import (
     STEPS_PER_TRAJECTORY,
     BATCH_SIZE,
     DT,
+    MAX_T,
 )
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -24,8 +26,7 @@ def get_last_run():
     if not last_run_file.exists():
         return MODEL_DIR
     with open(last_run_file, "r") as f:
-        timestamp = f.read().strip()
-    return MODEL_DIR / timestamp
+        return Path(f.read().strip())
 
 
 def get_train_Ts(model_dir=MODEL_DIR):
@@ -193,6 +194,12 @@ def cross_validation(
 ):
     if model_dir is None:
         model_dir = get_last_run()
+    else:
+        model_dir = Path(model_dir)
+
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+
     print(f"Using model directory: {model_dir}")
 
     train_Ts = get_train_Ts(model_dir)
@@ -222,7 +229,7 @@ def cross_validation(
     )
 
     save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir)
-    plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir)
+    plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt)
 
 
 def main():
@@ -240,7 +247,7 @@ def main():
         help="Include only models trained with T <= this value",
     )
     parser.add_argument(
-        "--max-eval-T", type=int, default=20, help="Maximum T for evaluation"
+        "--max-eval-T", type=int, default=MAX_T, help="Maximum T for evaluation"
     )
     parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
     args = parser.parse_args()

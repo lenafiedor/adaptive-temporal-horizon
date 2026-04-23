@@ -2,6 +2,8 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 from datetime import datetime
+from pathlib import Path
+import re
 
 from adaptive_horizon.config import (
     LAYER_WIDTH,
@@ -13,7 +15,7 @@ from adaptive_horizon.config import (
     DT,
     MODEL_DIR,
     LOSS_DIR,
-    TRAIN_TS,
+    MAX_T,
     EPOCHS,
 )
 from adaptive_horizon.model.mlp import MLP, MLPConfig
@@ -31,8 +33,47 @@ from adaptive_horizon.training.loss import (
 from adaptive_horizon.visualization.plotting import save_losses, save_model
 
 
-def parse_T_vals(T_vals_arg):
-    return [int(value.strip()) for value in T_vals_arg.split(",") if value.strip()]
+def get_train_Ts(max_T: int):
+    if max_T < 1:
+        raise ValueError(f"--max-T must be at least 1, got {max_T}")
+    return list(range(1, max_T + 1))
+
+
+def get_existing_models(model_dir: Path):
+    train_Ts = set()
+    for model_path in model_dir.glob("mlp_T*.pt"):
+        match = re.search(r"mlp_T(\d+)", model_path.name)
+        if match:
+            train_Ts.add(int(match.group(1)))
+    return sorted(train_Ts)
+
+
+def resolve_dirs(append: bool):
+    last_run_file = MODEL_DIR / "last_run.txt"
+
+    if append:
+        if not last_run_file.exists():
+            raise FileNotFoundError(
+                f"Cannot append: {last_run_file} does not exist. Run training without --append first."
+            )
+
+        model_save_dir = Path(last_run_file.read_text().strip()).resolve()
+        timestamp = model_save_dir.name
+        loss_save_dir = LOSS_DIR / timestamp
+        if not model_save_dir.exists():
+            raise FileNotFoundError(
+                "Cannot append: model directory referenced by last_run.txt was not found."
+            )
+
+        return timestamp, model_save_dir, loss_save_dir
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_save_dir = MODEL_DIR / timestamp
+    loss_save_dir = LOSS_DIR / timestamp
+    model_save_dir.mkdir(parents=True, exist_ok=True)
+    loss_save_dir.mkdir(parents=True, exist_ok=True)
+    last_run_file.write_text(str(model_save_dir))
+    return timestamp, model_save_dir, loss_save_dir
 
 
 def create_model_and_loaders(seed, adaptive, device, dt, T=None):
@@ -206,8 +247,20 @@ def train_single_model(
 
 
 def train_fixed_models(
-    train_Ts, n_seeds, epochs, device, model_save_dir, loss_save_dir, dt
+    train_Ts, n_seeds, epochs, device, model_save_dir, loss_save_dir, dt, append=False
 ):
+    if append:
+        existing_Ts = set(get_existing_models(model_save_dir))
+        skipped_Ts = [T for T in train_Ts if T in existing_Ts]
+        train_Ts = [T for T in train_Ts if T not in existing_Ts]
+
+        if skipped_Ts:
+            print(f"Skipping already trained T values: {skipped_Ts}")
+
+    if not train_Ts:
+        print("No new fixed-horizon models to train")
+        return
+
     for T in train_Ts:
         print(f"\n{'=' * 50}")
         print(f"Training models for T={T}")
@@ -235,6 +288,7 @@ def train_fixed_models(
             torch.tensor(train_losses, dtype=torch.float32).mean(dim=0),
             torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
             save_dir=loss_save_dir,
+            T=T,
         )
 
 
@@ -292,30 +346,30 @@ def main():
         "--adaptive", "-a", action="store_true", help="Train only adaptive models"
     )
     parser.add_argument(
-        "--T-vals",
-        type=str,
-        default=None,
-        help="Comma-separated list of fixed training horizons",
+        "--max-T",
+        type=int,
+        default=MAX_T,
+        help="Train fixed-horizon models for T from 1 to this value",
     )
     parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
     parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Append outputs to the run referenced by models/last_run.txt",
+    )
 
     args = parser.parse_args()
-    T_vals = TRAIN_TS if args.T_vals is None else parse_T_vals(args.T_vals)
+    train_Ts = get_train_Ts(args.max_T)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     print(f"Time step: {args.dt}")
+    print(f"Append mode: {args.append}")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_save_dir = MODEL_DIR / timestamp
-    loss_save_dir = LOSS_DIR / timestamp
+    timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.append)
     model_save_dir.mkdir(parents=True, exist_ok=True)
     loss_save_dir.mkdir(parents=True, exist_ok=True)
-
-    last_run_file = MODEL_DIR / "last_run.txt"
-    with open(last_run_file, "w") as f:
-        f.write(timestamp)
 
     if args.single:
         print(f"\n{'=' * 50}")
@@ -332,13 +386,14 @@ def main():
         )
     elif args.fixed:
         train_fixed_models(
-            T_vals,
+            train_Ts,
             args.n_seeds,
             args.epochs,
             device,
             model_save_dir,
             loss_save_dir,
             args.dt,
+            append=args.append,
         )
     elif args.adaptive:
         train_adaptive_models(
@@ -346,13 +401,14 @@ def main():
         )
     else:
         train_fixed_models(
-            T_vals,
+            train_Ts,
             args.n_seeds,
             args.epochs,
             device,
             model_save_dir,
             loss_save_dir,
             args.dt,
+            append=args.append,
         )
         train_adaptive_models(
             args.n_seeds, args.epochs, device, model_save_dir, loss_save_dir, args.dt

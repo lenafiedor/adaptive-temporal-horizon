@@ -42,38 +42,41 @@ poetry run ruff format
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
 
 Train MLPs to learn Lorenz attractor dynamics.
-The script iterates over temporal horizons specified in the `config.toml` file and trains the MLP for each combination.
+The script trains fixed-horizon MLPs for `T=1..max_T` and can also train adaptive-horizon models.
 
 ```bash
-poetry run train-mlp                # Train MLPs with both fixed and adaptive training horizon
-poetry run train-mlp --single       # Train a single model with T = 1
-poetry run train-mlp --single -T 10 # Train a single model with T = 10
-poetry run train-mlp --fixed        # Train only with fixed T
-poetry run train-mlp --fixed --T-vals 1,4,8 # Train only fixed models for selected horizons
-poetry run train-mlp --adaptive     # Train only with adaptive T
-poetry run train-mlp --T-vals 2,6,10 # Override fixed horizons in aggregate mode
+poetry run train-mlp                            # Train MLPs with both fixed and adaptive training horizon
+poetry run train-mlp --single                   # Train a single model with T = 1
+poetry run train-mlp --single -T 10             # Train a single model with T = 10
+poetry run train-mlp --fixed                    # Train only with fixed T
+poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
+poetry run train-mlp --adaptive                 # Train only with adaptive T
+poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
 ```
 
 **Args:**
 
-| Name               | Description                                   | Values        | Default value |
-|--------------------|-----------------------------------------------|---------------|---------------|
-| `--epochs` `-e`    | Number of epochs to train the model           | int           | 100           |
-| `--single`         | Train a single fixed-horizon model            | true \| false | false         |
-| `-T`               | Training horizon used with `--single`         | int           | 1             |
-| `--fixed`, `-f`    | Train only the fixed horizon models           | true \| false | false         |
-| `--adaptive`, `-a` | Train only the adaptive horizon models        | true \| false | false         |
-| `--T-vals`         | Comma-separated list of fixed horizons        | str           | None          |
-| `--n-seeds` `-s`   | Number of seeds to use for aggregate training | int           | 10            |
-| `--dt`             | Time step for the Lorenz attractor simulation | float         | 0.04          |
+| Name               | Description                                                   | Values        | Default value   |
+|--------------------|---------------------------------------------------------------|---------------|-----------------|
+| `--epochs` `-e`    | Number of epochs to train the model                           | int           | 100             |
+| `--single`         | Train a single fixed-horizon model                            | true \| false | false           |
+| `-T`               | Training horizon used with `--single`                         | int           | 1               |
+| `--fixed`, `-f`    | Train only the fixed horizon models                           | true \| false | false           |
+| `--adaptive`, `-a` | Train only the adaptive horizon models                        | true \| false | false           |
+| `--max-T`          | Train fixed-horizon models for all `T` from 1 to this value   | int           | 10              |
+| `--n-seeds` `-s`   | Number of seeds to use for aggregate training                 | int           | 10              |
+| `--dt`             | Time step for the Lorenz attractor simulation                 | float         | 0.04            |
+| `--append`         | Append outputs to the run stored in `last_run.txt`            | true \| false | false           |
 
 
 The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
 There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
 
 Notes:
-- `--T-vals` only affects fixed horizon training in aggregate mode. It is ignored when using `--single`.
+- `--max-T` only affects fixed-horizon training in aggregate mode. It is ignored when using `--single`.
 - `-T` only affects fixed horizon training in single mode. It is ignored when using `--adaptive` or `--fixed`.
+- `--append` reuses the repo-root-relative model path stored in `experiments/lorenz/models/last_run.txt`.
+- In `--append` mode, fixed-horizon training skips any `T` values that already have checkpoints in the target run directory.
 
 To customize the settings, edit `config.toml` directly.
 
@@ -99,8 +102,9 @@ poetry run gradient-scaling --model=path/to/trained/model.pt
 
 | Name           | Description                                            | Values | Default value |
 |----------------|--------------------------------------------------------|--------|---------------|
-| `--model` `-m` | Path to the trained model                              | str    | None          |
-| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 20            |
+| `--model` `-m` | Path to the trained model                              | str    | Required      |
+| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 200           |
+| `--dt`         | Time step for the Lorenz attractor simulation          | float  | 0.04          |
 
 #### Cross-validation on all trained models
 
@@ -122,9 +126,10 @@ poetry run cross-validation
 
 | Name            | Description                                           | Values | Default value                      |
 |-----------------|-------------------------------------------------------|--------|------------------------------------|
-| `--model-dir`   | Path to the directory containing trained models       | str    | Read from last_run.txt             |
+| `--model-dir`   | Path to the directory containing trained models       | str    | Read from `last_run.txt`           |
 | `--max-train-T` | Maximum training horizon to consider for evaluation   | int    | Max T found in the model directory |
-| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | 20                                 |
+| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | 5                                  |
+| `--dt`          | Time step for the Lorenz attractor simulation         | float  | 0.04                               |
 
 ### Computing Lyapunov Exponents
 
