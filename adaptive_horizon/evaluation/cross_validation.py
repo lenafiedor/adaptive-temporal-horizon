@@ -2,7 +2,6 @@ from torch.utils.data import DataLoader
 import argparse
 import re
 import numpy as np
-import torch
 from datetime import datetime
 from pathlib import Path
 
@@ -240,7 +239,9 @@ def cross_validation(
     best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
 
     print(f"Mean MSE across validation T values: {mean_across_val_Ts}")
-    print(f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}")
+    print(
+        f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
+    )
 
     plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt)
 
