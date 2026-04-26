@@ -8,6 +8,7 @@ import re
 from adaptive_horizon.config import (
     LAYER_WIDTH,
     BATCH_SIZE,
+    OPTIMIZER,
     LEARNING_RATE,
     WEIGHT_DECAY,
     NUM_TRAJECTORIES,
@@ -31,6 +32,25 @@ from adaptive_horizon.training.loss import (
     adaptive_validation_loss,
 )
 from adaptive_horizon.visualization.plotting import save_losses, save_model
+
+
+def create_optimizer(optimizer_name, model):
+    optimizer_name = optimizer_name.lower()
+
+    if optimizer_name == "sgd":
+        return torch.optim.SGD(
+            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        )
+    if optimizer_name == "adam":
+        return torch.optim.Adam(
+            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        )
+    if optimizer_name == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        )
+
+    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 
 def get_train_Ts(max_T: int):
@@ -87,7 +107,9 @@ def resolve_dirs(append: bool):
     return timestamp, model_save_dir, loss_save_dir
 
 
-def create_model_and_loaders(seed, adaptive, device, dt, T=None):
+def create_model_and_loaders(
+    seed, adaptive, device, dt, T=None, optimizer_name=OPTIMIZER, batch_size=BATCH_SIZE
+):
     """
     Create model, data loaders, optimizer, and config for training.
 
@@ -97,6 +119,8 @@ def create_model_and_loaders(seed, adaptive, device, dt, T=None):
         device: CPU or GPU
         dt: Time step for simulation
         T: Temporal horizon (ignored if adaptive=True)
+        optimizer_name: Optimizer name
+        batch_size: Batch size for data loaders
 
     Returns:
         model, train_loader, val_loader, optimizer, config
@@ -147,14 +171,12 @@ def create_model_and_loaders(seed, adaptive, device, dt, T=None):
         collate_function = collate_fn
 
     train_loader = DataLoader(
-        train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_function
+        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_function
+        val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_function
     )
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
-    )
+    optimizer = create_optimizer(optimizer_name, model)
 
     return model, train_loader, val_loader, optimizer, config
 
@@ -233,9 +255,11 @@ def train_single_model(
     T=None,
     adaptive=False,
     save_loss_history=True,
+    optimizer_name=OPTIMIZER,
+    batch_size=BATCH_SIZE,
 ):
     model, train_loader, val_loader, optimizer, config = create_model_and_loaders(
-        seed, adaptive, device, dt, T
+        seed, adaptive, device, dt, T, optimizer_name, batch_size
     )
 
     train_losses, val_losses = train(
@@ -258,7 +282,16 @@ def train_single_model(
 
 
 def train_fixed_models(
-    train_Ts, n_seeds, epochs, device, model_save_dir, loss_save_dir, dt, append=False
+    train_Ts,
+    n_seeds,
+    epochs,
+    device,
+    model_save_dir,
+    loss_save_dir,
+    dt,
+    optimizer_name,
+    batch_size,
+    append=False,
 ):
     seed_range = range(n_seeds)
     existing_model_seeds = (
@@ -309,6 +342,8 @@ def train_fixed_models(
                 dt=dt,
                 T=T,
                 save_loss_history=False,
+                optimizer_name=optimizer_name,
+                batch_size=batch_size,
             )
             train_losses.append(train_loss)
             val_losses.append(val_loss)
@@ -322,7 +357,15 @@ def train_fixed_models(
 
 
 def train_adaptive_models(
-    n_seeds, epochs, device, model_save_dir, loss_save_dir, dt, append=False
+    n_seeds,
+    epochs,
+    device,
+    model_save_dir,
+    loss_save_dir,
+    dt,
+    optimizer_name,
+    batch_size,
+    append=False,
 ):
     print(f"\n{'=' * 50}")
     print("Training adaptive models")
@@ -358,6 +401,8 @@ def train_adaptive_models(
             dt,
             adaptive=True,
             save_loss_history=False,
+            optimizer_name=optimizer_name,
+            batch_size=batch_size,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -401,6 +446,19 @@ def main():
     parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
     parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=BATCH_SIZE,
+        help="Batch size for training and validation loaders",
+    )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default=OPTIMIZER,
+        choices=["sgd", "adam", "adamw"],
+        help="Optimizer to use",
+    )
+    parser.add_argument(
         "--append",
         action="store_true",
         help="Append outputs to the run referenced by models/last_run.txt",
@@ -412,6 +470,8 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     print(f"Time step: {args.dt}")
+    print(f"Batch size: {args.batch_size}")
+    print(f"Optimizer: {args.optimizer}")
     print(f"Append mode: {args.append}")
 
     timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.append)
@@ -434,6 +494,8 @@ def main():
             dt=args.dt,
             T=None if args.adaptive else args.T,
             adaptive=args.adaptive,
+            optimizer_name=args.optimizer,
+            batch_size=args.batch_size,
         )
     elif args.fixed:
         train_fixed_models(
@@ -444,6 +506,8 @@ def main():
             model_save_dir,
             loss_save_dir,
             args.dt,
+            args.optimizer,
+            args.batch_size,
             append=args.append,
         )
     elif args.adaptive:
@@ -454,6 +518,8 @@ def main():
             model_save_dir,
             loss_save_dir,
             args.dt,
+            args.optimizer,
+            args.batch_size,
             append=args.append,
         )
     else:
@@ -465,6 +531,8 @@ def main():
             model_save_dir,
             loss_save_dir,
             args.dt,
+            args.optimizer,
+            args.batch_size,
             append=args.append,
         )
         train_adaptive_models(
@@ -474,6 +542,8 @@ def main():
             model_save_dir,
             loss_save_dir,
             args.dt,
+            args.optimizer,
+            args.batch_size,
             append=args.append,
         )
 

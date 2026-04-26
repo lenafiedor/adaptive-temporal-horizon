@@ -19,6 +19,7 @@ ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
 MAX_T = _config["training"]["max_T"]
 EPOCHS = _config["training"]["epochs"]
 BATCH_SIZE = _config["training"]["batch_size"]
+OPTIMIZER = _config["training"]["optimizer"]
 LEARNING_RATE = _config["training"]["learning_rate"]
 WEIGHT_DECAY = _config["training"]["weight_decay"]
 NUM_TRAJECTORIES = _config["training"]["num_trajectories"]

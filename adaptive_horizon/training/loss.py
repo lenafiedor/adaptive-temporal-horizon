@@ -19,7 +19,6 @@ def batch_loss(model, inputs, targets, T):
     for tau in range(T):
         x_pred = model(x_pred)
         total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
-        # total_loss += torch.linalg.norm(x_pred - targets[:, tau], dim=1).mean()
 
     return total_loss / T
 
