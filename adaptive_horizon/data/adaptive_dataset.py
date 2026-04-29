@@ -2,10 +2,15 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 from typing import Optional
+import json
+from pathlib import Path
+from datetime import datetime
 
-from adaptive_horizon.config import DT
+from adaptive_horizon.config import DT, EVAL_DIR
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import smooth_lle, compute_local_lyapunov
+
+DEFAULT_HORIZON = 48
 
 
 class AdaptiveLorenzDataset(Dataset):
@@ -19,6 +24,12 @@ class AdaptiveLorenzDataset(Dataset):
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,
+        horizon_prior_path: Optional[str] = None,
+        base_T: Optional[int] = None,
+        min_T: Optional[int] = None,
+        max_T: Optional[int] = None,
+        alpha: float = 1.0,
+        debug: bool = False,
     ):
         """
         Args:
@@ -28,8 +39,20 @@ class AdaptiveLorenzDataset(Dataset):
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
             burn_in: Number of initial steps to discard (transient period)
+            horizon_prior_path: Path to the cross-validation-derived horizon prior
+            base_T: Horizon center used for adaptive mapping
+            min_T: Lower clip bound for adaptive horizons
+            max_T: Upper clip bound for adaptive horizons
+            alpha: Scale factor for horizon adaptation around base_T
+            debug: Whether to write T values to a file
         """
         self.normalize = normalize
+        self.alpha = alpha
+
+        prior = self._load_horizon_prior(horizon_prior_path, dt)
+        self.base_T, self.min_T, self.max_T = self._resolve_horizon_params(
+            dt, prior, base_T, min_T, max_T
+        )
 
         if seed is not None:
             np.random.seed(seed)
@@ -50,14 +73,21 @@ class AdaptiveLorenzDataset(Dataset):
             lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=5)
 
             # Discard the burn-in period from trajectory and LLEs
-            traj = traj[burn_in:]
-            lles = lles[burn_in:]
+            traj, lles = traj[burn_in:], lles[burn_in:]
             trajectories.append(traj)
 
             lle_max = lles[:, 0]  # Take the largest exponents
 
             self.lles.append(lle_max)
-            self.horizons.append(self._lle_to_horizon(lle_max, dt))
+            self.horizons.append(
+                self._lle_to_horizon(
+                    lle_max,
+                    self.base_T,
+                    self.min_T,
+                    self.max_T,
+                    alpha=self.alpha,
+                )
+            )
 
         self.trajectories = torch.tensor(
             np.array(trajectories), dtype=torch.float32
@@ -70,6 +100,9 @@ class AdaptiveLorenzDataset(Dataset):
             self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
 
         self.samples = self._create_samples()
+        if debug:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._write_t_values(EVAL_DIR / f"t_values_{timestamp}.txt")
 
     def _create_samples(self):
         """Create (input, targets) pairs for all valid starting points."""
@@ -89,10 +122,66 @@ class AdaptiveLorenzDataset(Dataset):
 
         return samples
 
+    def _write_t_values(self, output_path: Optional[str]):
+        if output_path is None:
+            return
+
+        path = Path(output_path)
+        if path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        t_values = [int(sample[2]) for sample in self.samples]
+        unique_t_values, counts = np.unique(t_values, return_counts=True)
+
+        with path.open("w", encoding="ascii") as file:
+            file.write("# Unique T values and counts\n")
+            for value, count in zip(unique_t_values, counts):
+                file.write(f"T={int(value)} count={int(count)}\n")
+
+            file.write("\n# T value per sample\n")
+            for value in t_values:
+                file.write(f"{value}\n")
+
+    @classmethod
+    def _load_horizon_prior(cls, horizon_prior_path: Optional[str], dt: float):
+        path = (
+            Path(horizon_prior_path)
+            if horizon_prior_path is not None
+            else EVAL_DIR / f"horizon_prior_dt_{str(dt).split(".")[1]}.json"
+        )
+
+        if not path.exists():
+            print(f"Horizon prior file not found: {path}")
+            return None
+
+        with path.open("r", encoding="ascii") as file:
+            return json.load(file)
+
     @staticmethod
-    def _lle_to_horizon(lambda_max, dt, C=2.0, min_T=1, max_T=16):
-        tau = np.log(C) / (lambda_max + 1e-6)
-        T = np.clip((tau / dt), min_T, max_T)
+    def _resolve_horizon_params(dt, prior, base_T, min_T, max_T):
+        if base_T is None:
+            if prior is not None:
+                base_T = int(prior["best_train_T"])
+            else:
+                base_T = int(DEFAULT_HORIZON / (100 * dt))
+
+        if min_T is None:
+            min_T = int(prior["recommended_min_T"]) if prior is not None else max(1, base_T - 2)
+
+        if max_T is None:
+            max_T = int(prior["recommended_max_T"]) if prior is not None else base_T + 2
+
+        return int(base_T), int(min_T), int(max_T)
+
+    @staticmethod
+    def _lle_to_horizon(lambda_max, base_T, min_T, max_T, alpha=1.0):
+        lambda_mean = float(np.mean(lambda_max))
+        lambda_std = float(np.std(lambda_max)) + 1e-8
+        z_scores = (lambda_max - lambda_mean) / lambda_std
+
+        half_range = max(1.0, (max_T - min_T) / 2.0)
+        T = base_T - alpha * z_scores * half_range
+        T = np.clip(np.round(T), min_T, max_T)
         return T.astype(int)
 
     def __len__(self):

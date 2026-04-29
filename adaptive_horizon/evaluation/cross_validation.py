@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader
 import argparse
+import json
 import re
 import numpy as np
 from datetime import datetime
@@ -188,6 +189,44 @@ def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR)
     print(f"MSE results saved to {results_file}")
 
 
+def save_horizon_prior(stats, train_Ts, val_Ts, best_train_T, dt, save_dir=EVAL_DIR):
+    """Save a cross-validation-derived horizon prior for adaptive datasets."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    mean_across_val_Ts = {
+        train_T: np.mean([stats[train_T][val_T][0] for val_T in val_Ts])
+        for train_T in train_Ts
+    }
+    std_across_val_Ts = {
+        train_T: np.mean([stats[train_T][val_T][1] for val_T in val_Ts])
+        for train_T in train_Ts
+    }
+
+    best_score = mean_across_val_Ts[best_train_T]
+    best_score_std = std_across_val_Ts[best_train_T]
+    threshold = best_score + best_score_std
+    valid_Ts = [T for T in train_Ts if mean_across_val_Ts[T] <= threshold]
+
+    if not valid_Ts:
+        valid_Ts = [best_train_T]
+
+    prior = {
+        "dt": dt,
+        "best_train_T": int(best_train_T),
+        "recommended_min_T": int(min(valid_Ts)),
+        "recommended_max_T": int(max(valid_Ts)),
+        "best_score": float(best_score),
+        "best_score_std": float(best_score_std),
+        "selection_threshold": float(threshold),
+    }
+
+    prior_file = save_dir / f"horizon_prior_dt_{str(dt).split(".")[1]}.json"
+    with open(prior_file, "w") as f:
+        json.dump(prior, f, indent=2)
+
+    print(f"Horizon prior saved to {prior_file}")
+
+
 def cross_validation(
     max_val_T, dt, model_dir=None, max_train_T=None, save_dir=EVAL_DIR, device="cpu"
 ):
@@ -238,11 +277,11 @@ def cross_validation(
     }
     best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
 
-    print(f"Mean MSE across validation T values: {mean_across_val_Ts}")
     print(
         f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
     )
 
+    save_horizon_prior(stats, train_Ts, val_Ts, best_train_T, dt, save_dir)
     plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt)
 
 
