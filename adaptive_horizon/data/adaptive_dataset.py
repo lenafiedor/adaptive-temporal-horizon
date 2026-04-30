@@ -65,12 +65,10 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         base_T: Optional[int] = None,
         min_T: Optional[int] = None,
         max_T: Optional[int] = None,
-        alpha: float = 1.0,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
     ):
         self.normalize = normalize
-        self.alpha = alpha
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
@@ -103,13 +101,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             lle_max = lles[:, 0]
             self.lles.append(lle_max)
             self.horizons.append(
-                self._lle_to_horizon(
-                    lle_max,
-                    self.base_T,
-                    self.min_T,
-                    self.max_T,
-                    alpha=self.alpha,
-                )
+                self._lle_to_horizon(lle_max, self.base_T, self.min_T, self.max_T)
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
@@ -199,13 +191,13 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         return int(base_T), int(min_T), int(max_T)
 
     @staticmethod
-    def _lle_to_horizon(lambda_max, base_T, min_T, max_T, alpha=1.0):
+    def _lle_to_horizon(lambda_max, base_T, min_T, max_T):
         lambda_mean = float(np.mean(lambda_max))
         lambda_std = float(np.std(lambda_max)) + 1e-8
         z_scores = (lambda_max - lambda_mean) / lambda_std
 
         half_range = max(1.0, (max_T - min_T) / 2.0)
-        T = base_T - alpha * z_scores * half_range
+        T = base_T - z_scores * half_range
         T = np.clip(np.round(T), min_T, max_T)
         return T.astype(int)
 
