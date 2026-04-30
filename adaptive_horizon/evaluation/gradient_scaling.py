@@ -1,19 +1,14 @@
 from torch.utils.data import DataLoader
 import argparse
 
-from adaptive_horizon.config import (
-    BATCH_SIZE,
-    NUM_TRAJECTORIES,
-    STEPS_PER_TRAJECTORY,
-    DT,
-)
+import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.visualization.plotting import plot_g_T
 from adaptive_horizon.evaluation.cross_validation import load_model
 
 
-def gradient_scaling(model_path, max_T, dt):
+def gradient_scaling(model_path, max_T, dt=config.DT):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
 
@@ -21,14 +16,14 @@ def gradient_scaling(model_path, max_T, dt):
     train_T = checkpoint.get("train_T") if not adaptive else None
 
     eval_dataset = LorenzDataset(
-        num_trajectories=NUM_TRAJECTORIES,
-        steps_per_trajectory=STEPS_PER_TRAJECTORY,
+        num_trajectories=config.NUM_TRAJECTORIES,
+        steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
         dt=dt,
         T=max_T,
         normalize=True,
     )
     eval_loader = DataLoader(
-        eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
+        eval_dataset, batch_size=config.BATCH_SIZE, shuffle=False, collate_fn=collate_fn
     )
 
     T_vals = list(range(1, max_T + 1))
@@ -48,7 +43,7 @@ def main():
     parser.add_argument(
         "--max-eval-T", type=int, default=200, help="Maximum T for evaluation"
     )
-    parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
+    parser.add_argument("--dt", type=float, default=config.DT, help="Time step for simulation")
     args = parser.parse_args()
 
     gradient_scaling(args.model, args.max_eval_T, args.dt)

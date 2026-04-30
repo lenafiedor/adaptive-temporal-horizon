@@ -108,7 +108,7 @@ $$
 Which represents the gradient scaling with respect to $T$.
 
 ```bash
-poetry run gradient-scaling --model=path/to/trained/model.pt
+poetry run gradient-scaling --model path/to/trained/model.pt
 ```
 
 **Args:**
@@ -117,7 +117,7 @@ poetry run gradient-scaling --model=path/to/trained/model.pt
 |----------------|--------------------------------------------------------|--------|---------------|
 | `--model` `-m` | Path to the trained model                              | str    | Required      |
 | `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 200           |
-| `--dt`         | Time step for the Lorenz attractor simulation          | float  | 0.04          |
+| `--dt`         | Time step for the Lorenz attractor simulation          | float  | config.DT     |
 
 #### Cross-validation on all trained models
 
