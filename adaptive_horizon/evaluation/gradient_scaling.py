@@ -43,7 +43,9 @@ def main():
     parser.add_argument(
         "--max-eval-T", type=int, default=200, help="Maximum T for evaluation"
     )
-    parser.add_argument("--dt", type=float, default=config.DT, help="Time step for simulation")
+    parser.add_argument(
+        "--dt", type=float, default=config.DT, help="Time step for simulation"
+    )
     args = parser.parse_args()
 
     gradient_scaling(args.model, args.max_eval_T, args.dt)

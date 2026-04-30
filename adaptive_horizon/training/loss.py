@@ -109,7 +109,9 @@ def lle_weighted_batch_loss(
         all_preds.append(x_pred)
     preds = torch.stack(all_preds, dim=1)
 
-    step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(dim=2)
+    step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
+        dim=2
+    )
     weights = lle_predictability_weights(
         lambda_scores=lambda_scores,
         T=T_max,
@@ -158,8 +160,8 @@ def adaptive_validation_loss(model, val_loader, device="cpu"):
 def lle_weighted_validation_loss(
     model,
     val_loader,
-    dt = config.DT,
-    device= config.DEVICE,
+    dt=config.DT,
+    device=config.DEVICE,
     rho: float = config.RHO,
     temperature: float = config.TEMPERATURE,
     floor: float = config.WEIGHT_FLOOR,

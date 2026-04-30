@@ -322,9 +322,7 @@ def cross_validation(
         f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
     )
 
-    results = build_summary_results(
-        stats, adaptive_stats, T_values, evaluation_records
-    )
+    results = build_summary_results(stats, adaptive_stats, T_values, evaluation_records)
 
     save_cross_validation_results(
         results,
