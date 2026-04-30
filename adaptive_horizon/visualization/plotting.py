@@ -109,14 +109,13 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt):
+def plot_mse(T_values, stats, adaptive_stats, save_dir, dt):
     """
     Plot MSE for each validation T as separate lines (like cross-val mode).
     Adaptive model minimum MSE is plotted as a dashed horizontal line for each val_T.
 
     Args:
-        train_Ts: list of training horizons
-        val_Ts: list of validation horizons
+        T_values: list of T values
         stats: dict of {train_T: {val_T: (mean, std)}}
         adaptive_stats: dict of {val_T: (mean, std)}
         save_dir: directory to save plot
@@ -127,12 +126,12 @@ def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt):
 
     fig, ax = plt.subplots(figsize=(12, 8))
     cmap = plt.cm.tab20
-    colors = [cmap(i / len(val_Ts)) for i in range(len(val_Ts))]
-    train_times = [train_T * dt for train_T in train_Ts]
+    colors = [cmap(i / len(T_values)) for i in range(len(T_values))]
+    train_times = [train_T * dt for train_T in T_values]
 
-    for i, val_T in enumerate(val_Ts):
-        means = [stats[train_T][val_T][0] for train_T in train_Ts]
-        stds = [stats[train_T][val_T][1] for train_T in train_Ts]
+    for i, val_T in enumerate(T_values):
+        means = [stats[train_T][val_T][0] for train_T in T_values]
+        stds = [stats[train_T][val_T][1] for train_T in T_values]
         val_time = val_T * dt
 
         ax.errorbar(
@@ -159,7 +158,8 @@ def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt):
 
     ax.set_xlabel(r"Training Horizon ($T \cdot dt$)")
     ax.set_ylabel("Validation MSE (mean ± std)")
-    ax.set_title("Cross-Validation MSE")
+    suffix = " (dashed = adaptive model)" if adaptive_stats else ""
+    ax.set_title("Cross-Validation MSE" + suffix)
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.grid(True, alpha=0.3)
@@ -167,10 +167,10 @@ def plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt):
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"mse_{timestamp}.png"
+    save_path = save_dir / f"mse_dt_{str(dt).split('.')[1]}_{timestamp}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
-    print(f"Aggregate MSE plot saved to {save_path}")
+    print(f"Cross-validation MSE plot saved to {save_path}")
 
 
 def plot_lyapunov_exponents(exponents, window):

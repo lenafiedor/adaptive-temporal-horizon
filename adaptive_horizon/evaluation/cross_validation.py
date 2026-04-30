@@ -1,18 +1,12 @@
 from torch.utils.data import DataLoader
 import argparse
+import json
 import re
 import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-from adaptive_horizon.config import (
-    MODEL_DIR,
-    EVAL_DIR,
-    NUM_TRAJECTORIES,
-    STEPS_PER_TRAJECTORY,
-    BATCH_SIZE,
-    DT,
-)
+import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.visualization.plotting import plot_mse
@@ -23,14 +17,14 @@ EVAL_SEED = 12345
 
 def get_last_run():
     """Read last_run.txt and return the corresponding model directory."""
-    last_run_file = MODEL_DIR / "last_run.txt"
+    last_run_file = config.MODEL_DIR / "last_run.txt"
     if not last_run_file.exists():
-        return MODEL_DIR
+        return config.MODEL_DIR
     with open(last_run_file, "r") as f:
         return Path(f.read().strip())
 
 
-def get_train_Ts(model_dir=MODEL_DIR):
+def get_T_values(model_dir):
     """Get unique train_T values from model files matching mlp_T{T}*.pt"""
     model_files = list(model_dir.glob("mlp_T*.pt"))
     train_Ts = set()
@@ -41,7 +35,7 @@ def get_train_Ts(model_dir=MODEL_DIR):
     return sorted(train_Ts)
 
 
-def get_model_paths(train_Ts, model_dir=MODEL_DIR):
+def get_model_paths(train_Ts, model_dir=config.MODEL_DIR):
     """Get all model paths for each train_T."""
     model_paths = {T: [] for T in train_Ts}
     for f in sorted(model_dir.glob("mlp_T*.pt")):
@@ -53,25 +47,9 @@ def get_model_paths(train_Ts, model_dir=MODEL_DIR):
     return model_paths
 
 
-def get_adaptive_paths(model_dir=MODEL_DIR):
+def get_adaptive_paths(model_dir=config.MODEL_DIR):
     """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
-
-
-def get_val_Ts(train_Ts, max_val_T):
-    val_Ts = [T for T in train_Ts if T <= max_val_T]
-    if not val_Ts:
-        val_Ts = [max_val_T]
-        return val_Ts
-
-    max_train_T = max(val_Ts)
-    if max_val_T > max_train_T:
-        next_val = ((max_train_T // 10) + 1) * 10
-        while next_val <= max_val_T:
-            if next_val not in val_Ts:
-                val_Ts.append(next_val)
-            next_val += 10
-    return val_Ts
 
 
 def get_normalization_stats(checkpoint):
@@ -81,8 +59,8 @@ def get_normalization_stats(checkpoint):
 
 def make_eval_loader(max_val_T, dt, normalization_stats=None):
     eval_dataset = LorenzDataset(
-        num_trajectories=NUM_TRAJECTORIES,
-        steps_per_trajectory=STEPS_PER_TRAJECTORY,
+        num_trajectories=config.NUM_TRAJECTORIES,
+        steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
         T=max_val_T,
         dt=dt,
         normalize=True,
@@ -90,7 +68,10 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None):
         normalization_stats=normalization_stats,
     )
     return DataLoader(
-        eval_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn
+        eval_dataset,
+        batch_size=config.BATCH_SIZE,
+        shuffle=False,
+        collate_fn=collate_fn,
     )
 
 
@@ -103,7 +84,7 @@ def loader_cache_key(normalization_stats):
 
 
 def cross_validate_models(
-    model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, dt, device="cpu"
+    model_paths, adaptive_paths, T_values, dt, device=config.DEVICE
 ):
     """
     Evaluate models across different validation horizons.
@@ -111,17 +92,12 @@ def cross_validate_models(
     Args:
         model_paths: dict of {train_T: [list of model paths]}
         adaptive_paths: list of adaptive model paths
-        train_Ts: list of training horizons
-        val_Ts: list of validation horizons
-        max_val_T: maximum validation T (for dataset)
+        T_values: list of horizon values
         dt: time step for simulation
         device: CPU or GPU
 
     Returns:
-        mse_matrix: dict of {train_T: {val_T: [list of MSE values]}}
-        adaptive_mse: dict of {val_T: [list of MSE values]}
-        mse_by_seed: dict of {train_T: {seed: {val_T: MSE}}}
-        adaptive_mse_by_seed: dict of {seed: {val_T: MSE}}
+        evaluation_records: list of per-model, per-validation-horizon MSE records.
     """
     eval_loaders = {}
 
@@ -129,34 +105,36 @@ def cross_validate_models(
         normalization_stats = get_normalization_stats(checkpoint)
         key = loader_cache_key(normalization_stats)
         if key not in eval_loaders:
-            eval_loaders[key] = make_eval_loader(max_val_T, dt, normalization_stats)
+            eval_loaders[key] = make_eval_loader(max(T_values), dt, normalization_stats)
         return eval_loaders[key]
 
-    mse_matrix = {T: {vT: [] for vT in val_Ts} for T in train_Ts}
-    mse_by_seed = {T: {} for T in train_Ts}
+    evaluation_records = []
 
-    for T in train_Ts:
+    for T in T_values:
         print(f"\nEvaluating models for T={T}")
         for model_path in model_paths[T]:
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
-            seed_results = {}
+            model_records = []
 
-            for val_T in val_Ts:
+            for val_T in T_values:
                 mse = validation_loss(model, eval_loader, val_T, device)
-                mse_matrix[T][val_T].append(mse)
-                seed_results[val_T] = mse
-                print(f"    Validation T={val_T}: MSE = {mse:.6f}")
-            if seed is not None:
-                mse_by_seed[T][int(seed)] = seed_results
+                record = {
+                    "model_type": "fixed",
+                    "train_T": int(T),
+                    "seed": int(seed) if seed is not None else None,
+                    "val_T": int(val_T),
+                    "mse": float(mse),
+                    "model_file": model_path.name,
+                    "model_path": str(model_path),
+                }
+                evaluation_records.append(record)
+                model_records.append(record)
             print(
-                f"  Model {model_path.name}: mean MSE = {np.mean([mse_matrix[T][vT][-1] for vT in val_Ts]):.6f}"
+                f"  Model {model_path.name}: mean MSE = {np.mean([record['mse'] for record in model_records]):.6f}"
             )
-
-    adaptive_mse = {vT: [] for vT in val_Ts}
-    adaptive_mse_by_seed = {}
 
     if adaptive_paths:
         print("\nEvaluating adaptive models")
@@ -165,23 +143,29 @@ def cross_validate_models(
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
-            seed_results = {}
+            model_records = []
 
-            for val_T in val_Ts:
+            for val_T in T_values:
                 mse = validation_loss(model, eval_loader, val_T, device)
-                adaptive_mse[val_T].append(mse)
-                seed_results[val_T] = mse
-                print(f"    Validation T={val_T}: MSE = {mse:.6f}")
-            if seed is not None:
-                adaptive_mse_by_seed[int(seed)] = seed_results
+                record = {
+                    "model_type": "adaptive",
+                    "train_T": None,
+                    "seed": int(seed) if seed is not None else None,
+                    "val_T": int(val_T),
+                    "mse": float(mse),
+                    "model_file": model_path.name,
+                    "model_path": str(model_path),
+                }
+                evaluation_records.append(record)
+                model_records.append(record)
             print(
-                f"  Model {model_path.name}: mean MSE = {np.mean([adaptive_mse[vT][-1] for vT in val_Ts]):.6f}"
+                f"  Model {model_path.name}: mean MSE = {np.mean([record['mse'] for record in model_records]):.6f}"
             )
 
-    return mse_matrix, adaptive_mse, mse_by_seed, adaptive_mse_by_seed
+    return evaluation_records
 
 
-def compute_statistics(mse_matrix, train_Ts, val_Ts, adaptive_mse):
+def compute_statistics(evaluation_records, T_values):
     """
     Compute mean and std for each (train_T, val_T) combination.
     If only one model, std is 0.
@@ -190,86 +174,111 @@ def compute_statistics(mse_matrix, train_Ts, val_Ts, adaptive_mse):
         stats: dict of {train_T: {val_T: (mean, std)}}
         adaptive_stats: dict of {val_T: (mean, std)}
     """
-    stats = {T: {} for T in train_Ts}
+    stats = {T: {} for T in T_values}
 
-    for T in train_Ts:
-        for val_T in val_Ts:
-            values = np.array(mse_matrix[T][val_T])
-            stats[T][val_T] = (np.mean(values), np.std(values))
+    for train_T in T_values:
+        for val_T in T_values:
+            values = np.array(
+                [
+                    record["mse"]
+                    for record in evaluation_records
+                    if record["model_type"] == "fixed"
+                    and record["train_T"] == train_T
+                    and record["val_T"] == val_T
+                ]
+            )
+            stats[train_T][val_T] = (float(np.mean(values)), float(np.std(values)))
 
     adaptive_stats = {}
-    for val_T in val_Ts:
-        values = np.array(adaptive_mse[val_T])
+    for val_T in T_values:
+        values = np.array(
+            [
+                record["mse"]
+                for record in evaluation_records
+                if record["model_type"] == "adaptive" and record["val_T"] == val_T
+            ]
+        )
         if len(values) > 0:
-            adaptive_stats[val_T] = (np.mean(values), np.std(values))
+            adaptive_stats[val_T] = (float(np.mean(values)), float(np.std(values)))
 
     return stats, adaptive_stats
 
 
-def save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir=EVAL_DIR):
-    """
-    Save MSE results to a CSV file.
+def build_summary_results(stats, adaptive_stats, T_values, evaluation_records):
+    """Build cross-validation summaries."""
+    fixed_horizon = []
+    for train_T in T_values:
+        validation = []
+        for val_T in T_values:
+            mean, std = stats[train_T][val_T]
+            validation.append(
+                {
+                    "val_T": int(val_T),
+                    "mean": float(mean),
+                    "std": float(std),
+                }
+            )
+        fixed_horizon.append({"train_T": int(train_T), "validation": validation})
 
-    Format: train_T,val_T,mean,std
-    Adaptive models have train_T = "adaptive"
-    """
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = save_dir / f"mse_results_{timestamp}.csv"
-    with open(results_file, "w") as f:
-        f.write("train_T,val_T,mean,std\n")
-        for train_T in train_Ts:
-            for val_T in val_Ts:
-                mean, std = stats[train_T][val_T]
-                f.write(f"{train_T},{val_T},{mean},{std}\n")
-
-        for val_T in val_Ts:
-            if val_T in adaptive_stats:
-                mean, std = adaptive_stats[val_T]
-                f.write(f"adaptive,{val_T},{mean},{std}\n")
-
-    print(f"MSE results saved to {results_file}")
-
-
-def save_paired_deltas(
-    mse_by_seed, adaptive_mse_by_seed, best_train_T, val_Ts, save_dir=EVAL_DIR
-):
-    """Save seed-wise adaptive deltas against the selected fixed-T baseline."""
-    if not adaptive_mse_by_seed:
-        return
-
-    fixed_by_seed = mse_by_seed.get(best_train_T, {})
-    paired_seeds = sorted(set(fixed_by_seed) & set(adaptive_mse_by_seed))
-    if not paired_seeds:
-        print("No paired fixed/adaptive seeds found for delta report")
-        return
-
-    save_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = save_dir / f"paired_deltas_{timestamp}.csv"
-
-    with open(results_file, "w") as f:
-        f.write(
-            "seed,val_T,best_fixed_T,best_fixed_mse,adaptive_mse,"
-            "adaptive_minus_fixed,adaptive_ratio\n"
+    adaptive_validation = []
+    for val_T in T_values:
+        if val_T not in adaptive_stats:
+            continue
+        mean, std = adaptive_stats[val_T]
+        adaptive_validation.append(
+            {
+                "val_T": int(val_T),
+                "mean": float(mean),
+                "std": float(std),
+            }
         )
-        for seed in paired_seeds:
-            for val_T in val_Ts:
-                fixed_mse = fixed_by_seed[seed][val_T]
-                adaptive_mse = adaptive_mse_by_seed[seed][val_T]
-                delta = adaptive_mse - fixed_mse
-                ratio = adaptive_mse / fixed_mse if fixed_mse != 0 else np.nan
-                f.write(
-                    f"{seed},{val_T},{best_train_T},{fixed_mse},{adaptive_mse},"
-                    f"{delta},{ratio}\n"
-                )
+    adaptive_horizon = []
+    if adaptive_validation:
+        adaptive_horizon.append({"validation": adaptive_validation})
 
-    print(f"Paired adaptive deltas saved to {results_file}")
+    return {
+        "fixed_horizon": fixed_horizon,
+        "adaptive_horizon": adaptive_horizon,
+    }
+
+
+def save_cross_validation_results(
+    results,
+    T_values,
+    best_train_T,
+    dt,
+    model_dir,
+    save_dir=config.EVAL_DIR,
+):
+    """Save cross-validation summaries to a JSON file."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_file = save_dir / f"mse_results_dt_{str(dt).split('.')[1]}_{timestamp}.json"
+    payload = {
+        "metadata": {
+            "created_at": timestamp,
+            "dt": float(dt),
+            "model_dir": str(model_dir),
+            "T_values": [int(T) for T in T_values],
+            "best_train_T": int(best_train_T),
+        },
+        "results": results,
+    }
+
+    with open(results_file, "w") as f:
+        json.dump(payload, f, indent=2)
+
+    print(f"Cross-validation results saved to {results_file}")
+    return results_file
 
 
 def cross_validation(
-    max_val_T, dt, model_dir=None, max_train_T=None, save_dir=EVAL_DIR, device="cpu"
+    dt,
+    model_dir=None,
+    max_T=None,
+    save_dir=config.EVAL_DIR,
+    device=config.DEVICE,
 ):
     if model_dir is None:
         model_dir = get_last_run()
@@ -281,40 +290,31 @@ def cross_validation(
 
     print(f"Using model directory: {model_dir}")
 
-    train_Ts = get_train_Ts(model_dir)
-    if not train_Ts:
+    T_values = get_T_values(model_dir)
+    if not T_values:
         print("No models found to evaluate")
         return
 
-    if max_train_T is not None:
-        train_Ts = [T for T in train_Ts if T <= max_train_T]
-        if not train_Ts:
-            print(f"No models found with T <= {max_train_T}")
+    if max_T is not None:
+        T_values = [T for T in T_values if T <= max_T]
+        if not T_values:
+            print(f"No models found with T <= {max_T}")
             return
 
-    if max_val_T is None:
-        max_val_T = max(train_Ts)
-
-    val_Ts = get_val_Ts(train_Ts, max_val_T)
-    model_paths = get_model_paths(train_Ts, model_dir)
+    model_paths = get_model_paths(T_values, model_dir)
     adaptive_paths = get_adaptive_paths(model_dir)
 
-    print(f"Training T values: {train_Ts}")
-    print(f"Validation T values: {val_Ts}")
+    print(f"T values: {T_values}")
 
-    mse_matrix, adaptive_mse, mse_by_seed, adaptive_mse_by_seed = cross_validate_models(
-        model_paths, adaptive_paths, train_Ts, val_Ts, max_val_T, dt, device
+    evaluation_records = cross_validate_models(
+        model_paths, adaptive_paths, T_values, dt, device
     )
 
-    stats, adaptive_stats = compute_statistics(
-        mse_matrix, train_Ts, val_Ts, adaptive_mse
-    )
-
-    save_mse_results(stats, adaptive_stats, train_Ts, val_Ts, save_dir)
+    stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
 
     mean_across_val_Ts = {
-        train_T: np.mean([stats[train_T][val_T][0] for val_T in val_Ts])
-        for train_T in train_Ts
+        train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
+        for train_T in T_values
     }
     best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
 
@@ -322,10 +322,19 @@ def cross_validation(
         f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
     )
 
-    save_paired_deltas(
-        mse_by_seed, adaptive_mse_by_seed, best_train_T, val_Ts, save_dir
+    results = build_summary_results(
+        stats, adaptive_stats, T_values, evaluation_records
     )
-    plot_mse(train_Ts, val_Ts, stats, adaptive_stats, save_dir, dt)
+
+    save_cross_validation_results(
+        results,
+        T_values,
+        best_train_T,
+        dt,
+        model_dir,
+        save_dir,
+    )
+    plot_mse(T_values, stats, adaptive_stats, save_dir, dt)
 
 
 def main():
@@ -337,23 +346,17 @@ def main():
         help="Directory containing models (default: reads from last_run.txt)",
     )
     parser.add_argument(
-        "--max-train-T",
+        "--max-T",
         type=int,
         default=None,
-        help="Include only models trained with T <= this value",
+        help="Maximum T for evaluation (default: all T values found in model_dir)",
     )
     parser.add_argument(
-        "--max-eval-T",
-        type=int,
-        default=None,
-        help="Maximum T for evaluation (default: max trained T in the evaluated model dir)",
+        "--dt", type=float, default=config.DT, help="Time step for simulation"
     )
-    parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
     args = parser.parse_args()
 
-    cross_validation(
-        args.max_eval_T, args.dt, model_dir=args.model_dir, max_train_T=args.max_train_T
-    )
+    cross_validation(args.dt, model_dir=args.model_dir, max_T=args.max_T)
 
 
 if __name__ == "__main__":

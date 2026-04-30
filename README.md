@@ -48,25 +48,35 @@ The script trains fixed-horizon MLPs for `T=1..max_T` and can also train adaptiv
 poetry run train-mlp                            # Train MLPs with both fixed and adaptive training horizon
 poetry run train-mlp --single                   # Train a single model with T = 1
 poetry run train-mlp --single -T 10             # Train a single model with T = 10
+poetry run train-mlp --single --adaptive        # Train a single adaptive model
 poetry run train-mlp --fixed                    # Train only with fixed T
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
-poetry run train-mlp --adaptive                 # Train only with adaptive T
+poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
 poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
 ```
 
 **Args:**
 
-| Name               | Description                                                   | Values        | Default value   |
-|--------------------|---------------------------------------------------------------|---------------|-----------------|
-| `--epochs` `-e`    | Number of epochs to train the model                           | int           | 100             |
-| `--single`         | Train a single fixed-horizon model                            | true \| false | false           |
-| `-T`               | Training horizon used with `--single`                         | int           | 1               |
-| `--fixed`, `-f`    | Train only the fixed horizon models                           | true \| false | false           |
-| `--adaptive`, `-a` | Train only the adaptive horizon models                        | true \| false | false           |
-| `--max-T`          | Train fixed-horizon models for all `T` from 1 to this value   | int           | 10              |
-| `--n-seeds` `-s`   | Number of seeds to use for aggregate training                 | int           | 10              |
-| `--dt`             | Time step for the Lorenz attractor simulation                 | float         | 0.04            |
-| `--append`         | Append outputs to the run stored in `last_run.txt`            | true \| false | false           |
+| Name               | Description                                                           | Values                                | Default value         |
+|--------------------|-----------------------------------------------------------------------|---------------------------------------|-----------------------|
+| `--epochs` `-e`    | Number of epochs to train the model                                   | int                                   | `config.EPOCHS`       |
+| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                         | false                 |
+| `-T`               | Training horizon for fixed `--single` mode                            | int                                   | 1                     |
+| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                         | false                 |
+| `--adaptive`, `-a` | Train only adaptive models                                            | true \| false                         | false                 |
+| `--method`         | Adaptive training method used with `--adaptive`                       | `adaptive-horizon` \| `weighted-loss` | `adaptive-horizon`    |
+| `--max-T`          | Train fixed-horizon models for all `T` from 1 to this value           | int                                   | `config.MAX_T`        |
+| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                   | `config.NUM_SEEDS`    |
+| `--dt`             | Time step for the Lorenz attractor simulation                         | float                                 | `config.DT`           |
+| `--batch-size`     | Batch size for training and validation loaders                        | int                                   | `config.BATCH_SIZE`   |
+| `--optimizer`      | Optimizer to use                                                      | `sgd` \| `adam` \| `adamw`            | `config.OPTIMIZER`    |
+| `--append`         | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false                 |
+| `--adaptive-T-max` | Shared rollout horizon for LLE-weighted adaptive training             | int                                   | None                  |
+| `--ftle-window`    | Forward FTLE window for adaptive lambda scores                        | int                                   | `config.WINDOW_SIZE`  |
+| `--rho`            | Predictability budget threshold for adaptive weights                  | float                                 | `config.RHO`          |
+| `--temperature`    | Sigmoid temperature for adaptive weights                              | float                                 | `config.TEMPERATURE`  |
+| `--weight-floor`   | Minimum unnormalized adaptive rollout weight                          | float                                 | `config.WEIGHT_FLOOR` |
+| `--anchor-alpha`   | One-step anchor fraction in the adaptive loss                         | float                                 | `config.ANCHOR_ALPHA` |
 
 
 The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
@@ -74,11 +84,14 @@ There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after 
 
 Notes:
 - `--max-T` only affects fixed-horizon training in aggregate mode. It is ignored when using `--single`.
-- `-T` only affects fixed horizon training in single mode. It is ignored when using `--adaptive` or `--fixed`.
+- `-T` only affects fixed-horizon `--single` mode.
+- `--single --adaptive` trains one adaptive model with seed `0`.
+- `--method` is only relevant for adaptive training.
+- `--adaptive-T-max`, `--adaptive-T-max`, `--ftle-window`, `--rho`, `--temperature`, `--weight-floor`, and `--anchor-alpha`are only used by the `weighted-loss` adaptive method.
 - `--append` reuses the full model path stored in `experiments/lorenz/models/last_run.txt`.
 - In `--append` mode, training checks seeds `0..n_seeds-1` and only trains the missing ones for each fixed `T` and for adaptive models.
 
-To customize the settings, edit `config.toml` directly.
+To permanently change the default variables, edit `config.toml` directly.
 
 ### MLP Evaluation
 
@@ -110,13 +123,7 @@ poetry run gradient-scaling --model=path/to/trained/model.pt
 
 This script will evaluate all trained models from the last test run (timestamp saved at `experiments/lorenz/models/last_run.txt`) on a set of evaluation horizons.
 
-T values for evaluation are dynamically set to the same as found trained models, but you can also specify a maximum value.
-Models will be then additionally validated at each T value divisible by 10 that is greater than the maximum T found in the training set.
-
-**Example:**
-- You have trained models with `T = [1, 2, 4, 8, 12, 16, 20]`
-- `max_eval_T` is set to 100
-- Each model will be evaluated with `T = [1, 2, 4, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]`
+T values for evaluation are dynamically set to the same as found trained models, but you can also specify a maximum value of the training horizon to consider for evaluation.
 
 ```bash
 poetry run cross-validation
@@ -124,12 +131,11 @@ poetry run cross-validation
 
 **Args:**
 
-| Name            | Description                                           | Values | Default value                      |
-|-----------------|-------------------------------------------------------|--------|------------------------------------|
-| `--model-dir`   | Path to the directory containing trained models       | str    | Read from `last_run.txt`           |
-| `--max-train-T` | Maximum training horizon to consider for evaluation   | int    | Max T found in the model directory |
-| `--max-eval-T`  | Maximum evaluation horizon to consider for evaluation | int    | Max T found in the model directory |
-| `--dt`          | Time step for the Lorenz attractor simulation         | float  | 0.04                               |
+| Name          | Description                                         | Values | Default value                      |
+|---------------|-----------------------------------------------------|--------|------------------------------------|
+| `--model-dir` | Path to the directory containing trained models     | str    | Read from `last_run.txt`           |
+| `--max-T`     | Maximum training horizon to consider for evaluation | int    | Max T found in the model directory |
+| `--dt`        | Time step for the Lorenz attractor simulation       | float  | 0.08                               |
 
 ### Computing Lyapunov Exponents
 
