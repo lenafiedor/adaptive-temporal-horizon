@@ -403,7 +403,7 @@ def train_single_model(
         )
     save_model(
         model,
-        config,
+        mlp_config,
         seed,
         save_dir=model_save_dir,
         T=T,

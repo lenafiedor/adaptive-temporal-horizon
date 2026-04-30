@@ -7,14 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from adaptive_horizon.config import (
-    DEFAULT_ADAPTIVE_HORIZON,
-    DT,
-    EVAL_DIR,
-    NUM_TRAJECTORIES,
-    STEPS_PER_TRAJECTORY,
-    WINDOW_SIZE,
-)
+import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
@@ -22,12 +15,39 @@ from adaptive_horizon.dynamics.lyapunov import (
     smooth_lle,
 )
 
-DEFAULT_HORIZON = 48
-
 
 def default_adaptive_T_max(dt: float) -> int:
     """Default fixed rollout for weighted-loss training."""
-    return max(1, int(round(DEFAULT_ADAPTIVE_HORIZON / dt)))
+    return max(1, int(round(config.DEFAULT_ADAPTIVE_HORIZON / dt)))
+
+
+def _apply_normalization(dataset, normalization_stats):
+    if dataset.normalize:
+        if normalization_stats is None:
+            dataset.mean = dataset.trajectories.mean(dim=(0, 1))
+            dataset.std = dataset.trajectories.std(dim=(0, 1))
+        else:
+            dataset.mean = torch.as_tensor(
+                normalization_stats["mean"], dtype=torch.float32
+            )
+            dataset.std = torch.as_tensor(
+                normalization_stats["std"], dtype=torch.float32
+            )
+        dataset.trajectories = (dataset.trajectories - dataset.mean) / (
+            dataset.std + 1e-8
+        )
+    else:
+        dataset.mean = None
+        dataset.std = None
+
+
+def _normalization_stats(dataset):
+    if dataset.mean is None or dataset.std is None:
+        return None
+    return {
+        "mean": dataset.mean.detach().cpu().tolist(),
+        "std": dataset.std.detach().cpu().tolist(),
+    }
 
 
 class AdaptiveHorizonLorenzDataset(Dataset):
@@ -35,9 +55,9 @@ class AdaptiveHorizonLorenzDataset(Dataset):
 
     def __init__(
         self,
-        num_trajectories: int = NUM_TRAJECTORIES,
-        steps_per_trajectory: int = STEPS_PER_TRAJECTORY,
-        dt: float = DT,
+        num_trajectories: int = config.NUM_TRAJECTORIES,
+        steps_per_trajectory: int = config.STEPS_PER_TRAJECTORY,
+        dt: float = config.DT,
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,
@@ -51,6 +71,8 @@ class AdaptiveHorizonLorenzDataset(Dataset):
     ):
         self.normalize = normalize
         self.alpha = alpha
+        self.mean: Optional[torch.Tensor] = None
+        self.std: Optional[torch.Tensor] = None
 
         prior = self._load_horizon_prior(horizon_prior_path, dt)
         self.base_T, self.min_T, self.max_T = self._resolve_horizon_params(
@@ -91,38 +113,19 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
-        self._apply_normalization(normalization_stats)
+        _apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._write_t_values(EVAL_DIR / f"t_values_{timestamp}.txt")
+            self._write_t_values(config.EVAL_DIR / f"t_values_{timestamp}.txt")
 
     def _apply_normalization(self, normalization_stats):
-        if self.normalize:
-            if normalization_stats is None:
-                self.mean = self.trajectories.mean(dim=(0, 1))
-                self.std = self.trajectories.std(dim=(0, 1))
-            else:
-                self.mean = torch.as_tensor(
-                    normalization_stats["mean"], dtype=torch.float32
-                )
-                self.std = torch.as_tensor(
-                    normalization_stats["std"], dtype=torch.float32
-                )
-            self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
-        else:
-            self.mean = None
-            self.std = None
+        _apply_normalization(self, normalization_stats)
 
     @property
     def normalization_stats(self):
-        if self.mean is None or self.std is None:
-            return None
-        return {
-            "mean": self.mean.detach().cpu().tolist(),
-            "std": self.std.detach().cpu().tolist(),
-        }
+        return _normalization_stats(self)
 
     def _create_samples(self):
         samples = []
@@ -165,7 +168,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         path = (
             Path(horizon_prior_path)
             if horizon_prior_path is not None
-            else EVAL_DIR / f"horizon_prior_dt_{str(dt).split(".")[1]}.json"
+            else config.EVAL_DIR / f"horizon_prior_dt_{str(dt).split('.')[1]}.json"
         )
 
         if not path.exists():
@@ -181,7 +184,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             if prior is not None:
                 base_T = int(prior["best_train_T"])
             else:
-                base_T = int(DEFAULT_HORIZON / (100 * dt))
+                base_T = int(config.DEFAULT_ADAPTIVE_HORIZON / dt)
 
         if min_T is None:
             min_T = (
@@ -219,11 +222,11 @@ class WeightedLossLorenzDataset(Dataset):
 
     def __init__(
         self,
-        num_trajectories: int = NUM_TRAJECTORIES,
-        steps_per_trajectory: int = STEPS_PER_TRAJECTORY,
-        dt: float = DT,
+        num_trajectories: int = config.NUM_TRAJECTORIES,
+        steps_per_trajectory: int = config.STEPS_PER_TRAJECTORY,
+        dt: float = config.DT,
         T_max: Optional[int] = None,
-        ftle_window: int = WINDOW_SIZE,
+        ftle_window: int = config.WINDOW_SIZE,
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,
@@ -239,6 +242,8 @@ class WeightedLossLorenzDataset(Dataset):
         self.dt = dt
         self.ftle_window = int(ftle_window)
         self.normalize = normalize
+        self.mean: Optional[torch.Tensor] = None
+        self.std: Optional[torch.Tensor] = None
 
         if seed is not None:
             np.random.seed(seed)
@@ -267,38 +272,21 @@ class WeightedLossLorenzDataset(Dataset):
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
-        self._apply_normalization(normalization_stats)
+        _apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._write_lambda_values(EVAL_DIR / f"lambda_values_{timestamp}.txt")
+            self._write_lambda_values(
+                config.EVAL_DIR / f"lambda_values_{timestamp}.txt"
+            )
 
     def _apply_normalization(self, normalization_stats):
-        if self.normalize:
-            if normalization_stats is None:
-                self.mean = self.trajectories.mean(dim=(0, 1))
-                self.std = self.trajectories.std(dim=(0, 1))
-            else:
-                self.mean = torch.as_tensor(
-                    normalization_stats["mean"], dtype=torch.float32
-                )
-                self.std = torch.as_tensor(
-                    normalization_stats["std"], dtype=torch.float32
-                )
-            self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
-        else:
-            self.mean = None
-            self.std = None
+        _apply_normalization(self, normalization_stats)
 
     @property
     def normalization_stats(self):
-        if self.mean is None or self.std is None:
-            return None
-        return {
-            "mean": self.mean.detach().cpu().tolist(),
-            "std": self.std.detach().cpu().tolist(),
-        }
+        return _normalization_stats(self)
 
     def _create_samples(self):
         samples = []
