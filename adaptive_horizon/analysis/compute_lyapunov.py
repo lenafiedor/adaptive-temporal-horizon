@@ -11,6 +11,7 @@ from adaptive_horizon.visualization.plotting import (
     plot_lyapunov_exponents,
     plot_trajectory_heatmap,
 )
+from adaptive_horizon.config import WINDOW_SIZE
 
 
 def main():
@@ -30,7 +31,7 @@ def main():
         "--window",
         "-w",
         type=int,
-        default=10,
+        default=WINDOW_SIZE,
         help="Window size for LLE computation (only local mode)",
     )
     args = parser.parse_args()

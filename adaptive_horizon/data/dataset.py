@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 from typing import Optional
 
-from adaptive_horizon.config import DT
+import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 
 
@@ -12,13 +12,14 @@ class LorenzDataset(Dataset):
 
     def __init__(
         self,
-        num_trajectories: int = 10,
-        steps_per_trajectory: int = 10000,
+        num_trajectories: int = config.NUM_TRAJECTORIES,
+        steps_per_trajectory: int = config.STEPS_PER_TRAJECTORY,
         T: int = 1,
-        dt: float = DT,
+        dt: float = config.DT,
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,
+        normalization_stats: Optional[dict] = None,
     ):
         """
         Args:
@@ -29,6 +30,7 @@ class LorenzDataset(Dataset):
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
             burn_in: Number of initial steps to discard (transient period)
+            normalization_stats: Optional mean/std values from a training dataset
         """
         self.T = T
         self.normalize = normalize
@@ -53,11 +55,31 @@ class LorenzDataset(Dataset):
 
         # Z-score normalization
         if self.normalize:
-            self.mean = self.trajectories.mean(dim=(0, 1))
-            self.std = self.trajectories.std(dim=(0, 1))
+            if normalization_stats is None:
+                self.mean = self.trajectories.mean(dim=(0, 1))
+                self.std = self.trajectories.std(dim=(0, 1))
+            else:
+                self.mean = torch.as_tensor(
+                    normalization_stats["mean"], dtype=torch.float32
+                )
+                self.std = torch.as_tensor(
+                    normalization_stats["std"], dtype=torch.float32
+                )
             self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
+        else:
+            self.mean = None
+            self.std = None
 
         self.samples = self._create_samples()
+
+    @property
+    def normalization_stats(self):
+        if self.mean is None or self.std is None:
+            return None
+        return {
+            "mean": self.mean.detach().cpu().tolist(),
+            "std": self.std.detach().cpu().tolist(),
+        }
 
     def _create_samples(self):
         """Create (input, targets) pairs for all valid starting points."""

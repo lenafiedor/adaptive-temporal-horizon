@@ -45,7 +45,15 @@ def save_losses(
     print(f"Min loss values saved to {loss_path}.txt")
 
 
-def save_model(model, config, seed, save_dir=MODEL_DIR, T=None, adaptive=False):
+def save_model(
+    model,
+    config,
+    seed,
+    save_dir=MODEL_DIR,
+    T=None,
+    adaptive=False,
+    metadata=None,
+):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -68,6 +76,8 @@ def save_model(model, config, seed, save_dir=MODEL_DIR, T=None, adaptive=False):
             "k": config.k,
         },
     }
+    if metadata is not None:
+        save_dict["metadata"] = metadata
 
     torch.save(save_dict, model_path)
     print(f"Model saved to {model_path}")
@@ -177,8 +187,8 @@ def plot_lyapunov_exponents(exponents, window):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     for i, ax in enumerate(axes):
-        lle_i = exponents[:, i]
-        mean_lle = np.mean(lle_i)
+        lle_i = np.asarray(exponents[:, i], dtype=np.float64)
+        mean_lle = sum(lle_i.tolist()) / len(lle_i)
         ax.hist(lle_i, bins=50, edgecolor="black", alpha=0.7, density=True)
         ax.axvline(
             x=mean_lle,
@@ -226,7 +236,7 @@ def plot_trajectory_heatmap(trajectory, exponents, window, burn_in):
     for i in range(3):
         ax = fig.add_subplot(1, 3, i + 1, projection="3d")
 
-        points = np.array([x, y, z]).T.reshape(-1, 1, 3)
+        points = np.stack((x, y, z), axis=-1).reshape(-1, 1, 3)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         lle_i = exponents[:, i]

@@ -5,33 +5,28 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from adaptive_horizon.config import (
-    LAYER_WIDTH,
-    BATCH_SIZE,
-    OPTIMIZER,
-    LEARNING_RATE,
-    WEIGHT_DECAY,
-    NUM_TRAJECTORIES,
-    STEPS_PER_TRAJECTORY,
-    DT,
-    MODEL_DIR,
-    LOSS_DIR,
-    MAX_T,
-    EPOCHS,
-)
+import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
-    AdaptiveLorenzDataset,
-    collate_fn_adaptive,
+    AdaptiveHorizonLorenzDataset,
+    WeightedLossLorenzDataset,
+    collate_fn_adaptive_horizon,
+    collate_fn_weighted_loss,
+    default_adaptive_T_max,
 )
 from adaptive_horizon.training.loss import (
-    batch_loss,
-    validation_loss,
     adaptive_batch_loss,
     adaptive_validation_loss,
+    batch_loss,
+    lle_weighted_batch_loss,
+    lle_weighted_validation_loss,
+    validation_loss,
 )
 from adaptive_horizon.visualization.plotting import save_losses, save_model
+
+ADAPTIVE_HORIZON_METHOD = "adaptive-horizon"
+WEIGHTED_LOSS_METHOD = "weighted-loss"
 
 
 def create_optimizer(optimizer_name, model):
@@ -39,15 +34,21 @@ def create_optimizer(optimizer_name, model):
 
     if optimizer_name == "sgd":
         return torch.optim.SGD(
-            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+            model.parameters(),
+            lr=config.LEARNING_RATE,
+            weight_decay=config.WEIGHT_DECAY,
         )
     if optimizer_name == "adam":
         return torch.optim.Adam(
-            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+            model.parameters(),
+            lr=config.LEARNING_RATE,
+            weight_decay=config.WEIGHT_DECAY,
         )
     if optimizer_name == "adamw":
         return torch.optim.AdamW(
-            model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+            model.parameters(),
+            lr=config.LEARNING_RATE,
+            weight_decay=config.WEIGHT_DECAY,
         )
 
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
@@ -70,17 +71,24 @@ def get_existing_fixed_model_seeds(model_dir: Path):
     return model_seeds
 
 
-def get_existing_adaptive_model_seeds(model_dir: Path):
+def get_existing_adaptive_model_seeds(model_dir: Path, method=ADAPTIVE_HORIZON_METHOD):
     model_seeds = set()
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
         if match:
-            model_seeds.add(int(match.group(1)))
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+            checkpoint_method = (
+                checkpoint.get("metadata", {})
+                .get("adaptive", {})
+                .get("method", ADAPTIVE_HORIZON_METHOD)
+            )
+            if checkpoint_method == method:
+                model_seeds.add(int(match.group(1)))
     return model_seeds
 
 
-def resolve_dirs(append: bool):
-    last_run_file = MODEL_DIR / "last_run.txt"
+def resolve_dirs(dt, append: bool):
+    last_run_file = config.MODEL_DIR / "last_run.txt"
 
     if append:
         if not last_run_file.exists():
@@ -90,7 +98,7 @@ def resolve_dirs(append: bool):
 
         model_save_dir = Path(last_run_file.read_text().strip()).resolve()
         timestamp = model_save_dir.name
-        loss_save_dir = LOSS_DIR / timestamp
+        loss_save_dir = config.LOSS_DIR / timestamp
         if not model_save_dir.exists():
             raise FileNotFoundError(
                 "Cannot append: model directory referenced by last_run.txt was not found."
@@ -99,16 +107,26 @@ def resolve_dirs(append: bool):
         return timestamp, model_save_dir, loss_save_dir
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_save_dir = MODEL_DIR / timestamp
-    loss_save_dir = LOSS_DIR / timestamp
+    dt_formatted = str(dt).split(".")[1]
+    model_save_dir = config.MODEL_DIR / f"dt_{dt_formatted}_{timestamp}"
+    loss_save_dir = config.LOSS_DIR / f"dt_{dt_formatted}_{timestamp}"
     model_save_dir.mkdir(parents=True, exist_ok=True)
     loss_save_dir.mkdir(parents=True, exist_ok=True)
     last_run_file.write_text(str(model_save_dir))
+
     return timestamp, model_save_dir, loss_save_dir
 
 
 def create_model_and_loaders(
-    seed, adaptive, device, dt, T=None, optimizer_name=OPTIMIZER, batch_size=BATCH_SIZE
+    seed,
+    adaptive,
+    device,
+    dt,
+    T=None,
+    method=ADAPTIVE_HORIZON_METHOD,
+    optimizer_name=config.OPTIMIZER,
+    batch_size=config.BATCH_SIZE,
+    ftle_window=config.WINDOW_SIZE,
 ):
     """
     Create model, data loaders, optimizer, and config for training.
@@ -119,56 +137,87 @@ def create_model_and_loaders(
         device: CPU or GPU
         dt: Time step for simulation
         T: Temporal horizon (ignored if adaptive=True)
+        method: Adaptive training method
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
+        ftle_window: Forward FTLE window for adaptive training
 
     Returns:
-        model, train_loader, val_loader, optimizer, config
+        model, train_loader, val_loader, optimizer, config, metadata
     """
-    config = MLPConfig(
-        input_size=3,
-        output_size=3,
-        layer_widths=[LAYER_WIDTH, LAYER_WIDTH, LAYER_WIDTH],
+    mlp_config = MLPConfig(
+        input_size=config.INPUT_DIM,
+        output_size=config.INPUT_DIM,
+        layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
         residual_connections=True,
         k=1,
         activation=torch.nn.ReLU(),
     )
-    model = MLP(config, random_seed=seed).to(device)
+    model = MLP(mlp_config, random_seed=seed).to(device)
+    metadata = {}
 
     if adaptive:
-        train_dataset = AdaptiveLorenzDataset(
-            num_trajectories=NUM_TRAJECTORIES,
-            steps_per_trajectory=STEPS_PER_TRAJECTORY,
-            dt=dt,
-            normalize=True,
-            seed=seed,
-        )
-        val_dataset = AdaptiveLorenzDataset(
-            num_trajectories=NUM_TRAJECTORIES // 5,
-            steps_per_trajectory=STEPS_PER_TRAJECTORY,
-            dt=dt,
-            normalize=True,
-            seed=seed + 1000,
-        )
-        collate_function = collate_fn_adaptive
+        if method == ADAPTIVE_HORIZON_METHOD:
+            train_dataset = AdaptiveHorizonLorenzDataset(dt=dt, seed=seed)
+            val_dataset = AdaptiveHorizonLorenzDataset(
+                num_trajectories=config.NUM_TRAJECTORIES // 5,
+                dt=dt,
+                seed=seed + 1000,
+                normalization_stats=train_dataset.normalization_stats,
+            )
+            collate_function = collate_fn_adaptive_horizon
+        elif method == WEIGHTED_LOSS_METHOD:
+            T = T if T is not None else default_adaptive_T_max(dt)
+            train_dataset = WeightedLossLorenzDataset(
+                dt=dt,
+                T_max=T,
+                ftle_window=ftle_window,
+                seed=seed,
+            )
+            val_dataset = WeightedLossLorenzDataset(
+                num_trajectories=config.NUM_TRAJECTORIES // 5,
+                dt=dt,
+                T_max=T,
+                ftle_window=ftle_window,
+                seed=seed + 1000,
+                normalization_stats=train_dataset.normalization_stats,
+            )
+            collate_function = collate_fn_weighted_loss
+        else:
+            raise ValueError(f"Unsupported adaptive method: {method}")
+
+        metadata["adaptive"] = {
+            "method": method,
+            "dt": dt,
+        }
+        if method == WEIGHTED_LOSS_METHOD:
+            metadata["adaptive"]["T_max"] = T
+            metadata["adaptive"]["ftle_window"] = ftle_window
+        else:
+            metadata["adaptive"].update(
+                {
+                    "base_T": train_dataset.base_T,
+                    "min_T": train_dataset.min_T,
+                    "max_T": train_dataset.max_T,
+                    "alpha": train_dataset.alpha,
+                }
+            )
     else:
         train_dataset = LorenzDataset(
-            num_trajectories=NUM_TRAJECTORIES,
-            steps_per_trajectory=STEPS_PER_TRAJECTORY,
             T=T,
             dt=dt,
-            normalize=True,
             seed=seed,
         )
         val_dataset = LorenzDataset(
-            num_trajectories=20,
-            steps_per_trajectory=STEPS_PER_TRAJECTORY,
+            num_trajectories=config.NUM_TRAJECTORIES // 5,
             T=T,
             dt=dt,
-            normalize=True,
             seed=seed + 1000,
+            normalization_stats=train_dataset.normalization_stats,
         )
         collate_function = collate_fn
+
+    metadata["normalization_stats"] = train_dataset.normalization_stats
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function
@@ -178,7 +227,7 @@ def create_model_and_loaders(
     )
     optimizer = create_optimizer(optimizer_name, model)
 
-    return model, train_loader, val_loader, optimizer, config
+    return model, train_loader, val_loader, optimizer, mlp_config, metadata
 
 
 def train(
@@ -187,9 +236,15 @@ def train(
     val_loader,
     optimizer,
     epochs,
-    device="cpu",
+    device=config.DEVICE,
     T=None,
     adaptive=False,
+    method=ADAPTIVE_HORIZON_METHOD,
+    dt=config.DT,
+    rho=config.RHO,
+    temperature=config.TEMPERATURE,
+    weight_floor=config.WEIGHT_FLOOR,
+    anchor_alpha=config.ANCHOR_ALPHA,
 ):
     """
     Train model with fixed temporal horizon T.
@@ -203,6 +258,12 @@ def train(
         device: CPU or GPU
         T: Temporal horizon (only if non-adaptive)
         adaptive: Whether to use the adaptive temporal horizon
+        method: Adaptive training method
+        dt: Time step used by adaptive predictability weights
+        rho: Predictability budget threshold
+        temperature: Sigmoid softness for adaptive weights
+        weight_floor: Minimum unnormalized adaptive weight
+        anchor_alpha: Weight of the one-step anchor loss
 
     Returns:
         losses: List of training_results losses
@@ -219,8 +280,24 @@ def train(
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             if adaptive:
-                T_values = rest[0].to(device) if rest else None
-                loss = adaptive_batch_loss(model, inputs, targets, T_values)
+                if method == ADAPTIVE_HORIZON_METHOD:
+                    T_values = rest[0].to(device) if rest else None
+                    loss = adaptive_batch_loss(model, inputs, targets, T_values)
+                elif method == WEIGHTED_LOSS_METHOD:
+                    lambda_scores = rest[0].to(device) if rest else None
+                    loss = lle_weighted_batch_loss(
+                        model,
+                        inputs,
+                        targets,
+                        lambda_scores,
+                        dt=dt,
+                        rho=rho,
+                        temperature=temperature,
+                        floor=weight_floor,
+                        anchor_alpha=anchor_alpha,
+                    )
+                else:
+                    raise ValueError(f"Unsupported adaptive method: {method}")
             else:
                 loss = batch_loss(model, inputs, targets, T)
             loss.backward()
@@ -230,11 +307,23 @@ def train(
         avg_loss = epoch_loss / len(train_loader)
         train_losses.append(avg_loss)
 
-        val_loss = (
-            validation_loss(model, val_loader, T, device)
-            if not adaptive
-            else adaptive_validation_loss(model, val_loader, device)
-        )
+        if not adaptive:
+            val_loss = validation_loss(model, val_loader, T, device)
+        elif method == ADAPTIVE_HORIZON_METHOD:
+            val_loss = adaptive_validation_loss(model, val_loader, device)
+        elif method == WEIGHTED_LOSS_METHOD:
+            val_loss = lle_weighted_validation_loss(
+                model,
+                val_loader,
+                dt=dt,
+                device=device,
+                rho=rho,
+                temperature=temperature,
+                floor=weight_floor,
+                anchor_alpha=anchor_alpha,
+            )
+        else:
+            raise ValueError(f"Unsupported adaptive method: {method}")
         val_losses.append(val_loss)
 
         if epoch == 0 or (epoch + 1) % 10 == 0:
@@ -254,13 +343,42 @@ def train_single_model(
     dt,
     T=None,
     adaptive=False,
+    method=ADAPTIVE_HORIZON_METHOD,
     save_loss_history=True,
-    optimizer_name=OPTIMIZER,
-    batch_size=BATCH_SIZE,
+    optimizer_name=config.OPTIMIZER,
+    batch_size=config.BATCH_SIZE,
+    ftle_window=config.WINDOW_SIZE,
+    rho=config.RHO,
+    temperature=config.TEMPERATURE,
+    weight_floor=config.WEIGHT_FLOOR,
+    anchor_alpha=config.ANCHOR_ALPHA,
 ):
-    model, train_loader, val_loader, optimizer, config = create_model_and_loaders(
-        seed, adaptive, device, dt, T, optimizer_name, batch_size
+    model, train_loader, val_loader, optimizer, mlp_config, metadata = (
+        create_model_and_loaders(
+            seed,
+            adaptive,
+            device,
+            dt,
+            T,
+            method,
+            optimizer_name,
+            batch_size,
+            ftle_window,
+        )
     )
+    if adaptive:
+        if method == WEIGHTED_LOSS_METHOD:
+            T = metadata["adaptive"]["T_max"]
+            metadata["adaptive"].update(
+                {
+                    "rho": rho,
+                    "temperature": temperature,
+                    "weight_floor": weight_floor,
+                    "anchor_alpha": anchor_alpha,
+                }
+            )
+        else:
+            T = None
 
     train_losses, val_losses = train(
         model,
@@ -271,13 +389,27 @@ def train_single_model(
         device=device,
         T=T,
         adaptive=adaptive,
+        method=method,
+        dt=dt,
+        rho=rho,
+        temperature=temperature,
+        weight_floor=weight_floor,
+        anchor_alpha=anchor_alpha,
     )
 
     if save_loss_history:
         save_losses(
             train_losses, val_losses, save_dir=loss_save_dir, T=T, adaptive=adaptive
         )
-    save_model(model, config, seed, save_dir=model_save_dir, T=T, adaptive=adaptive)
+    save_model(
+        model,
+        config,
+        seed,
+        save_dir=model_save_dir,
+        T=T,
+        adaptive=adaptive,
+        metadata=metadata,
+    )
     return train_losses, val_losses
 
 
@@ -288,9 +420,9 @@ def train_fixed_models(
     device,
     model_save_dir,
     loss_save_dir,
-    dt,
-    optimizer_name,
-    batch_size,
+    dt=config.DT,
+    optimizer_name=config.OPTIMIZER,
+    batch_size=config.BATCH_SIZE,
     append=False,
 ):
     seed_range = range(n_seeds)
@@ -362,13 +494,20 @@ def train_adaptive_models(
     device,
     model_save_dir,
     loss_save_dir,
-    dt,
-    optimizer_name,
-    batch_size,
+    dt=config.DT,
+    optimizer_name=config.OPTIMIZER,
+    batch_size=config.BATCH_SIZE,
+    method=ADAPTIVE_HORIZON_METHOD,
+    T_max=None,
+    ftle_window=config.WINDOW_SIZE,
+    rho=config.RHO,
+    temperature=config.TEMPERATURE,
+    weight_floor=config.WEIGHT_FLOOR,
+    anchor_alpha=config.ANCHOR_ALPHA,
     append=False,
 ):
     print(f"\n{'=' * 50}")
-    print("Training adaptive models")
+    print(f"Training adaptive models ({method})")
     print(f"{'=' * 50}")
 
     train_losses = []
@@ -376,7 +515,7 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir) if append else set()
+        get_existing_adaptive_model_seeds(model_save_dir, method) if append else set()
     )
     missing_seeds = [seed for seed in seed_range if seed not in existing_seeds]
 
@@ -399,10 +538,17 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
+            T=T_max,
             adaptive=True,
+            method=method,
             save_loss_history=False,
             optimizer_name=optimizer_name,
             batch_size=batch_size,
+            ftle_window=ftle_window,
+            rho=rho,
+            temperature=temperature,
+            weight_floor=weight_floor,
+            anchor_alpha=anchor_alpha,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -418,7 +564,11 @@ def train_adaptive_models(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--epochs", "-e", type=int, default=EPOCHS, help="Number of training epochs"
+        "--epochs",
+        "-e",
+        type=int,
+        default=config.EPOCHS,
+        help="Number of training epochs",
     )
     parser.add_argument(
         "--single",
@@ -429,7 +579,7 @@ def main():
         "-T",
         type=int,
         default=1,
-        help="Training horizon for --single mode",
+        help="Training horizon for fixed --single mode",
     )
     parser.add_argument(
         "--fixed", "-f", action="store_true", help="Train only fixed T models"
@@ -438,23 +588,33 @@ def main():
         "--adaptive", "-a", action="store_true", help="Train only adaptive models"
     )
     parser.add_argument(
+        "--method",
+        choices=[ADAPTIVE_HORIZON_METHOD, WEIGHTED_LOSS_METHOD],
+        default=ADAPTIVE_HORIZON_METHOD,
+        help="Adaptive training method used with --adaptive",
+    )
+    parser.add_argument(
         "--max-T",
         type=int,
-        default=MAX_T,
+        default=config.MAX_T,
         help="Train fixed-horizon models for T from 1 to this value",
     )
-    parser.add_argument("--n-seeds", "-s", type=int, default=10, help="Number of seeds")
-    parser.add_argument("--dt", type=float, default=DT, help="Time step for simulation")
+    parser.add_argument(
+        "--n-seeds", "-s", type=int, default=config.NUM_SEEDS, help="Number of seeds"
+    )
+    parser.add_argument(
+        "--dt", type=float, default=config.DT, help="Time step for simulation"
+    )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=BATCH_SIZE,
+        default=config.BATCH_SIZE,
         help="Batch size for training and validation loaders",
     )
     parser.add_argument(
         "--optimizer",
         type=str,
-        default=OPTIMIZER,
+        default=config.OPTIMIZER,
         choices=["sgd", "adam", "adamw"],
         help="Optimizer to use",
     )
@@ -462,6 +622,42 @@ def main():
         "--append",
         action="store_true",
         help="Append outputs to the run referenced by models/last_run.txt",
+    )
+    parser.add_argument(
+        "--adaptive-T-max",
+        type=int,
+        default=None,
+        help="Shared rollout horizon for LLE-weighted adaptive training",
+    )
+    parser.add_argument(
+        "--ftle-window",
+        type=int,
+        default=config.WINDOW_SIZE,
+        help="Forward FTLE window for adaptive lambda scores",
+    )
+    parser.add_argument(
+        "--rho",
+        type=float,
+        default=config.RHO,
+        help="Predictability budget threshold for adaptive weights",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=config.TEMPERATURE,
+        help="Sigmoid temperature for adaptive weights",
+    )
+    parser.add_argument(
+        "--weight-floor",
+        type=float,
+        default=config.WEIGHT_FLOOR,
+        help="Minimum unnormalized adaptive rollout weight",
+    )
+    parser.add_argument(
+        "--anchor-alpha",
+        type=float,
+        default=config.ANCHOR_ALPHA,
+        help="One-step anchor fraction in the adaptive loss",
     )
 
     args = parser.parse_args()
@@ -472,9 +668,10 @@ def main():
     print(f"Time step: {args.dt}")
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {args.optimizer}")
+    print(f"Adaptive method: {args.method}")
     print(f"Append mode: {args.append}")
 
-    timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.append)
+    timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.dt, args.append)
     model_save_dir.mkdir(parents=True, exist_ok=True)
     loss_save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -492,10 +689,16 @@ def main():
             model_save_dir=model_save_dir,
             loss_save_dir=loss_save_dir,
             dt=args.dt,
-            T=None if args.adaptive else args.T,
+            T=args.adaptive_T_max if args.adaptive else args.T,
             adaptive=args.adaptive,
+            method=args.method,
             optimizer_name=args.optimizer,
             batch_size=args.batch_size,
+            ftle_window=args.ftle_window,
+            rho=args.rho,
+            temperature=args.temperature,
+            weight_floor=args.weight_floor,
+            anchor_alpha=args.anchor_alpha,
         )
     elif args.fixed:
         train_fixed_models(
@@ -520,6 +723,13 @@ def main():
             args.dt,
             args.optimizer,
             args.batch_size,
+            method=args.method,
+            T_max=args.adaptive_T_max,
+            ftle_window=args.ftle_window,
+            rho=args.rho,
+            temperature=args.temperature,
+            weight_floor=args.weight_floor,
+            anchor_alpha=args.anchor_alpha,
             append=args.append,
         )
     else:
@@ -544,6 +754,13 @@ def main():
             args.dt,
             args.optimizer,
             args.batch_size,
+            method=args.method,
+            T_max=args.adaptive_T_max,
+            ftle_window=args.ftle_window,
+            rho=args.rho,
+            temperature=args.temperature,
+            weight_floor=args.weight_floor,
+            anchor_alpha=args.anchor_alpha,
             append=args.append,
         )
 

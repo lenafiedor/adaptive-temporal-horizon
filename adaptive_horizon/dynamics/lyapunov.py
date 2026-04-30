@@ -2,11 +2,12 @@ import numpy as np
 
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
 from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
+from adaptive_horizon.config import WINDOW_SIZE
 
 
 def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
     """
-    Compute largest Lyapunov exponent using RK4-consistent QR method.
+    Compute the largest Lyapunov exponent using the RK4-consistent QR method.
     """
     x = np.array([1.0, 1.0, 1.0])
     Q = np.eye(3)
@@ -40,7 +41,7 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     N = len(trajectory)
     Q = np.eye(3)
     lles = []
-    if not burn_in:
+    if burn_in is None:
         burn_in = int(0.01 * N)
 
     for i in range(N - 1):
@@ -52,6 +53,41 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
             lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
 
     return np.array(lles)
+
+
+def compute_forward_ftle(trajectory, dt=0.01, window=WINDOW_SIZE):
+    """
+    Compute an aligned forward finite-time Lyapunov score for each start state.
+
+    The returned value at index i estimates the largest tangent-space expansion
+    over trajectory[i : i + window + 1], so it can be used directly as a
+    training-time predictability score for samples that start at i.
+
+    Args:
+        trajectory (array [N, 3]): states along a trajectory
+        dt (float): time step
+        window (int): number of forward integration steps
+    Returns:
+        array [N - window]: largest forward FTLE for each valid start index
+    """
+    if window < 1:
+        raise ValueError(f"window must be at least 1, got {window}")
+
+    trajectory = np.array(trajectory)
+    scores = []
+
+    for start in range(len(trajectory) - window):
+        tangent_map = np.eye(3)
+        for offset in range(window):
+            x = trajectory[start + offset]
+            _, tangent_map = rk4_step_coupled(
+                x, tangent_map, dt, lorenz_f, jacobian_lorenz
+            )
+
+        sigma_max = np.linalg.svd(tangent_map, compute_uv=False)[0]
+        scores.append(np.log(sigma_max + 1e-12) / (window * dt))
+
+    return np.array(scores)
 
 
 def smooth_lle(lles, window):

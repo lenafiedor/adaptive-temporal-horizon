@@ -1,5 +1,6 @@
 import torch
 
+import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP
 
 
@@ -26,27 +27,17 @@ def batch_loss(model, inputs, targets, T):
 def adaptive_batch_loss(
     model: MLP, inputs: torch.Tensor, targets: torch.Tensor, T: torch.Tensor
 ):
-    """Compute per-sample loss with sample-specific horizons.
-    Args:
-        model: MLP model
-        inputs: (batch_size, input_size)
-        targets: (batch_size, max_T, input_size) - padded to max_T
-        T: (batch_size,) - horizon per sample
-    Returns:
-        float: average loss
-    """
+    """Compute loss for sample-specific adaptive temporal horizons."""
     batch_size = inputs.shape[0]
     max_T = int(T.max().item())
 
-    # Autoregressive predictions up to max_T
     x_pred = inputs
     all_preds = []
-    for tau in range(max_T):
+    for _ in range(max_T):
         x_pred = model(x_pred)
         all_preds.append(x_pred)
-    preds = torch.stack(all_preds, dim=1)  # [batch_size, max_T, input_size]
+    preds = torch.stack(all_preds, dim=1)
 
-    # Per-sample MSE with masking based on each sample's T
     total_loss = 0.0
     for i in range(batch_size):
         t_i = int(T[i].item())
@@ -56,7 +47,85 @@ def adaptive_batch_loss(
     return total_loss / batch_size
 
 
-def validation_loss(model, val_loader, T, device="cpu"):
+def lle_predictability_weights(
+    lambda_scores: torch.Tensor,
+    T: int,
+    dt: float = config.DT,
+    rho: float = config.RHO,
+    temperature: float = config.TEMPERATURE,
+    floor: float = config.WEIGHT_FLOOR,
+):
+    """Build normalized rollout-step weights from per-sample FTLE scores."""
+    if temperature <= 0:
+        raise ValueError(f"temperature must be positive, got {temperature}")
+    if floor < 0:
+        raise ValueError(f"floor must be non-negative, got {floor}")
+
+    taus = torch.arange(
+        1, T + 1, dtype=lambda_scores.dtype, device=lambda_scores.device
+    )
+    positive_lambda = torch.clamp(lambda_scores, min=0.0).unsqueeze(1)
+    predictability_budget = positive_lambda * taus.unsqueeze(0) * dt
+    weights = torch.sigmoid((rho - predictability_budget) / temperature)
+    weights = torch.clamp(weights, min=floor)
+
+    return weights / weights.sum(dim=1, keepdim=True)
+
+
+def lle_weighted_batch_loss(
+    model: MLP,
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    lambda_scores: torch.Tensor,
+    dt: float = config.DT,
+    rho: float = config.RHO,
+    temperature: float = config.TEMPERATURE,
+    floor: float = config.WEIGHT_FLOOR,
+    anchor_alpha: float = config.ANCHOR_ALPHA,
+):
+    """Compute an LLE-weighted fixed-horizon autoregressive loss.
+
+    Args:
+        model: MLP model
+        inputs: (batch_size, input_size)
+        targets: (batch_size, T_max, input_size)
+        lambda_scores: (batch_size,) aligned forward FTLE scores
+        dt: simulation time step
+        rho: predictability budget threshold
+        temperature: sigmoid softness for the budget threshold
+        floor: minimum unnormalized rollout weight
+        anchor_alpha: one-step MSE weight in the final loss
+    Returns:
+        float: average weighted rollout loss
+    """
+    if not 0 <= anchor_alpha <= 1:
+        raise ValueError(f"anchor_alpha must be in [0, 1], got {anchor_alpha}")
+
+    T_max = targets.shape[1]
+    x_pred = inputs
+    all_preds = []
+    for _ in range(T_max):
+        x_pred = model(x_pred)
+        all_preds.append(x_pred)
+    preds = torch.stack(all_preds, dim=1)
+
+    step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(dim=2)
+    weights = lle_predictability_weights(
+        lambda_scores=lambda_scores,
+        T=T_max,
+        dt=dt,
+        rho=rho,
+        temperature=temperature,
+        floor=floor,
+    )
+
+    weighted_rollout_loss = (step_mse * weights).sum(dim=1).mean()
+    one_step_loss = torch.nn.functional.mse_loss(preds[:, 0], targets[:, 0])
+
+    return anchor_alpha * one_step_loss + (1.0 - anchor_alpha) * weighted_rollout_loss
+
+
+def validation_loss(model, val_loader, T, device=config.DEVICE):
     """Compute validation loss."""
     model.eval()
     total_loss = 0.0
@@ -71,20 +140,57 @@ def validation_loss(model, val_loader, T, device="cpu"):
 
 
 def adaptive_validation_loss(model, val_loader, device="cpu"):
-    """Compute adaptive validation loss."""
+    """Compute validation loss for sample-specific hard temporal horizons."""
     model.eval()
     total_loss = 0.0
 
     with torch.no_grad():
         for inputs, targets, T in val_loader:
-            inputs, targets, T = inputs.to(device), targets.to(device), T.to(device)
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            T = T.to(device)
             loss = adaptive_batch_loss(model, inputs, targets, T)
             total_loss += loss.item()
 
     return total_loss / len(val_loader)
 
 
-def compute_gradient_norm(model, loader, T, max_batches=5, device="cpu"):
+def lle_weighted_validation_loss(
+    model,
+    val_loader,
+    dt = config.DT,
+    device= config.DEVICE,
+    rho: float = config.RHO,
+    temperature: float = config.TEMPERATURE,
+    floor: float = config.WEIGHT_FLOOR,
+    anchor_alpha: float = config.ANCHOR_ALPHA,
+):
+    """Compute validation loss for the LLE-weighted training objective."""
+    model.eval()
+    total_loss = 0.0
+
+    with torch.no_grad():
+        for inputs, targets, lambda_scores in val_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            lambda_scores = lambda_scores.to(device)
+            loss = lle_weighted_batch_loss(
+                model,
+                inputs,
+                targets,
+                lambda_scores,
+                dt=dt,
+                rho=rho,
+                temperature=temperature,
+                floor=floor,
+                anchor_alpha=anchor_alpha,
+            )
+            total_loss += loss.item()
+
+    return total_loss / len(val_loader)
+
+
+def compute_gradient_norm(model, loader, T, max_batches=5, device=config.DEVICE):
     """Compute gradient norm using loss per paper Eq. 3."""
     model.zero_grad()
     total_loss = 0.0
@@ -108,7 +214,7 @@ def compute_gradient_norm(model, loader, T, max_batches=5, device="cpu"):
     return torch.sqrt(total_norm)
 
 
-def compute_g_T(model, loader, T_vals, device="cpu", max_batches=5):
+def compute_g_T(model, loader, T_vals, max_batches=5, device=config.DEVICE):
     model.eval()
 
     g1 = compute_gradient_norm(
