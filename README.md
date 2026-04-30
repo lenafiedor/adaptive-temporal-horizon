@@ -57,26 +57,26 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 
 **Args:**
 
-| Name               | Description                                                           | Values                                | Default value         |
-|--------------------|-----------------------------------------------------------------------|---------------------------------------|-----------------------|
-| `--epochs` `-e`    | Number of epochs to train the model                                   | int                                   | `config.EPOCHS`       |
-| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                         | false                 |
-| `-T`               | Training horizon for fixed `--single` mode                            | int                                   | 1                     |
-| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                         | false                 |
-| `--adaptive`, `-a` | Train only adaptive models                                            | true \| false                         | false                 |
-| `--method`         | Adaptive training method used with `--adaptive`                       | `adaptive-horizon` \| `weighted-loss` | `adaptive-horizon`    |
-| `--max-T`          | Train fixed-horizon models for all `T` from 1 to this value           | int                                   | `config.MAX_T`        |
-| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                   | `config.NUM_SEEDS`    |
-| `--dt`             | Time step for the Lorenz attractor simulation                         | float                                 | `config.DT`           |
-| `--batch-size`     | Batch size for training and validation loaders                        | int                                   | `config.BATCH_SIZE`   |
-| `--optimizer`      | Optimizer to use                                                      | `sgd` \| `adam` \| `adamw`            | `config.OPTIMIZER`    |
-| `--append`         | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false                 |
-| `--adaptive-T-max` | Shared rollout horizon for LLE-weighted adaptive training             | int                                   | None                  |
-| `--ftle-window`    | Forward FTLE window for adaptive lambda scores                        | int                                   | `config.WINDOW_SIZE`  |
-| `--rho`            | Predictability budget threshold for adaptive weights                  | float                                 | `config.RHO`          |
-| `--temperature`    | Sigmoid temperature for adaptive weights                              | float                                 | `config.TEMPERATURE`  |
-| `--weight-floor`   | Minimum unnormalized adaptive rollout weight                          | float                                 | `config.WEIGHT_FLOOR` |
-| `--anchor-alpha`   | One-step anchor fraction in the adaptive loss                         | float                                 | `config.ANCHOR_ALPHA` |
+| Name               | Description                                                           | Values                                | Default value      |
+|--------------------|-----------------------------------------------------------------------|---------------------------------------|--------------------|
+| `--epochs` `-e`    | Number of epochs to train the model                                   | int                                   | 100                |
+| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                         | false              |
+| `-T`               | Training horizon for fixed `--single` mode                            | int                                   | 1                  |
+| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                         | false              |
+| `--adaptive`, `-a` | Train only adaptive models                                            | true \| false                         | false              |
+| `--method`         | Adaptive training method used with `--adaptive`                       | `adaptive-horizon` \| `weighted-loss` | `adaptive-horizon` |
+| `--max-T`          | Train fixed-horizon models for all `T` from 1 to this value           | int                                   | 10                 |
+| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                   | 10                 |
+| `--dt`             | Time step for the Lorenz attractor simulation                         | float                                 | 0.08               |
+| `--batch-size`     | Batch size for training and validation loaders                        | int                                   | 64                 |
+| `--optimizer`      | Optimizer to use                                                      | `sgd` \| `adam` \| `adamw`            | adam               |
+| `--append`         | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false              |
+| `--adaptive-T-max` | Shared rollout horizon for LLE-weighted adaptive training             | int                                   | None               |
+| `--ftle-window`    | Forward FTLE window for adaptive lambda scores                        | int                                   | 5                  |
+| `--rho`            | Predictability budget threshold for adaptive weights                  | float                                 | 1.0                |
+| `--temperature`    | Sigmoid temperature for adaptive weights                              | float                                 | 0.25               |
+| `--weight-floor`   | Minimum unnormalized adaptive rollout weight                          | float                                 | 0.05               |
+| `--anchor-alpha`   | One-step anchor fraction in the adaptive loss                         | float                                 | 0.25               |
 
 
 The trained models are saved in the `experiments/lorenz/models/<timestamp>` directory by default.
@@ -117,7 +117,7 @@ poetry run gradient-scaling --model path/to/trained/model.pt
 |----------------|--------------------------------------------------------|--------|---------------|
 | `--model` `-m` | Path to the trained model                              | str    | Required      |
 | `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 200           |
-| `--dt`         | Time step for the Lorenz attractor simulation          | float  | config.DT     |
+| `--dt`         | Time step for the Lorenz attractor simulation          | float  | 0.08          |
 
 #### Cross-validation on all trained models
 
