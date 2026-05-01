@@ -176,7 +176,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             if prior is not None:
                 base_T = int(prior["best_train_T"])
             else:
-                base_T = int(config.DEFAULT_ADAPTIVE_HORIZON / dt)
+                base_T = default_adaptive_T_max(dt)
 
         if min_T is None:
             min_T = (

@@ -113,11 +113,11 @@ poetry run gradient-scaling --model path/to/trained/model.pt
 
 **Args:**
 
-| Name           | Description                                            | Values | Default value |
-|----------------|--------------------------------------------------------|--------|---------------|
-| `--model` `-m` | Path to the trained model                              | str    | Required      |
-| `--max-eval-T` | Maximum evaluation horizon to consider for evaluation  | int    | 200           |
-| `--dt`         | Time step for the Lorenz attractor simulation          | float  | 0.08          |
+| Name                | Description                                           | Values                                | Default value   |
+|---------------------|-------------------------------------------------------|---------------------------------------|-----------------|
+| `--model` `-m`      | Path to the trained model                             | str                                   | None (required) |
+| `--max-eval-T`      | Maximum evaluation horizon to consider for evaluation | int                                   | 200             |
+| `--dt`              | Time step for the Lorenz attractor simulation         | float                                 | 0.08            |
 
 #### Cross-validation on all trained models
 
@@ -131,11 +131,12 @@ poetry run cross-validation
 
 **Args:**
 
-| Name          | Description                                         | Values | Default value                      |
-|---------------|-----------------------------------------------------|--------|------------------------------------|
-| `--model-dir` | Path to the directory containing trained models     | str    | Read from `last_run.txt`           |
-| `--max-T`     | Maximum training horizon to consider for evaluation | int    | Max T found in the model directory |
-| `--dt`        | Time step for the Lorenz attractor simulation       | float  | 0.08                               |
+| Name                | Description                                         | Values                                | Default value                      |
+|---------------------|-----------------------------------------------------|---------------------------------------|------------------------------------|
+| `--model-dir`       | Path to the directory containing trained models     | str                                   | Read from `last_run.txt`           |
+| `--max-T`           | Maximum training horizon to consider for evaluation | int                                   | Max T found in the model directory |
+| `--dt`              | Time step for the Lorenz attractor simulation       | float                                 | 0.08                               |
+| `--adaptive-method` | Method used for adaptive training                   | `adaptive-horizon` \| `weighted-loss` | None (both used)                   |
 
 ### Computing Lyapunov Exponents
 

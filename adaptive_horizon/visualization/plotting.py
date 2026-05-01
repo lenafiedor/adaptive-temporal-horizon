@@ -109,17 +109,40 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def plot_mse(T_values, stats, adaptive_stats, save_dir, dt):
+def summarize_values(values, summary_mode):
+    values = np.asarray(values, dtype=np.float64)
+    if len(values) == 0:
+        raise ValueError("Cannot summarize empty values")
+
+    if summary_mode == "mean-std":
+        center = float(np.mean(values))
+        spread = float(np.std(values))
+        return center, spread, spread, "mean +/- std"
+
+    if summary_mode == "mean-ci":
+        center = float(np.mean(values))
+        std = float(np.std(values))
+        sem = std / np.sqrt(len(values))
+        half_width = 1.96 * sem
+        return center, half_width, half_width, "mean +/- 95% CI"
+
+    if summary_mode == "median-iqr":
+        q1, median, q3 = np.percentile(values, [25, 50, 75])
+        return float(median), float(median - q1), float(q3 - median), "median with IQR"
+
+    raise ValueError(f"Unsupported summary mode: {summary_mode}")
+
+
+def plot_mse(T_values, evaluation_records, save_dir, dt, summary_mode="mean-std"):
     """
-    Plot MSE for each validation T as separate lines (like cross-val mode).
-    Adaptive model minimum MSE is plotted as a dashed horizontal line for each val_T.
+    Plot MSE summaries for each validation T as separate lines.
 
     Args:
         T_values: list of T values
-        stats: dict of {train_T: {val_T: (mean, std)}}
-        adaptive_stats: dict of {val_T: (mean, std)}
+        evaluation_records: list of per-model, per-validation-horizon records
         save_dir: directory to save plot
         dt: simulation time step
+        summary_mode: one of mean-std, mean-ci, median-iqr
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -128,16 +151,33 @@ def plot_mse(T_values, stats, adaptive_stats, save_dir, dt):
     cmap = plt.cm.tab20
     colors = [cmap(i / len(T_values)) for i in range(len(T_values))]
     train_times = [train_T * dt for train_T in T_values]
+    summary_label = None
 
     for i, val_T in enumerate(T_values):
-        means = [stats[train_T][val_T][0] for train_T in T_values]
-        stds = [stats[train_T][val_T][1] for train_T in T_values]
+        centers = []
+        lower_errors = []
+        upper_errors = []
         val_time = val_T * dt
+
+        for train_T in T_values:
+            values = [
+                record["mse"]
+                for record in evaluation_records
+                if record["model_type"] == "fixed"
+                and record["train_T"] == train_T
+                and record["val_T"] == val_T
+            ]
+            center, lower_error, upper_error, summary_label = summarize_values(
+                values, summary_mode
+            )
+            centers.append(center)
+            lower_errors.append(lower_error)
+            upper_errors.append(upper_error)
 
         ax.errorbar(
             train_times,
-            means,
-            yerr=stds,
+            centers,
+            yerr=np.array([lower_errors, upper_errors]),
             color=colors[i],
             label=f"$t_L={val_time:.2f}$",
             linewidth=1.5,
@@ -146,19 +186,28 @@ def plot_mse(T_values, stats, adaptive_stats, save_dir, dt):
             capsize=3,
         )
 
-        if val_T in adaptive_stats:
-            adaptive_mean = adaptive_stats[val_T][0]
+        adaptive_values = [
+            record["mse"]
+            for record in evaluation_records
+            if record["model_type"] == "adaptive" and record["val_T"] == val_T
+        ]
+        if adaptive_values:
+            adaptive_center, _, _, _ = summarize_values(adaptive_values, summary_mode)
             ax.axhline(
-                y=adaptive_mean,
+                y=adaptive_center,
                 color=colors[i],
                 linestyle="--",
                 linewidth=1.0,
                 alpha=0.7,
             )
 
+    has_adaptive = any(
+        record["model_type"] == "adaptive" for record in evaluation_records
+    )
+
     ax.set_xlabel(r"Training Horizon ($T \cdot dt$)")
-    ax.set_ylabel("Validation MSE (mean ± std)")
-    suffix = " (dashed = adaptive model)" if adaptive_stats else ""
+    ax.set_ylabel(f"Validation MSE ({summary_label})")
+    suffix = " (dashed = adaptive model)" if has_adaptive else ""
     ax.set_title("Cross-Validation MSE" + suffix)
     ax.set_yscale("log")
     ax.set_xticks(train_times)

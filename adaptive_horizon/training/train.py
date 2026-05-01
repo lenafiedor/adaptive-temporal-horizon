@@ -24,6 +24,7 @@ from adaptive_horizon.training.loss import (
     validation_loss,
 )
 from adaptive_horizon.visualization.plotting import save_losses, save_model
+from adaptive_horizon.evaluation.cross_validation import get_adaptive_method
 
 ADAPTIVE_HORIZON_METHOD = "adaptive-horizon"
 WEIGHTED_LOSS_METHOD = "weighted-loss"
@@ -76,12 +77,8 @@ def get_existing_adaptive_model_seeds(model_dir: Path, method=ADAPTIVE_HORIZON_M
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
         if match:
-            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-            checkpoint_method = (
-                checkpoint.get("metadata", {})
-                .get("adaptive", {})
-                .get("method", ADAPTIVE_HORIZON_METHOD)
-            )
+            checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=False)
+            checkpoint_method = get_adaptive_method(checkpoint)
             if checkpoint_method == method:
                 model_seeds.add(int(match.group(1)))
     return model_seeds
@@ -663,7 +660,7 @@ def main():
     args = parser.parse_args()
     train_Ts = get_train_Ts(args.max_T)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
     print(f"Time step: {args.dt}")
     print(f"Batch size: {args.batch_size}")

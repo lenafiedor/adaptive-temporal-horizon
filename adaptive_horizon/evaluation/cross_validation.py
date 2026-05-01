@@ -13,6 +13,8 @@ from adaptive_horizon.visualization.plotting import plot_mse
 from adaptive_horizon.evaluation.utils import load_model
 
 EVAL_SEED = 12345
+ADAPTIVE_HORIZON_METHOD = "adaptive-horizon"
+WEIGHTED_LOSS_METHOD = "weighted-loss"
 
 
 def get_last_run():
@@ -52,6 +54,24 @@ def get_adaptive_paths(model_dir=config.MODEL_DIR):
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
 
+def get_adaptive_method(checkpoint):
+    return checkpoint["metadata"]["adaptive"]["method"]
+
+
+def filter_adaptive_paths(adaptive_paths, adaptive_method):
+    if adaptive_method is None:
+        return adaptive_paths
+
+    filtered_paths = []
+    for model_path in adaptive_paths:
+        _, checkpoint = load_model(model_path)
+        checkpoint_method = get_adaptive_method(checkpoint)
+        if checkpoint_method == adaptive_method:
+            filtered_paths.append(model_path)
+
+    return filtered_paths
+
+
 def get_normalization_stats(checkpoint):
     metadata = checkpoint.get("metadata", {})
     return metadata.get("normalization_stats")
@@ -84,7 +104,11 @@ def loader_cache_key(normalization_stats):
 
 
 def cross_validate_models(
-    model_paths, adaptive_paths, T_values, dt, device=config.DEVICE
+    model_paths,
+    adaptive_paths,
+    T_values,
+    dt,
+    device=config.DEVICE,
 ):
     """
     Evaluate models across different validation horizons.
@@ -149,6 +173,7 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
+                    "adaptive_method": get_adaptive_method(checkpoint),
                     "train_T": None,
                     "seed": int(seed) if seed is not None else None,
                     "val_T": int(val_T),
@@ -277,6 +302,8 @@ def cross_validation(
     dt,
     model_dir=None,
     max_T=None,
+    adaptive_method=None,
+    plot_summary_mode="mean-std",
     save_dir=config.EVAL_DIR,
     device=config.DEVICE,
 ):
@@ -303,8 +330,15 @@ def cross_validation(
 
     model_paths = get_model_paths(T_values, model_dir)
     adaptive_paths = get_adaptive_paths(model_dir)
+    adaptive_paths = filter_adaptive_paths(adaptive_paths, adaptive_method)
 
     print(f"T values: {T_values}")
+    if adaptive_method is None:
+        print(f"Adaptive models included: {len(adaptive_paths)} (all methods)")
+    else:
+        print(
+            f"Adaptive models included: {len(adaptive_paths)} (method={adaptive_method})"
+        )
 
     evaluation_records = cross_validate_models(
         model_paths, adaptive_paths, T_values, dt, device
@@ -332,7 +366,13 @@ def cross_validation(
         model_dir,
         save_dir,
     )
-    plot_mse(T_values, stats, adaptive_stats, save_dir, dt)
+    plot_mse(
+        T_values,
+        evaluation_records,
+        save_dir,
+        dt,
+        summary_mode=plot_summary_mode,
+    )
 
 
 def main():
@@ -352,9 +392,28 @@ def main():
     parser.add_argument(
         "--dt", type=float, default=config.DT, help="Time step for simulation"
     )
+    parser.add_argument(
+        "--adaptive-method",
+        choices=[ADAPTIVE_HORIZON_METHOD, WEIGHTED_LOSS_METHOD],
+        default=None,
+        help="Evaluate only adaptive models trained with the selected method",
+    )
+    plot_group = parser.add_mutually_exclusive_group()
+    plot_group.add_argument(
+        "--plot",
+        options=["mean-std", "median-ci", "median-iqr"],
+        default="mean-ci",
+        help="Plot fixed-horizon mean / median MSE with 95%% confidence intervals / interquartile ranges",
+    )
     args = parser.parse_args()
 
-    cross_validation(args.dt, model_dir=args.model_dir, max_T=args.max_T)
+    cross_validation(
+        args.dt,
+        model_dir=args.model_dir,
+        max_T=args.max_T,
+        adaptive_method=args.adaptive_method,
+        plot_summary_mode=args.plot
+    )
 
 
 if __name__ == "__main__":
