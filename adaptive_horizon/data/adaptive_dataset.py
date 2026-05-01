@@ -1,5 +1,4 @@
 from datetime import datetime
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -61,10 +60,6 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: int = 0,
-        horizon_prior_path: Optional[str] = None,
-        base_T: Optional[int] = None,
-        min_T: Optional[int] = None,
-        max_T: Optional[int] = None,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
     ):
@@ -72,10 +67,9 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
-        prior = self._load_horizon_prior(horizon_prior_path, dt)
-        self.base_T, self.min_T, self.max_T = self._resolve_horizon_params(
-            dt, prior, base_T, min_T, max_T
-        )
+        self.base_T = default_adaptive_T_max(dt)
+        self.min_T = max(1, self.base_T - 2)
+        self.max_T = min(self.base_T + 2, config.MAX_T)
 
         if seed is not None:
             np.random.seed(seed)
@@ -154,41 +148,6 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             file.write("\n# T value per sample\n")
             for value in t_values:
                 file.write(f"{value}\n")
-
-    @classmethod
-    def _load_horizon_prior(cls, horizon_prior_path: Optional[str], dt: float):
-        path = (
-            Path(horizon_prior_path)
-            if horizon_prior_path is not None
-            else config.EVAL_DIR / f"horizon_prior_dt_{str(dt).split('.')[1]}.json"
-        )
-
-        if not path.exists():
-            print(f"Horizon prior file not found: {path}")
-            return None
-
-        with path.open("r", encoding="ascii") as file:
-            return json.load(file)
-
-    @staticmethod
-    def _resolve_horizon_params(dt, prior, base_T, min_T, max_T):
-        if base_T is None:
-            if prior is not None:
-                base_T = int(prior["best_train_T"])
-            else:
-                base_T = default_adaptive_T_max(dt)
-
-        if min_T is None:
-            min_T = (
-                int(prior["recommended_min_T"])
-                if prior is not None
-                else max(1, base_T - 2)
-            )
-
-        if max_T is None:
-            max_T = int(prior["recommended_max_T"]) if prior is not None else base_T + 2
-
-        return int(base_T), int(min_T), int(max_T)
 
     @staticmethod
     def _lle_to_horizon(lambda_max, base_T, min_T, max_T):

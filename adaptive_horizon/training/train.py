@@ -198,7 +198,6 @@ def create_model_and_loaders(
                     "base_T": train_dataset.base_T,
                     "min_T": train_dataset.min_T,
                     "max_T": train_dataset.max_T,
-                    "alpha": train_dataset.alpha,
                 }
             )
     else:
