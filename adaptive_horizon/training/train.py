@@ -77,7 +77,9 @@ def get_existing_adaptive_model_seeds(model_dir: Path, method=ADAPTIVE_HORIZON_M
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
         if match:
-            checkpoint = torch.load(model_path, map_location=config.DEVICE, weights_only=False)
+            checkpoint = torch.load(
+                model_path, map_location=config.DEVICE, weights_only=False
+            )
             checkpoint_method = get_adaptive_method(checkpoint)
             if checkpoint_method == method:
                 model_seeds.add(int(match.group(1)))
