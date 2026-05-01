@@ -401,7 +401,7 @@ def main():
     plot_group = parser.add_mutually_exclusive_group()
     plot_group.add_argument(
         "--plot",
-        choices=["mean-std", "median-ci", "median-iqr"],
+        choices=["mean-std", "mean-ci", "median-iqr"],
         default="mean-ci",
         help="Plot fixed-horizon mean / median MSE with 95%% confidence intervals / interquartile ranges",
     )
