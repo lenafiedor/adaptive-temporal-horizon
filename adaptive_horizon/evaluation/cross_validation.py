@@ -21,13 +21,16 @@ from adaptive_horizon.visualization.plotting import (
 from adaptive_horizon.evaluation.utils import load_model
 
 EVAL_SEED = 12345
+LAST_RUN_FILE = "last_run.txt"
 
 
-def get_last_run():
-    """Read last_run.txt and return the corresponding model directory."""
-    last_run_file = config.MODEL_DIR / "last_run.txt"
+def get_last_run(save_dir):
+    last_run_file = Path(save_dir) / LAST_RUN_FILE
     if not last_run_file.exists():
-        return config.MODEL_DIR
+        raise FileNotFoundError(
+            "No last run found. Run training / cross-validation first."
+        )
+
     with open(last_run_file, "r") as f:
         return Path(f.read().strip())
 
@@ -238,46 +241,8 @@ def compute_statistics(evaluation_records, T_values):
     return stats, adaptive_stats
 
 
-def build_summary_results(stats, adaptive_stats, T_values, evaluation_records):
-    """Build cross-validation summaries."""
-    fixed_horizon = []
-    for train_T in T_values:
-        validation = []
-        for val_T in T_values:
-            mean, std = stats[train_T][val_T]
-            validation.append(
-                {
-                    "val_T": int(val_T),
-                    "mean": float(mean),
-                    "std": float(std),
-                }
-            )
-        fixed_horizon.append({"train_T": int(train_T), "validation": validation})
-
-    adaptive_validation = []
-    for val_T in T_values:
-        if val_T not in adaptive_stats:
-            continue
-        mean, std = adaptive_stats[val_T]
-        adaptive_validation.append(
-            {
-                "val_T": int(val_T),
-                "mean": float(mean),
-                "std": float(std),
-            }
-        )
-    adaptive_horizon = []
-    if adaptive_validation:
-        adaptive_horizon.append({"validation": adaptive_validation})
-
-    return {
-        "fixed_horizon": fixed_horizon,
-        "adaptive_horizon": adaptive_horizon,
-    }
-
-
 def save_cross_validation_results(
-    results,
+    evaluation_records,
     T_values,
     best_train_T,
     dt,
@@ -301,15 +266,43 @@ def save_cross_validation_results(
             "T_values": [int(T) for T in T_values],
             "best_train_T": int(best_train_T),
             "adaptive_method": adaptive_method,
+            "method_abbreviation": method_abbreviation,
         },
-        "results": results,
+        "evaluation_records": evaluation_records,
     }
 
     with open(results_file, "w") as f:
         json.dump(payload, f, indent=2)
 
+    with open(save_dir / LAST_RUN_FILE, "w") as f:
+        f.write(str(results_file))
+
     print(f"Cross-validation results saved to {results_file}")
     return results_file
+
+
+def load_cross_validation_results(cached, save_dir=config.EVAL_DIR):
+    save_dir = Path(save_dir)
+    if cached == "__last__":
+        results_file = get_last_run(save_dir)
+    else:
+        results_file = Path(cached)
+
+    if not results_file.exists():
+        raise FileNotFoundError(
+            f"Cached cross-validation results not found: {results_file}"
+        )
+
+    with open(results_file, "r") as f:
+        payload = json.load(f)
+
+    if "evaluation_records" not in payload:
+        raise ValueError(
+            "Cached results file does not contain raw evaluation records. "
+            "Re-run cross-validation to regenerate it."
+        )
+
+    return results_file, payload
 
 
 def cross_validation(
@@ -317,11 +310,33 @@ def cross_validation(
     max_T=None,
     adaptive_method=None,
     plot_summary_mode="mean-std",
+    cached=None,
     save_dir=config.EVAL_DIR,
     device=config.DEVICE,
 ):
+    save_dir = Path(save_dir)
+
+    if cached is not None:
+        results_file, payload = load_cross_validation_results(cached, save_dir)
+        metadata = payload["metadata"]
+        evaluation_records = payload["evaluation_records"]
+        T_values = [int(T) for T in metadata["T_values"]]
+        dt = float(metadata["dt"])
+        cached_adaptive_method = metadata.get("adaptive_method")
+
+        print(f"Using cached cross-validation results: {results_file}")
+        plot_mse(
+            T_values,
+            evaluation_records,
+            save_dir,
+            dt,
+            summary_mode=plot_summary_mode,
+            adaptive_method=cached_adaptive_method,
+        )
+        return
+
     if model_dir is None:
-        model_dir = get_last_run()
+        model_dir = get_last_run(config.MODEL_DIR)
     else:
         model_dir = Path(model_dir)
 
@@ -377,10 +392,8 @@ def cross_validation(
             f"Mean MSE for adaptive models: {np.mean([stats[0] for stats in adaptive_stats.values()]):.6f}"
         )
 
-    results = build_summary_results(stats, adaptive_stats, T_values, evaluation_records)
-
     save_cross_validation_results(
-        results,
+        evaluation_records,
         T_values,
         best_train_T,
         dt,
@@ -419,6 +432,13 @@ def main():
         default=None,
         help="Evaluate only adaptive models trained with the selected method",
     )
+    parser.add_argument(
+        "--cached",
+        nargs="?",
+        const="__last__",
+        default=None,
+        help="Plot cached cross-validation results from JSON without re-running evaluation",
+    )
     plot_group = parser.add_mutually_exclusive_group()
     plot_group.add_argument(
         "--plot",
@@ -433,6 +453,7 @@ def main():
         max_T=args.max_T,
         adaptive_method=args.adaptive_method,
         plot_summary_mode=args.plot,
+        cached=args.cached,
     )
 
 
