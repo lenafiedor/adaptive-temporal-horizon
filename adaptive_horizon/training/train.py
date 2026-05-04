@@ -73,7 +73,9 @@ def get_existing_fixed_model_seeds(model_dir: Path):
     return model_seeds
 
 
-def get_existing_adaptive_model_seeds(model_dir: Path, adaptive_method=ADAPTIVE_HORIZON_METHOD):
+def get_existing_adaptive_model_seeds(
+    model_dir: Path, adaptive_method=ADAPTIVE_HORIZON_METHOD
+):
     model_seeds = set()
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp(?:_[a-z]+)?_seed(\d+)", model_path.name)
@@ -517,7 +519,9 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method) if append else set()
+        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method)
+        if append
+        else set()
     )
     missing_seeds = [seed for seed in seed_range if seed not in existing_seeds]
 
