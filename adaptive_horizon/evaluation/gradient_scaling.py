@@ -6,7 +6,6 @@ from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.visualization.plotting import plot_g_T
 from adaptive_horizon.evaluation.cross_validation import (
-    EVAL_SEED,
     get_normalization_stats,
     load_model,
 )
@@ -27,7 +26,7 @@ def gradient_scaling(model_path, max_T, dt=config.DT):
         dt=dt,
         T=max_T,
         normalize=True,
-        seed=EVAL_SEED,
+        seed=config.EVAL_SEED,
         burn_in=burn_in_steps,
         normalization_stats=get_normalization_stats(checkpoint),
     )

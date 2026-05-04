@@ -20,7 +20,6 @@ from adaptive_horizon.visualization.plotting import (
 )
 from adaptive_horizon.evaluation.utils import load_model
 
-EVAL_SEED = 12345
 LAST_RUN_FILE = "last_run.txt"
 
 
@@ -97,7 +96,7 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None):
         T=max_val_T,
         dt=dt,
         normalize=True,
-        seed=EVAL_SEED,
+        seed=config.EVAL_SEED,
         burn_in=burn_in_steps,
         normalization_stats=normalization_stats,
     )

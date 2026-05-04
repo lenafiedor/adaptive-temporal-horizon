@@ -71,8 +71,8 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         self.std: Optional[torch.Tensor] = None
 
         self.base_T = default_adaptive_T_max(dt)
-        self.min_T = max(1, self.base_T - 2)
-        self.max_T = min(self.base_T + 2, config.MAX_T)
+        self.min_T = max(1, self.base_T - 1)
+        self.max_T = min(self.base_T + 1, config.MAX_T)
 
         if seed is not None:
             np.random.seed(seed)
