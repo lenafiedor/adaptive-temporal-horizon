@@ -309,7 +309,7 @@ def plot_lyapunov_exponents(exponents, window):
     save_figure(fig, f"lle_histogram_W{window}.png")
 
 
-def plot_trajectory_heatmap(trajectory, exponents, window, burn_in):
+def plot_trajectory_heatmap(trajectory, exponents, window, burn_in=0):
     """
     Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
 

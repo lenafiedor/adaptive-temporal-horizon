@@ -11,6 +11,7 @@ from adaptive_horizon.visualization.plotting import (
     plot_lyapunov_exponents,
     plot_trajectory_heatmap,
 )
+import adaptive_horizon.config as config
 from adaptive_horizon.config import WINDOW_SIZE
 
 
@@ -34,18 +35,33 @@ def main():
         default=WINDOW_SIZE,
         help="Window size for LLE computation (only local mode)",
     )
+    parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=config.STEPS_PER_TRAJECTORY,
+        help="Trajectory length",
+    )
     args = parser.parse_args()
-
-    lorenz_trajectory = simulate_lorenz()
-    burn_in = int(0.01 * len(lorenz_trajectory))
+    burn_in = config.resolve_burn_in_steps(args.dt)
 
     if args.mode == "global":
-        lyap = compute_global_lyapunov()
-        print(f"Largest Lyapunov Exponent: {lyap:.4f}")
+        lle = compute_global_lyapunov(dt=args.dt, burn_in=burn_in)
+        print(f"Largest Lyapunov Exponent: {lle:.4f}")
 
     elif args.mode == "local":
+        lorenz_trajectory = np.array(
+            simulate_lorenz(
+                dt=args.dt,
+                steps=args.steps,
+                burn_in=burn_in,
+            )
+        )
+        print(f"Burn-in: {burn_in} steps ({config.BURN_IN_TIME:g} time units)")
+
         lles = smooth_lle(
-            compute_local_lyapunov(lorenz_trajectory, burn_in), window=args.window
+            compute_local_lyapunov(lorenz_trajectory, burn_in=burn_in, dt=args.dt),
+            window=args.window,
         )
 
         print(f"Mean 1st LLE: {np.mean(lles[:, 0]):.4f}")
@@ -53,7 +69,7 @@ def main():
 
         if args.plot:
             plot_lyapunov_exponents(lles, window=args.window)
-            plot_trajectory_heatmap(lorenz_trajectory, lles, args.window, burn_in)
+            plot_trajectory_heatmap(lorenz_trajectory, lles, args.window)
 
     else:
         raise ValueError("Invalid mode. Choose 'global' or 'local'.")

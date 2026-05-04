@@ -5,14 +5,20 @@ import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.visualization.plotting import plot_g_T
-from adaptive_horizon.evaluation.cross_validation import load_model
+from adaptive_horizon.evaluation.cross_validation import (
+    EVAL_SEED,
+    get_normalization_stats,
+    load_model,
+)
 
 
 def gradient_scaling(model_path, max_T, dt=config.DT):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
+    burn_in_steps = config.resolve_burn_in_steps(dt)
+    print(f"Burn-in: {burn_in_steps} steps ({config.BURN_IN_TIME:g} time units)")
 
-    adaptive = "adaptive" in model_path
+    adaptive = "adaptive" in str(model_path)
     train_T = checkpoint.get("train_T") if not adaptive else None
 
     eval_dataset = LorenzDataset(
@@ -21,6 +27,9 @@ def gradient_scaling(model_path, max_T, dt=config.DT):
         dt=dt,
         T=max_T,
         normalize=True,
+        seed=EVAL_SEED,
+        burn_in=burn_in_steps,
+        normalization_stats=get_normalization_stats(checkpoint),
     )
     eval_loader = DataLoader(
         eval_dataset, batch_size=config.BATCH_SIZE, shuffle=False, collate_fn=collate_fn

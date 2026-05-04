@@ -18,7 +18,7 @@ class LorenzDataset(Dataset):
         dt: float = config.DT,
         normalize: bool = True,
         seed: Optional[int] = None,
-        burn_in: int = 0,
+        burn_in: Optional[int] = None,
         normalization_stats: Optional[dict] = None,
     ):
         """
@@ -29,11 +29,12 @@ class LorenzDataset(Dataset):
             dt: Time step for simulation
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
-            burn_in: Number of initial steps to discard (transient period)
+            burn_in: Number of initial steps to discard
             normalization_stats: Optional mean/std values from a training dataset
         """
         self.T = T
         self.normalize = normalize
+        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
 
         if seed is not None:
             np.random.seed(seed)
@@ -46,9 +47,11 @@ class LorenzDataset(Dataset):
                 np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state, dt=dt, steps=steps_per_trajectory + burn_in
+                initial_state=initial_state,
+                dt=dt,
+                steps=steps_per_trajectory,
+                burn_in=self.burn_in,
             )
-            traj = traj[burn_in:]
             trajectories.append(traj)
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)

@@ -90,6 +90,7 @@ def get_normalization_stats(checkpoint):
 
 
 def make_eval_loader(max_val_T, dt, normalization_stats=None):
+    burn_in_steps = config.resolve_burn_in_steps(dt)
     eval_dataset = LorenzDataset(
         num_trajectories=config.NUM_TRAJECTORIES,
         steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
@@ -97,6 +98,7 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None):
         dt=dt,
         normalize=True,
         seed=EVAL_SEED,
+        burn_in=burn_in_steps,
         normalization_stats=normalization_stats,
     )
     return DataLoader(
@@ -262,6 +264,8 @@ def save_cross_validation_results(
         "metadata": {
             "created_at": timestamp,
             "dt": float(dt),
+            "burn_in_time": config.BURN_IN_TIME,
+            "burn_in_steps": config.resolve_burn_in_steps(dt),
             "model_dir": str(model_dir),
             "T_values": [int(T) for T in T_values],
             "best_train_T": int(best_train_T),

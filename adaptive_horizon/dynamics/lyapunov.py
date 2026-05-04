@@ -2,16 +2,17 @@ import numpy as np
 
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
 from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
-from adaptive_horizon.config import WINDOW_SIZE
+from adaptive_horizon.config import WINDOW_SIZE, resolve_burn_in_steps
 
 
-def compute_global_lyapunov(dt=0.01, steps=50000, burn_in=2000):
+def compute_global_lyapunov(dt=0.01, steps=10000, burn_in=None):
     """
     Compute the largest Lyapunov exponent using the RK4-consistent QR method.
     """
     x = np.array([1.0, 1.0, 1.0])
     Q = np.eye(3)
     sum_log = 0.0
+    burn_in = resolve_burn_in_steps(dt, burn_in)
 
     for _ in range(burn_in):
         x, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
@@ -31,7 +32,7 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
 
     Args:
-        trajectory (array [N, 3]): array of states (used only for initial conditions)
+        trajectory (array [N, 3]): array of states
         burn_in (int): number of initial steps to ignore
         dt (float): time step
     Returns:
@@ -41,8 +42,7 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     N = len(trajectory)
     Q = np.eye(3)
     lles = []
-    if burn_in is None:
-        burn_in = int(0.01 * N)
+    burn_in = resolve_burn_in_steps(dt, burn_in)
 
     for i in range(N - 1):
         x = trajectory[i]

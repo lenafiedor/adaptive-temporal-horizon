@@ -59,11 +59,14 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         dt: float = config.DT,
         normalize: bool = True,
         seed: Optional[int] = None,
-        burn_in: int = 0,
+        burn_in: Optional[int] = None,
+        window_size: int = config.WINDOW_SIZE,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
     ):
         self.normalize = normalize
+        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
+        self.window_size = window_size
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
@@ -85,11 +88,14 @@ class AdaptiveHorizonLorenzDataset(Dataset):
                 np.random.uniform(0, 50),
             ]
             traj = simulate_lorenz(
-                initial_state=initial_state, dt=dt, steps=steps_per_trajectory + burn_in
+                initial_state=initial_state,
+                dt=dt,
+                steps=steps_per_trajectory,
+                burn_in=self.burn_in,
             )
-            lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=5)
-
-            traj, lles = traj[burn_in:], lles[burn_in:]
+            lles = smooth_lle(
+                compute_local_lyapunov(traj, dt=dt), window=window_size
+            )
             trajectories.append(traj)
 
             lle_max = lles[:, 0]
@@ -180,7 +186,7 @@ class WeightedLossLorenzDataset(Dataset):
         ftle_window: int = config.WINDOW_SIZE,
         normalize: bool = True,
         seed: Optional[int] = None,
-        burn_in: int = 0,
+        burn_in: Optional[int] = None,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
     ):
@@ -193,6 +199,7 @@ class WeightedLossLorenzDataset(Dataset):
         self.dt = dt
         self.ftle_window = int(ftle_window)
         self.normalize = normalize
+        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
@@ -212,11 +219,11 @@ class WeightedLossLorenzDataset(Dataset):
                 simulate_lorenz(
                     initial_state=initial_state,
                     dt=dt,
-                    steps=steps_per_trajectory + burn_in,
+                    steps=steps_per_trajectory,
+                    burn_in=self.burn_in,
                 ),
                 dtype=np.float32,
             )
-            traj = traj[burn_in:]
             trajectories.append(traj)
             self.lambda_scores.append(
                 compute_forward_ftle(traj, dt=dt, window=self.ftle_window)

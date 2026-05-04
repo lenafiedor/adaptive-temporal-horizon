@@ -153,15 +153,25 @@ def create_model_and_loaders(
         activation=torch.nn.ReLU(),
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
-    metadata = {}
+    burn_in_steps = config.resolve_burn_in_steps(dt)
+    metadata = {
+        "dt": dt,
+        "burn_in_time": config.BURN_IN_TIME,
+        "burn_in_steps": burn_in_steps,
+    }
 
     if adaptive:
         if adaptive_method == ADAPTIVE_HORIZON_METHOD:
-            train_dataset = AdaptiveHorizonLorenzDataset(dt=dt, seed=seed)
+            train_dataset = AdaptiveHorizonLorenzDataset(
+                dt=dt,
+                seed=seed,
+                burn_in=burn_in_steps,
+            )
             val_dataset = AdaptiveHorizonLorenzDataset(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
                 seed=seed + 1000,
+                burn_in=burn_in_steps,
                 normalization_stats=train_dataset.normalization_stats,
             )
             collate_function = collate_fn_adaptive_horizon
@@ -172,6 +182,7 @@ def create_model_and_loaders(
                 T_max=T,
                 ftle_window=ftle_window,
                 seed=seed,
+                burn_in=burn_in_steps,
             )
             val_dataset = WeightedLossLorenzDataset(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
@@ -179,6 +190,7 @@ def create_model_and_loaders(
                 T_max=T,
                 ftle_window=ftle_window,
                 seed=seed + 1000,
+                burn_in=burn_in_steps,
                 normalization_stats=train_dataset.normalization_stats,
             )
             collate_function = collate_fn_weighted_loss
@@ -187,7 +199,6 @@ def create_model_and_loaders(
 
         metadata["adaptive"] = {
             "method": adaptive_method,
-            "dt": dt,
         }
         if adaptive_method == WEIGHTED_LOSS_METHOD:
             metadata["adaptive"]["T_max"] = T
@@ -205,12 +216,14 @@ def create_model_and_loaders(
             T=T,
             dt=dt,
             seed=seed,
+            burn_in=burn_in_steps,
         )
         val_dataset = LorenzDataset(
             num_trajectories=config.NUM_TRAJECTORIES // 5,
             T=T,
             dt=dt,
             seed=seed + 1000,
+            burn_in=burn_in_steps,
             normalization_stats=train_dataset.normalization_stats,
         )
         collate_function = collate_fn
@@ -402,7 +415,7 @@ def train_single_model(
             save_dir=loss_save_dir,
             T=T,
             adaptive=adaptive,
-            adaptive_method=adaptive_method,
+            method=adaptive_method,
         )
     save_model(
         model,
@@ -411,7 +424,7 @@ def train_single_model(
         save_dir=model_save_dir,
         T=T,
         adaptive=adaptive,
-        adaptive_method=adaptive_method,
+        method=adaptive_method,
         metadata=metadata,
     )
     return train_losses, val_losses
@@ -564,7 +577,7 @@ def train_adaptive_models(
         torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
         save_dir=loss_save_dir,
         adaptive=True,
-        adaptive_method=adaptive_method,
+        method=adaptive_method,
     )
 
 
@@ -673,6 +686,10 @@ def main():
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
     print(f"Time step: {args.dt}")
+    print(
+        f"Burn-in: {config.resolve_burn_in_steps(args.dt)} steps "
+        f"({config.BURN_IN_TIME:g} time units)"
+    )
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Adaptive method: {args.adaptive_method}")
@@ -698,7 +715,7 @@ def main():
             dt=args.dt,
             T=args.adaptive_T_max if args.adaptive else args.T,
             adaptive=args.adaptive,
-            method=args.adaptive_method,
+            adaptive_method=args.adaptive_method,
             optimizer_name=args.optimizer,
             batch_size=args.batch_size,
             ftle_window=args.ftle_window,
@@ -730,7 +747,7 @@ def main():
             args.dt,
             args.optimizer,
             args.batch_size,
-            method=args.adaptive_method,
+            adaptive_method=args.adaptive_method,
             T_max=args.adaptive_T_max,
             ftle_window=args.ftle_window,
             rho=args.rho,

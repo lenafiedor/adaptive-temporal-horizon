@@ -166,3 +166,5 @@ poetry run compute-lyapunov --mode local --plot --window 20
 | `--mode`         | Specifies whether to compute global or local Lyapunov exponents | global \| local | global        |
 | `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | true \| false   | false         |
 | `--window`, `-w` | Window size for computing local Lyapunov exponents              | int             | 5             |
+| `--dt`           | Time step for the Lorenz attractor simulation                   | float           | 0.08          |
+| `--steps`        | Number of steps for the Lorenz trajectory                       | int             | 1000          |
