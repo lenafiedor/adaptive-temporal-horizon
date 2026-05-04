@@ -251,14 +251,19 @@ def plot_mse(
         record["model_type"] == "adaptive" for record in evaluation_records
     )
 
-    ax.set_xlabel(r"Training Horizon ($T \cdot dt$)")
+    ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
     ax.set_ylabel(f"Validation MSE ({summary_label})")
     suffix = " (dashed = adaptive model)" if has_adaptive else ""
     ax.set_title("Cross-Validation MSE" + suffix)
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.grid(True, alpha=0.3)
-    ax.legend(title="Validation Horizon", loc="lower right")
+    ax.legend(
+        title="Validation Horizon",
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        borderaxespad=0.0,
+    )
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

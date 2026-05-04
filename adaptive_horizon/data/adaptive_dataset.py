@@ -93,7 +93,9 @@ class AdaptiveHorizonLorenzDataset(Dataset):
                 steps=steps_per_trajectory,
                 burn_in=self.burn_in,
             )
-            lles = smooth_lle(compute_local_lyapunov(traj, dt=dt), window=window_size)
+            lles = smooth_lle(
+                compute_local_lyapunov(traj, burn_in=0, dt=dt), window=window_size
+            )
             trajectories.append(traj)
 
             lle_max = lles[:, 0]
