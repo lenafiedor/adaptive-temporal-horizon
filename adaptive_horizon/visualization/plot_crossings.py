@@ -37,10 +37,11 @@ def plot_lorenz_with_crossings(traj, cross):
 
 
 if __name__ == "__main__":
+    dt = 0.01
     burn_in = config.resolve_burn_in_steps(dt)
-    trajectory = np.array(simulate_lorenz(burn_in=burn_in))
+    trajectory = np.array(simulate_lorenz(dt=dt, burn_in=burn_in))
 
-    x = traj[:, 0]
+    x = trajectory[:, 0]
     crossings = np.where(np.diff(np.sign(x)))[0]
     periods = np.diff(crossings)
 
