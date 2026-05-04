@@ -3,8 +3,11 @@ import numpy as np
 import torch
 from datetime import datetime
 from pathlib import Path
+from typing import Sequence
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from numpy.typing import NDArray
 
+from adaptive_horizon.adaptive_methods import get_adaptive_method_abbreviation
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
 
 
@@ -14,13 +17,16 @@ def save_losses(
     save_dir: Path = LOSS_DIR,
     T: int = None,
     adaptive: bool = False,
+    method: str = None,
 ):
     """Save training history"""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = (
-        f"loss_T{T}_{timestamp}" if not adaptive else f"adaptive_loss_{timestamp}"
+        f"loss_T{T}_{timestamp}"
+        if not adaptive
+        else f"adaptive_loss_{get_adaptive_method_abbreviation(method)}_{timestamp}"
     )
     loss_path = save_dir / filename
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
@@ -52,13 +58,14 @@ def save_model(
     save_dir=MODEL_DIR,
     T=None,
     adaptive=False,
+    method: str = None,
     metadata=None,
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
-        filename = f"adaptive_mlp_seed{seed}_{timestamp}.pt"
+        filename = f"adaptive_mlp_{get_adaptive_method_abbreviation(method)}_seed{seed}_{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
@@ -109,31 +116,69 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def summarize_values(values, summary_mode):
-    values = np.asarray(values, dtype=np.float64)
-    if len(values) == 0:
+def summarize_values(values: Sequence[float] | NDArray[np.float64], summary_mode):
+    values_array: NDArray[np.float64] = np.asarray(values, dtype=np.float64)
+    if len(values_array) == 0:
         raise ValueError("Cannot summarize empty values")
 
     if summary_mode == "mean-std":
-        center = float(np.mean(values))
-        spread = float(np.std(values))
+        center = float(values_array.mean())
+        spread = float(values_array.std())
         return center, spread, spread, "mean +/- std"
 
     if summary_mode == "mean-ci":
-        center = float(np.mean(values))
-        std = float(np.std(values))
-        sem = std / np.sqrt(len(values))
+        center = float(values_array.mean())
+        std = float(values_array.std())
+        sem = std / np.sqrt(len(values_array))
         half_width = 1.96 * sem
         return center, half_width, half_width, "mean +/- 95% CI"
 
     if summary_mode == "median-iqr":
-        q1, median, q3 = np.percentile(values, [25, 50, 75])
+        q1, median, q3 = np.percentile(values_array, [25, 50, 75])
         return float(median), float(median - q1), float(q3 - median), "median with IQR"
 
     raise ValueError(f"Unsupported summary mode: {summary_mode}")
 
 
-def plot_mse(T_values, evaluation_records, save_dir, dt, summary_mode="mean-std"):
+def get_summary_mode_abbreviation(summary_mode: str) -> str:
+    abbreviations = {
+        "mean-std": "std",
+        "mean-ci": "ci",
+        "median-iqr": "iqr",
+    }
+
+    try:
+        return abbreviations[summary_mode]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported summary mode: {summary_mode}") from exc
+
+
+def get_evaluation_method_abbreviation(
+    evaluation_records, adaptive_method: str | None = None
+) -> str:
+    if adaptive_method is not None:
+        return get_adaptive_method_abbreviation(adaptive_method)
+
+    adaptive_methods = {
+        record["adaptive_method"]
+        for record in evaluation_records
+        if record["model_type"] == "adaptive"
+    }
+    if len(adaptive_methods) == 1:
+        return get_adaptive_method_abbreviation(next(iter(adaptive_methods)))
+    if len(adaptive_methods) > 1:
+        return "mixed"
+    return "fixed"
+
+
+def plot_mse(
+    T_values,
+    evaluation_records,
+    save_dir,
+    dt,
+    summary_mode="mean-std",
+    adaptive_method: str | None = None,
+):
     """
     Plot MSE summaries for each validation T as separate lines.
 
@@ -143,6 +188,7 @@ def plot_mse(T_values, evaluation_records, save_dir, dt, summary_mode="mean-std"
         save_dir: directory to save plot
         dt: simulation time step
         summary_mode: one of mean-std, mean-ci, median-iqr
+        adaptive_method: adaptive method used for training
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -216,7 +262,13 @@ def plot_mse(T_values, evaluation_records, save_dir, dt, summary_mode="mean-std"
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"mse_dt_{str(dt).split('.')[1]}_{timestamp}.png"
+    method_abbreviation = get_evaluation_method_abbreviation(
+        evaluation_records, adaptive_method
+    )
+    summary_abbreviation = get_summary_mode_abbreviation(summary_mode)
+    save_path = save_dir / (
+        f"mse_dt_{str(dt).split('.')[1]}_{method_abbreviation}_{summary_abbreviation}_{timestamp}.png"
+    )
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")

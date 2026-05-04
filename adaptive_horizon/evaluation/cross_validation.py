@@ -6,15 +6,21 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
+from adaptive_horizon.adaptive_methods import (
+    ADAPTIVE_HORIZON_METHOD,
+    WEIGHTED_LOSS_METHOD,
+    get_adaptive_method,
+)
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.visualization.plotting import plot_mse
+from adaptive_horizon.visualization.plotting import (
+    get_evaluation_method_abbreviation,
+    plot_mse,
+)
 from adaptive_horizon.evaluation.utils import load_model
 
 EVAL_SEED = 12345
-ADAPTIVE_HORIZON_METHOD = "adaptive-horizon"
-WEIGHTED_LOSS_METHOD = "weighted-loss"
 
 
 def get_last_run():
@@ -24,6 +30,16 @@ def get_last_run():
         return config.MODEL_DIR
     with open(last_run_file, "r") as f:
         return Path(f.read().strip())
+
+
+def get_dt_from_model_dir(model_dir: Path):
+    match = re.search(r"dt_(\d+)_\d{8}_\d{6}$", model_dir.name)
+    if not match:
+        raise ValueError(
+            "Could not infer dt from model directory name. "
+            f"Expected format 'dt_{{dt}}_{{timestamp}}', got: {model_dir.name}"
+        )
+    return float(f"0.{match.group(1)}")
 
 
 def get_T_values(model_dir):
@@ -54,22 +70,15 @@ def get_adaptive_paths(model_dir=config.MODEL_DIR):
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
 
-def get_adaptive_method(checkpoint):
-    return checkpoint["metadata"]["adaptive"]["method"]
-
-
 def filter_adaptive_paths(adaptive_paths, adaptive_method):
     if adaptive_method is None:
         return adaptive_paths
 
-    filtered_paths = []
-    for model_path in adaptive_paths:
-        _, checkpoint = load_model(model_path)
-        checkpoint_method = get_adaptive_method(checkpoint)
-        if checkpoint_method == adaptive_method:
-            filtered_paths.append(model_path)
-
-    return filtered_paths
+    return [
+        model_path
+        for model_path in adaptive_paths
+        if get_adaptive_method(model_path) == adaptive_method
+    ]
 
 
 def get_normalization_stats(checkpoint):
@@ -173,7 +182,7 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
-                    "adaptive_method": get_adaptive_method(checkpoint),
+                    "adaptive_method": get_adaptive_method(model_path),
                     "train_T": None,
                     "seed": int(seed) if seed is not None else None,
                     "val_T": int(val_T),
@@ -273,13 +282,17 @@ def save_cross_validation_results(
     best_train_T,
     dt,
     model_dir,
+    method_abbreviation,
+    adaptive_method=None,
     save_dir=config.EVAL_DIR,
 ):
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = save_dir / f"mse_results_dt_{str(dt).split('.')[1]}_{timestamp}.json"
+    results_file = save_dir / (
+        f"mse_results_dt_{str(dt).split('.')[1]}_{method_abbreviation}_{timestamp}.json"
+    )
     payload = {
         "metadata": {
             "created_at": timestamp,
@@ -287,6 +300,7 @@ def save_cross_validation_results(
             "model_dir": str(model_dir),
             "T_values": [int(T) for T in T_values],
             "best_train_T": int(best_train_T),
+            "adaptive_method": adaptive_method,
         },
         "results": results,
     }
@@ -299,7 +313,6 @@ def save_cross_validation_results(
 
 
 def cross_validation(
-    dt,
     model_dir=None,
     max_T=None,
     adaptive_method=None,
@@ -315,6 +328,7 @@ def cross_validation(
     if not model_dir.exists():
         raise FileNotFoundError(f"Model directory not found: {model_dir}")
 
+    dt = get_dt_from_model_dir(model_dir)
     print(f"Using model directory: {model_dir}")
 
     T_values = get_T_values(model_dir)
@@ -343,6 +357,9 @@ def cross_validation(
     evaluation_records = cross_validate_models(
         model_paths, adaptive_paths, T_values, dt, device
     )
+    method_abbreviation = get_evaluation_method_abbreviation(
+        evaluation_records, adaptive_method
+    )
 
     stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
 
@@ -355,6 +372,10 @@ def cross_validation(
     print(
         f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
     )
+    if adaptive_stats:
+        print(
+            f"Mean MSE for adaptive models: {np.mean([stats[0] for stats in adaptive_stats.values()]):.6f}"
+        )
 
     results = build_summary_results(stats, adaptive_stats, T_values, evaluation_records)
 
@@ -364,7 +385,9 @@ def cross_validation(
         best_train_T,
         dt,
         model_dir,
-        save_dir,
+        method_abbreviation,
+        adaptive_method=adaptive_method,
+        save_dir=save_dir,
     )
     plot_mse(
         T_values,
@@ -372,6 +395,7 @@ def cross_validation(
         save_dir,
         dt,
         summary_mode=plot_summary_mode,
+        adaptive_method=adaptive_method,
     )
 
 
@@ -390,9 +414,6 @@ def main():
         help="Maximum T for evaluation (default: all T values found in model_dir)",
     )
     parser.add_argument(
-        "--dt", type=float, default=config.DT, help="Time step for simulation"
-    )
-    parser.add_argument(
         "--adaptive-method",
         choices=[ADAPTIVE_HORIZON_METHOD, WEIGHTED_LOSS_METHOD],
         default=None,
@@ -408,7 +429,6 @@ def main():
     args = parser.parse_args()
 
     cross_validation(
-        args.dt,
         model_dir=args.model_dir,
         max_T=args.max_T,
         adaptive_method=args.adaptive_method,
