@@ -7,10 +7,7 @@ from typing import Sequence
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
-from adaptive_horizon.adaptive_methods import (
-    get_evaluation_method_abbreviation,
-    get_method_short,
-)
+from adaptive_horizon.adaptive_methods import get_evaluation_method_abbreviation
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
 
 
@@ -31,7 +28,7 @@ def save_losses(
     filename = (
         f"loss_T{T}_{timestamp}"
         if not adaptive
-        else f"adaptive_loss_{get_method_short(method)}_{timestamp}{var_suffix}"
+        else f"adaptive_loss_{get_evaluation_method_abbreviation(method)}_{timestamp}{var_suffix}"
     )
     loss_path = save_dir / filename
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
@@ -72,7 +69,7 @@ def save_model(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
         var_suffix = f"_var_{var}" if var is not None else ""
-        filename = f"adaptive_mlp_{get_method_short(method)}_seed{seed}_{timestamp}{var_suffix}.pt"
+        filename = f"adaptive_mlp_{get_evaluation_method_abbreviation(method)}_seed{seed}_{timestamp}{var_suffix}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
@@ -184,45 +181,42 @@ def plot_mse(
 
     fig, ax = plt.subplots(figsize=(12, 8))
     cmap = plt.cm.tab20
-    colors = [cmap(i / max(len(T_values), 1)) for i in range(len(T_values))]
+    colors = [cmap(i / len(T_values)) for i in range(len(T_values))]
     train_times = [train_T * dt for train_T in T_values]
     summary_label = None
-    has_fixed = any(record["model_type"] == "fixed" for record in evaluation_records)
 
     for i, val_T in enumerate(T_values):
+        centers = []
+        lower_errors = []
+        upper_errors = []
         val_time = val_T * dt
 
-        if has_fixed:
-            centers = []
-            lower_errors = []
-            upper_errors = []
-
-            for train_T in T_values:
-                values = [
-                    record["mse"]
-                    for record in evaluation_records
-                    if record["model_type"] == "fixed"
-                    and record["train_T"] == train_T
-                    and record["val_T"] == val_T
-                ]
-                center, lower_error, upper_error, summary_label = summarize_values(
-                    values, summary_mode
-                )
-                centers.append(center)
-                lower_errors.append(lower_error)
-                upper_errors.append(upper_error)
-
-            ax.errorbar(
-                train_times,
-                centers,
-                yerr=np.array([lower_errors, upper_errors]),
-                color=colors[i],
-                label=f"$t_L={val_time:.2f}$",
-                linewidth=1.5,
-                marker=".",
-                markersize=6,
-                capsize=3,
+        for train_T in T_values:
+            values = [
+                record["mse"]
+                for record in evaluation_records
+                if record["model_type"] == "fixed"
+                and record["train_T"] == train_T
+                and record["val_T"] == val_T
+            ]
+            center, lower_error, upper_error, summary_label = summarize_values(
+                values, summary_mode
             )
+            centers.append(center)
+            lower_errors.append(lower_error)
+            upper_errors.append(upper_error)
+
+        ax.errorbar(
+            train_times,
+            centers,
+            yerr=np.array([lower_errors, upper_errors]),
+            color=colors[i],
+            label=f"$t_L={val_time:.2f}$",
+            linewidth=1.5,
+            marker=".",
+            markersize=6,
+            capsize=3,
+        )
 
         adaptive_values = [
             record["mse"]
@@ -230,44 +224,25 @@ def plot_mse(
             if record["model_type"] == "adaptive" and record["val_T"] == val_T
         ]
         if adaptive_values:
-            adaptive_center, lower_error, upper_error, summary_label = summarize_values(
-                adaptive_values, summary_mode
+            adaptive_center, _, _, _ = summarize_values(adaptive_values, summary_mode)
+            ax.axhline(
+                y=adaptive_center,
+                color=colors[i],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
             )
-            if has_fixed:
-                ax.axhline(
-                    y=adaptive_center,
-                    color=colors[i],
-                    linestyle="--",
-                    linewidth=1.0,
-                    alpha=0.7,
-                )
-            else:
-                ax.errorbar(
-                    [val_time],
-                    [adaptive_center],
-                    yerr=np.array([[lower_error], [upper_error]]),
-                    color=colors[i],
-                    label=f"$t_L={val_time:.2f}$",
-                    linewidth=1.5,
-                    marker=".",
-                    markersize=8,
-                    capsize=3,
-                )
 
     has_adaptive = any(
         record["model_type"] == "adaptive" for record in evaluation_records
     )
 
-    ax.set_xlabel(
-        r"Training Horizon ($\tau \cdot dt$)"
-        if has_fixed
-        else r"Validation Horizon ($t_L$)"
-    )
+    ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
     ax.set_ylabel(f"Validation MSE ({summary_label})")
-    suffix = " (dashed = adaptive model)" if has_fixed and has_adaptive else ""
+    suffix = " (dashed = adaptive model)" if has_adaptive else ""
     ax.set_title("Cross-Validation MSE" + suffix)
     ax.set_yscale("log")
-    ax.set_xticks(train_times if has_fixed else [val_T * dt for val_T in T_values])
+    ax.set_xticks(train_times)
     ax.grid(True, alpha=0.3)
     ax.legend(
         title="Validation Horizon",

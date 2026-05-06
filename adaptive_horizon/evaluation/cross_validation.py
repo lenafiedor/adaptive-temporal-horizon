@@ -3,14 +3,12 @@ import argparse
 import json
 import re
 import numpy as np
-import torch
 from datetime import datetime
 from pathlib import Path
 
 from adaptive_horizon.adaptive_methods import (
     ADAPTIVE_HORIZON_METHOD,
     WEIGHTED_LOSS_METHOD,
-    filter_adaptive_model_paths,
     get_evaluation_method_abbreviation,
     get_adaptive_method,
     resolve_adaptive_method,
@@ -46,51 +44,27 @@ def get_dt_from_model_dir(model_dir: Path):
     return float(digits) / (10 ** len(digits))
 
 
-def get_fixed_model_dir(dt: float):
-    return config.MODEL_DIR / f"fixed_dt_{str(dt).split('.')[1]}"
-
-
 def get_T_values(model_dir: Path):
-    """Get unique train_T values from fixed model files matching mlp_T{T}*.pt."""
+    """Get unique train_T values from model files matching mlp_T{T}*.pt"""
+    model_files = list(model_dir.glob("mlp_T*.pt"))
     train_Ts = set()
-    for model_path in model_dir.glob("mlp_T*.pt"):
-        match = re.search(r"mlp_T(\d+)", model_path.name)
+    for f in model_files:
+        match = re.search(r"mlp_T(\d+)", f.name)
         if match:
             train_Ts.add(int(match.group(1)))
     return sorted(train_Ts)
 
 
-def get_model_paths(train_Ts, fixed_model_dir: Path):
-    """Get all fixed model paths for each train_T."""
+def get_model_paths(train_Ts, model_dir=config.MODEL_DIR):
+    """Get all model paths for each train_T."""
     model_paths = {T: [] for T in train_Ts}
-    for model_path in sorted(fixed_model_dir.glob("mlp_T*.pt")):
-        match = re.search(r"mlp_T(\d+)", model_path.name)
+    for f in sorted(model_dir.glob("mlp_T*.pt")):
+        match = re.search(r"mlp_T(\d+)", f.name)
         if match:
             T = int(match.group(1))
             if T in model_paths:
-                model_paths[T].append(model_path)
+                model_paths[T].append(f)
     return model_paths
-
-
-def get_fixed_model_paths(model_dir: Path):
-    """Get fixed model paths from the current run directory and legacy fixed dir."""
-    fixed_dirs = [model_dir]
-    legacy_fixed_dir = get_fixed_model_dir(get_dt_from_model_dir(model_dir))
-    if legacy_fixed_dir != model_dir and legacy_fixed_dir.exists():
-        fixed_dirs.append(legacy_fixed_dir)
-
-    T_values = sorted({T for fixed_dir in fixed_dirs for T in get_T_values(fixed_dir)})
-    model_paths = {T: [] for T in T_values}
-    used_dirs = []
-
-    for fixed_dir in fixed_dirs:
-        dir_model_paths = get_model_paths(T_values, fixed_dir)
-        if any(dir_model_paths.values()):
-            used_dirs.append(fixed_dir)
-        for T, paths in dir_model_paths.items():
-            model_paths[T].extend(paths)
-
-    return T_values, model_paths, used_dirs
 
 
 def get_adaptive_paths(model_dir=config.MODEL_DIR):
@@ -98,19 +72,15 @@ def get_adaptive_paths(model_dir=config.MODEL_DIR):
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
 
-def get_adaptive_eval_T_values(adaptive_paths):
-    """Infer evaluation horizons from adaptive checkpoint metadata."""
-    max_supported_T = 0
+def filter_adaptive_paths(adaptive_paths, adaptive_method):
+    if adaptive_method is None:
+        return adaptive_paths
 
-    for model_path in adaptive_paths:
-        checkpoint = torch.load(model_path, weights_only=False, map_location="cpu")
-        metadata = checkpoint.get("metadata", {})
-        adaptive_metadata = metadata.get("adaptive", {})
-        supported_T = adaptive_metadata.get("T_max") or adaptive_metadata.get("max_T")
-        if supported_T is not None:
-            max_supported_T = max(max_supported_T, int(supported_T))
-
-    return list(range(1, max_supported_T + 1))
+    return [
+        model_path
+        for model_path in adaptive_paths
+        if get_adaptive_method(model_path) == adaptive_method
+    ]
 
 
 def get_normalization_stats(checkpoint):
@@ -255,10 +225,7 @@ def compute_statistics(evaluation_records, T_values):
                     and record["val_T"] == val_T
                 ]
             )
-            if len(values) > 0:
-                stats[train_T][val_T] = (float(np.mean(values)), float(np.std(values)))
-            else:
-                stats[train_T][val_T] = (float("nan"), float("nan"))
+            stats[train_T][val_T] = (float(np.mean(values)), float(np.std(values)))
 
     adaptive_stats = {}
     for val_T in T_values:
@@ -304,7 +271,6 @@ def save_cross_validation_results(
             "burn_in_time": config.BURN_IN_TIME,
             "burn_in_steps": config.resolve_burn_in_steps(dt),
             "model_dir": str(model_dir),
-            "T_values": [int(T) for T in T_values],
             "T_max": max(T_values),
             "best_train_T": int(best_train_T) if best_train_T is not None else None,
             "adaptive_method": resolved_adaptive_method,
@@ -386,12 +352,8 @@ def cross_validation(
 
     dt = get_dt_from_model_dir(model_dir)
     print(f"Using model directory: {model_dir}")
-    fixed_T_values, model_paths, fixed_model_dirs = get_fixed_model_paths(model_dir)
-    adaptive_paths = filter_adaptive_model_paths(
-        get_adaptive_paths(model_dir), adaptive_method
-    )
 
-    T_values = fixed_T_values or get_adaptive_eval_T_values(adaptive_paths)
+    T_values = get_T_values(model_dir)
     if not T_values:
         print("No models found to evaluate")
         return
@@ -402,19 +364,11 @@ def cross_validation(
             print(f"No models found with T <= {max_T}")
             return
 
-    if fixed_T_values:
-        model_paths = {T: paths for T, paths in model_paths.items() if T in T_values}
-    else:
-        model_paths = {}
+    model_paths = get_model_paths(T_values, model_dir)
+    adaptive_paths = get_adaptive_paths(model_dir)
+    adaptive_paths = filter_adaptive_paths(adaptive_paths, adaptive_method)
 
     print(f"T values: {T_values}")
-    if fixed_model_dirs:
-        print(
-            "Fixed model directories: "
-            + ", ".join(str(fixed_model_dir) for fixed_model_dir in fixed_model_dirs)
-        )
-    else:
-        print("Fixed model directory: none found, evaluating adaptive models only")
     if adaptive_method is None:
         print(f"Adaptive models included: {len(adaptive_paths)} (all methods)")
     else:
@@ -425,25 +379,17 @@ def cross_validation(
     evaluation_records = cross_validate_models(
         model_paths, adaptive_paths, T_values, dt, device
     )
-    if not evaluation_records:
-        print("No models found to evaluate")
-        return
-
     stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
 
-    fixed_records_present = any(
-        record["model_type"] == "fixed" for record in evaluation_records
+    mean_across_val_Ts = {
+        train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
+        for train_T in T_values
+    }
+    best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
+
+    print(
+        f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
     )
-    best_train_T = None
-    if fixed_records_present:
-        mean_across_val_Ts = {
-            train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
-            for train_T in T_values
-        }
-        best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
-        print(
-            f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
-        )
     if adaptive_stats:
         print(
             f"Mean MSE for adaptive models: {np.mean([stats[0] for stats in adaptive_stats.values()]):.6f}"
