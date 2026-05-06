@@ -74,15 +74,22 @@ def get_existing_fixed_model_seeds(model_dir: Path):
 
 
 def get_existing_adaptive_model_seeds(
-    model_dir: Path, adaptive_method=ADAPTIVE_HORIZON_METHOD
+    model_dir: Path,
+    adaptive_method=ADAPTIVE_HORIZON_METHOD,
+    var=None,
 ):
     model_seeds = set()
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp(?:_[a-z]+)?_seed(\d+)", model_path.name)
         if match:
             checkpoint_method = get_adaptive_method(model_path)
-            if checkpoint_method == adaptive_method:
-                model_seeds.add(int(match.group(1)))
+            if checkpoint_method != adaptive_method:
+                continue
+            if var is not None and checkpoint_method == ADAPTIVE_HORIZON_METHOD:
+                var_match = re.search(r"_var_(\d+)\.pt$", model_path.name)
+                if var_match and int(var_match.group(1)) != var:
+                    continue
+            model_seeds.add(int(match.group(1)))
     return model_seeds
 
 
@@ -126,6 +133,8 @@ def create_model_and_loaders(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.WINDOW_SIZE,
+    var=config.VARIANCE,
+    debug=False,
 ):
     """
     Create model, data loaders, optimizer, and config for training.
@@ -140,6 +149,8 @@ def create_model_and_loaders(
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
         ftle_window: Forward FTLE window for adaptive training
+        var: Variance of the adaptive horizon
+        debug: Whether adaptive datasets should write T values and Lyapunov exponents
 
     Returns:
         model, train_loader, val_loader, optimizer, config, metadata
@@ -166,13 +177,17 @@ def create_model_and_loaders(
                 dt=dt,
                 seed=seed,
                 burn_in=burn_in_steps,
+                var=var,
+                debug=debug,
             )
             val_dataset = AdaptiveHorizonLorenzDataset(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
                 seed=seed + 1000,
                 burn_in=burn_in_steps,
+                var=var,
                 normalization_stats=train_dataset.normalization_stats,
+                debug=debug,
             )
             collate_function = collate_fn_adaptive_horizon
         elif adaptive_method == WEIGHTED_LOSS_METHOD:
@@ -183,6 +198,7 @@ def create_model_and_loaders(
                 ftle_window=ftle_window,
                 seed=seed,
                 burn_in=burn_in_steps,
+                debug=debug,
             )
             val_dataset = WeightedLossLorenzDataset(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
@@ -192,6 +208,7 @@ def create_model_and_loaders(
                 seed=seed + 1000,
                 burn_in=burn_in_steps,
                 normalization_stats=train_dataset.normalization_stats,
+                debug=debug,
             )
             collate_function = collate_fn_weighted_loss
         else:
@@ -206,6 +223,7 @@ def create_model_and_loaders(
         else:
             metadata["adaptive"].update(
                 {
+                    "variance": var,
                     "base_T": train_dataset.base_T,
                     "min_T": train_dataset.min_T,
                     "max_T": train_dataset.max_T,
@@ -359,10 +377,12 @@ def train_single_model(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.WINDOW_SIZE,
+    var=config.VARIANCE,
     rho=config.RHO,
     temperature=config.TEMPERATURE,
     weight_floor=config.WEIGHT_FLOOR,
     anchor_alpha=config.ANCHOR_ALPHA,
+    debug=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -375,6 +395,8 @@ def train_single_model(
             optimizer_name,
             batch_size,
             ftle_window,
+            var,
+            debug,
         )
     )
     if adaptive:
@@ -416,6 +438,7 @@ def train_single_model(
             T=T,
             adaptive=adaptive,
             method=adaptive_method,
+            var=var if adaptive_method == ADAPTIVE_HORIZON_METHOD else None,
         )
     save_model(
         model,
@@ -426,6 +449,7 @@ def train_single_model(
         adaptive=adaptive,
         method=adaptive_method,
         metadata=metadata,
+        var=var if adaptive_method == ADAPTIVE_HORIZON_METHOD else None,
     )
     return train_losses, val_losses
 
@@ -517,11 +541,13 @@ def train_adaptive_models(
     adaptive_method=ADAPTIVE_HORIZON_METHOD,
     T_max=None,
     ftle_window=config.WINDOW_SIZE,
+    var=config.VARIANCE,
     rho=config.RHO,
     temperature=config.TEMPERATURE,
     weight_floor=config.WEIGHT_FLOOR,
     anchor_alpha=config.ANCHOR_ALPHA,
     append=False,
+    debug=False,
 ):
     print(f"\n{'=' * 50}")
     print(f"Training adaptive models ({adaptive_method})")
@@ -532,7 +558,7 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method)
+        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method, var)
         if append
         else set()
     )
@@ -564,10 +590,12 @@ def train_adaptive_models(
             optimizer_name=optimizer_name,
             batch_size=batch_size,
             ftle_window=ftle_window,
+            var=var,
             rho=rho,
             temperature=temperature,
             weight_floor=weight_floor,
             anchor_alpha=anchor_alpha,
+            debug=debug,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -578,6 +606,7 @@ def train_adaptive_models(
         save_dir=loss_save_dir,
         adaptive=True,
         method=adaptive_method,
+        var=var if adaptive_method == ADAPTIVE_HORIZON_METHOD else None,
     )
 
 
@@ -601,10 +630,11 @@ def main():
         default=1,
         help="Training horizon for fixed --single mode",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--fixed", "-f", action="store_true", help="Train only fixed T models"
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--adaptive", "-a", action="store_true", help="Train only adaptive models"
     )
     parser.add_argument(
@@ -656,6 +686,12 @@ def main():
         help="Forward FTLE window for adaptive lambda scores",
     )
     parser.add_argument(
+        "--variance",
+        type=int,
+        default=config.VARIANCE,
+        help="Adaptive horizon variance around the default horizon",
+    )
+    parser.add_argument(
         "--rho",
         type=float,
         default=config.RHO,
@@ -679,6 +715,11 @@ def main():
         default=config.ANCHOR_ALPHA,
         help="One-step anchor fraction in the adaptive loss",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug adaptive dataset T values and Lyapunov exponents",
+    )
 
     args = parser.parse_args()
     train_Ts = get_train_Ts(args.max_T)
@@ -693,6 +734,8 @@ def main():
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Adaptive method: {args.adaptive_method}")
+    if args.adaptive_method == ADAPTIVE_HORIZON_METHOD:
+        print(f"Adaptive variance: {args.variance}")
     print(f"Append mode: {args.append}")
 
     timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.dt, args.append)
@@ -719,74 +762,48 @@ def main():
             optimizer_name=args.optimizer,
             batch_size=args.batch_size,
             ftle_window=args.ftle_window,
+            var=args.variance,
             rho=args.rho,
             temperature=args.temperature,
             weight_floor=args.weight_floor,
             anchor_alpha=args.anchor_alpha,
-        )
-    elif args.fixed:
-        train_fixed_models(
-            train_Ts,
-            args.n_seeds,
-            args.epochs,
-            device,
-            model_save_dir,
-            loss_save_dir,
-            args.dt,
-            args.optimizer,
-            args.batch_size,
-            append=args.append,
-        )
-    elif args.adaptive:
-        train_adaptive_models(
-            args.n_seeds,
-            args.epochs,
-            device,
-            model_save_dir,
-            loss_save_dir,
-            args.dt,
-            args.optimizer,
-            args.batch_size,
-            adaptive_method=args.adaptive_method,
-            T_max=args.adaptive_T_max,
-            ftle_window=args.ftle_window,
-            rho=args.rho,
-            temperature=args.temperature,
-            weight_floor=args.weight_floor,
-            anchor_alpha=args.anchor_alpha,
-            append=args.append,
+            debug=args.debug,
         )
     else:
-        train_fixed_models(
-            train_Ts,
-            args.n_seeds,
-            args.epochs,
-            device,
-            model_save_dir,
-            loss_save_dir,
-            args.dt,
-            args.optimizer,
-            args.batch_size,
-            append=args.append,
-        )
-        train_adaptive_models(
-            args.n_seeds,
-            args.epochs,
-            device,
-            model_save_dir,
-            loss_save_dir,
-            args.dt,
-            args.optimizer,
-            args.batch_size,
-            adaptive_method=args.adaptive_method,
-            T_max=args.adaptive_T_max,
-            ftle_window=args.ftle_window,
-            rho=args.rho,
-            temperature=args.temperature,
-            weight_floor=args.weight_floor,
-            anchor_alpha=args.anchor_alpha,
-            append=args.append,
-        )
+        if args.fixed or not args.adaptive:
+            train_fixed_models(
+                train_Ts,
+                args.n_seeds,
+                args.epochs,
+                device,
+                model_save_dir,
+                loss_save_dir,
+                args.dt,
+                args.optimizer,
+                args.batch_size,
+                append=args.append,
+            )
+        if args.adaptive or not args.fixed:
+            train_adaptive_models(
+                args.n_seeds,
+                args.epochs,
+                device,
+                model_save_dir,
+                loss_save_dir,
+                args.dt,
+                args.optimizer,
+                args.batch_size,
+                adaptive_method=args.adaptive_method,
+                T_max=args.adaptive_T_max,
+                ftle_window=args.ftle_window,
+                var=args.variance,
+                rho=args.rho,
+                temperature=args.temperature,
+                weight_floor=args.weight_floor,
+                anchor_alpha=args.anchor_alpha,
+                append=args.append,
+                debug=args.debug,
+            )
 
     print("\n" + "=" * 50)
     print("Training Complete")
