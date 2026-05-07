@@ -171,6 +171,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         half_range = max(1.0, (max_T - min_T) / 2.0)
         T = base_T - z_scores * half_range
         T = np.clip(np.round(T), min_T, max_T)
+        # T = np.clip(np.round(T), 1, 100)
         return T.astype(int)
 
     def __len__(self):

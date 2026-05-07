@@ -73,6 +73,7 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 | `--append`          | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false              |
 | `--adaptive-T-max`  | Shared rollout horizon for LLE-weighted adaptive training             | int                                   | None               |
 | `--ftle-window`     | Forward FTLE window for adaptive lambda scores                        | int                                   | 5                  |
+| `--variance`        | Variance for the T values in adaptive horizon model                   | int                                   | 2                  |
 | `--rho`             | Predictability budget threshold for adaptive weights                  | float                                 | 1.0                |
 | `--temperature`     | Sigmoid temperature for adaptive weights                              | float                                 | 0.25               |
 | `--weight-floor`    | Minimum unnormalized adaptive rollout weight                          | float                                 | 0.05               |

@@ -7,7 +7,7 @@ from typing import Sequence
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
-from adaptive_horizon.adaptive_methods import get_evaluation_method_abbreviation
+from adaptive_horizon.training_modes import get_mode_abbreviation
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
 
 
@@ -28,7 +28,7 @@ def save_losses(
     filename = (
         f"loss_T{T}_{timestamp}"
         if not adaptive
-        else f"adaptive_loss_{get_evaluation_method_abbreviation(method)}_{timestamp}{var_suffix}"
+        else f"adaptive_loss_{get_mode_abbreviation(method)}_{timestamp}{var_suffix}"
     )
     loss_path = save_dir / filename
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
@@ -68,8 +68,8 @@ def save_model(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
-        var_suffix = f"_var_{var}" if var is not None else ""
-        filename = f"adaptive_mlp_{get_evaluation_method_abbreviation(method)}_seed{seed}_{timestamp}{var_suffix}.pt"
+        var_suffix = f"var{var}" if var is not None else ""
+        filename = f"adaptive_mlp_{get_mode_abbreviation(method)}_seed{seed}_{var_suffix}_{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
@@ -253,12 +253,8 @@ def plot_mse(
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    method_abbreviation = get_evaluation_method_abbreviation(
-        evaluation_records, adaptive_method
-    )
-    summary_abbreviation = get_summary_mode_abbreviation(summary_mode)
     save_path = save_dir / (
-        f"mse_dt_{str(dt).split('.')[1]}_{method_abbreviation}_{summary_abbreviation}_{timestamp}.png"
+        f"mse_dt_{str(dt).split('.')[1]}_{get_mode_abbreviation(adaptive_method)}_{get_summary_mode_abbreviation(summary_mode)}_{timestamp}.png"
     )
     plt.savefig(save_path, dpi=150)
     plt.close()

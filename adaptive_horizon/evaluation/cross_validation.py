@@ -6,10 +6,10 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-from adaptive_horizon.adaptive_methods import (
-    ADAPTIVE_HORIZON_METHOD,
-    WEIGHTED_LOSS_METHOD,
-    get_evaluation_method_abbreviation,
+from adaptive_horizon.training_modes import (
+    ADAPTIVE_HORIZON,
+    WEIGHTED_LOSS,
+    get_mode_abbreviation,
     get_adaptive_method,
     resolve_adaptive_method,
 )
@@ -255,14 +255,11 @@ def save_cross_validation_results(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    resolved_adaptive_method = resolve_adaptive_method(
-        evaluation_records, adaptive_method
-    )
-    method = get_evaluation_method_abbreviation(
-        evaluation_records, resolved_adaptive_method
+    method = resolve_adaptive_method(
+        evaluation_records=evaluation_records, adaptive_method=adaptive_method
     )
     results_file = save_dir / (
-        f"mse_results_dt_{str(dt).split('.')[1]}_{method}_{timestamp}.json"
+        f"mse_results_dt_{str(dt).split('.')[1]}_{get_mode_abbreviation(method)}_{timestamp}.json"
     )
     payload = {
         "metadata": {
@@ -273,7 +270,7 @@ def save_cross_validation_results(
             "model_dir": str(model_dir),
             "T_max": max(T_values),
             "best_train_T": int(best_train_T) if best_train_T is not None else None,
-            "adaptive_method": resolved_adaptive_method,
+            "adaptive_method": method,
         },
         "evaluation_records": evaluation_records,
     }
@@ -326,19 +323,15 @@ def cross_validation(
     if cached is not None:
         results_file, payload = load_cross_validation_results(cached, save_dir)
         metadata = payload["metadata"]
-        evaluation_records = payload["evaluation_records"]
-        T_values = [int(T) for T in metadata["T_values"]]
-        dt = float(metadata["dt"])
-        cached_adaptive_method = metadata.get("adaptive_method")
-
         print(f"Using cached cross-validation results: {results_file}")
+
         plot_mse(
-            T_values,
-            evaluation_records,
-            save_dir,
-            dt,
+            T_values=[int(T) for T in metadata["T_values"]],
+            evaluation_records=payload["evaluation_records"],
+            save_dir=save_dir,
+            dt=float(metadata["dt"]),
             summary_mode=plot_summary_mode,
-            adaptive_method=cached_adaptive_method,
+            adaptive_method=metadata.get("adaptive_method"),
         )
         return
 
@@ -355,7 +348,7 @@ def cross_validation(
 
     T_values = get_T_values(model_dir)
     if not T_values:
-        print("No models found to evaluate")
+        print("No fixed models found to evaluate")
         return
 
     if max_T is not None:
@@ -365,8 +358,9 @@ def cross_validation(
             return
 
     model_paths = get_model_paths(T_values, model_dir)
-    adaptive_paths = get_adaptive_paths(model_dir)
-    adaptive_paths = filter_adaptive_paths(adaptive_paths, adaptive_method)
+    adaptive_paths = filter_adaptive_paths(
+        get_adaptive_paths(model_dir), adaptive_method
+    )
 
     print(f"T values: {T_values}")
     if adaptive_method is None:
@@ -430,7 +424,7 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[ADAPTIVE_HORIZON_METHOD, WEIGHTED_LOSS_METHOD],
+        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS],
         default=None,
         help="Evaluate only adaptive models trained with the selected method",
     )
