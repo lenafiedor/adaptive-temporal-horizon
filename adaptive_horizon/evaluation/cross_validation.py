@@ -9,9 +9,7 @@ from pathlib import Path
 from adaptive_horizon.training_modes import (
     ADAPTIVE_HORIZON,
     WEIGHTED_LOSS,
-    get_mode_abbreviation,
     get_adaptive_method,
-    resolve_adaptive_method,
 )
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
@@ -248,18 +246,14 @@ def save_cross_validation_results(
     best_train_T,
     dt,
     model_dir,
-    adaptive_method=None,
     save_dir=config.EVAL_DIR,
 ):
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    method = resolve_adaptive_method(
-        evaluation_records=evaluation_records, adaptive_method=adaptive_method
-    )
     results_file = save_dir / (
-        f"mse_results_dt_{str(dt).split('.')[1]}_{get_mode_abbreviation(method)}_{timestamp}.json"
+        f"mse_results_dt_{str(dt).split('.')[1]}_{timestamp}.json"
     )
     payload = {
         "metadata": {
@@ -269,8 +263,7 @@ def save_cross_validation_results(
             "burn_in_steps": config.resolve_burn_in_steps(dt),
             "model_dir": str(model_dir),
             "T_max": max(T_values),
-            "best_train_T": int(best_train_T) if best_train_T is not None else None,
-            "adaptive_method": method,
+            "best_train_T": int(best_train_T),
         },
         "evaluation_records": evaluation_records,
     }
@@ -394,7 +387,6 @@ def cross_validation(
         best_train_T,
         dt,
         model_dir,
-        adaptive_method=adaptive_method,
         save_dir=save_dir,
     )
     plot_mse(

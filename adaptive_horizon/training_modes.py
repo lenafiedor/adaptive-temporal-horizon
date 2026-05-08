@@ -15,15 +15,6 @@ TRAINING_MODES = {
 }
 
 
-def get_mode_abbreviation(mode: str | None) -> str | None:
-    if mode is None:
-        return None
-    try:
-        return TRAINING_MODES[mode]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported mode: {mode}") from exc
-
-
 def get_adaptive_method(model_path: str | Path) -> str:
     """Infer the adaptive method from the model filename."""
     model_path = Path(model_path)
@@ -38,19 +29,3 @@ def get_adaptive_method(model_path: str | Path) -> str:
         raise ValueError(
             f"Unsupported adaptive method abbreviation '{abbreviation}' in {model_path.name}"
         ) from exc
-
-
-def resolve_adaptive_method(evaluation_records, adaptive_method: str) -> str:
-    """Resolve adaptive method from evaluation records or directly from name."""
-    if adaptive_method is not None:
-        return adaptive_method
-
-    adaptive_methods = {
-        record["adaptive_method"]
-        for record in evaluation_records
-        if record.get("model_type") == "adaptive" and record.get("adaptive_method")
-    }
-    if len(adaptive_methods) > 1:
-        return MIXED
-
-    return FIXED
