@@ -331,7 +331,6 @@ def cross_validation(
             save_dir=save_dir,
             dt=float(metadata["dt"]),
             summary_mode=plot_summary_mode,
-            adaptive_method=metadata.get("adaptive_method"),
         )
         return
 
@@ -404,7 +403,6 @@ def cross_validation(
         save_dir,
         dt,
         summary_mode=plot_summary_mode,
-        adaptive_method=adaptive_method,
     )
 
 

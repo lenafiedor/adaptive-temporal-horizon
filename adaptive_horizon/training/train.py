@@ -93,7 +93,7 @@ def get_existing_adaptive_model_seeds(
     return model_seeds
 
 
-def resolve_dirs(dt, append: bool):
+def resolve_dirs(dt, append: bool, debug: bool):
     last_run_file = config.MODEL_DIR / "last_run.txt"
 
     if append:
@@ -104,7 +104,9 @@ def resolve_dirs(dt, append: bool):
 
         model_save_dir = Path(last_run_file.read_text().strip()).resolve()
         timestamp = model_save_dir.name
-        loss_save_dir = config.LOSS_DIR / timestamp
+        if debug:
+            loss_save_dir = config.LOSS_DIR / timestamp
+            loss_save_dir.mkdir(parents=True, exist_ok=True)
         if not model_save_dir.exists():
             raise FileNotFoundError(
                 "Cannot append: model directory referenced by last_run.txt was not found."
@@ -115,9 +117,10 @@ def resolve_dirs(dt, append: bool):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dt_formatted = str(dt).split(".")[1]
     model_save_dir = config.MODEL_DIR / f"dt_{dt_formatted}_{timestamp}"
-    loss_save_dir = config.LOSS_DIR / f"dt_{dt_formatted}_{timestamp}"
     model_save_dir.mkdir(parents=True, exist_ok=True)
-    loss_save_dir.mkdir(parents=True, exist_ok=True)
+    if debug:
+        loss_save_dir = config.LOSS_DIR / f"dt_{dt_formatted}_{timestamp}"
+        loss_save_dir.mkdir(parents=True, exist_ok=True)
     last_run_file.write_text(str(model_save_dir))
 
     return timestamp, model_save_dir, loss_save_dir
@@ -429,16 +432,6 @@ def train_single_model(
         anchor_alpha=anchor_alpha,
     )
 
-    if debug:
-        save_losses(
-            torch.tensor(train_losses, dtype=torch.float32),
-            torch.tensor(train_losses, dtype=torch.float32),
-            save_dir=loss_save_dir,
-            T=T,
-            adaptive=adaptive,
-            method=adaptive_method,
-            var=var if adaptive_method == ADAPTIVE_HORIZON else None,
-        )
     save_model(
         model,
         mlp_config,
@@ -446,7 +439,6 @@ def train_single_model(
         save_dir=model_save_dir,
         T=T,
         adaptive=adaptive,
-        method=adaptive_method,
         metadata=metadata,
         var=var if adaptive_method == ADAPTIVE_HORIZON else None,
     )
@@ -605,7 +597,6 @@ def train_adaptive_models(
             torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
             save_dir=loss_save_dir,
             adaptive=True,
-            method=adaptive_method,
             var=var if adaptive_method == ADAPTIVE_HORIZON else None,
         )
 
@@ -738,10 +729,9 @@ def main():
         print(f"Adaptive variance: {args.variance}")
     print(f"Append mode: {args.append}")
 
-    timestamp, model_save_dir, loss_save_dir = resolve_dirs(args.dt, args.append)
-    model_save_dir.mkdir(parents=True, exist_ok=True)
-    if args.debug:
-        loss_save_dir.mkdir(parents=True, exist_ok=True)
+    timestamp, model_save_dir, loss_save_dir = resolve_dirs(
+        args.dt, args.append, args.debug
+    )
 
     if args.single:
         print(f"\n{'=' * 50}")

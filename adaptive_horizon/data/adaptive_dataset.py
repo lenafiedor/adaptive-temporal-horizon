@@ -8,7 +8,11 @@ from torch.utils.data import Dataset
 
 import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
-from adaptive_horizon.dynamics.lyapunov import compute_forward_ftle
+from adaptive_horizon.dynamics.lyapunov import (
+    compute_forward_ftle,
+    smooth_lle,
+    compute_local_lyapunov,
+)
 
 
 def default_adaptive_T_max(dt: float) -> int:
@@ -96,13 +100,17 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             )
             trajectories.append(traj)
 
-            # lles = smooth_lle(compute_local_lyapunov(traj, burn_in=0, dt=dt), window=window_size)
-            # lle_max = lles[:, 0]
+            lles = smooth_lle(
+                compute_local_lyapunov(traj, burn_in=0, dt=dt), window=window_size
+            )
+            lle_max = lles[:, 0]
+            self.lles.append(lle_max)
 
-            ftle = compute_forward_ftle(traj, dt=dt, window=window_size)
-            self.lles.append(ftle)
+            # ftle = compute_forward_ftle(traj, dt=dt, window=window_size)
+            # self.lles.append(ftle)
+
             self.horizons.append(
-                self._lle_to_horizon(ftle, self.base_T, self.min_T, self.max_T)
+                self._lle_to_horizon(lle_max, self.base_T, self.min_T, self.max_T)
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
@@ -152,15 +160,23 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             for value, count in zip(unique_t_values, counts):
                 file.write(f"T={int(value)} count={int(count)}\n")
 
-            file.write("\n# FTLE and T value per sample\n")
+            # file.write("\n# FTLE and T value per sample\n")
+            # num_traj, seq_len, _ = self.trajectories.shape
+            # for traj_idx in range(num_traj):
+            #     ftle_scores = self.lles[traj_idx]
+            #     horizon = self.horizons[traj_idx]
+            #
+            #     for m, t_value in enumerate(horizon):
+            #         if m + t_value < seq_len:
+            #             file.write(f"{float(ftle_scores[m])},{int(t_value)}\n")
+
+            file.write("\n# LLE and T value per sample\n")
             num_traj, seq_len, _ = self.trajectories.shape
             for traj_idx in range(num_traj):
-                ftle_scores = self.lles[traj_idx]
-                horizon = self.horizons[traj_idx]
-
-                for m, t_value in enumerate(horizon):
-                    if m + t_value < seq_len:
-                        file.write(f"{float(ftle_scores[m])},{int(t_value)}\n")
+                for i in range(len(self.horizons)):
+                    file.write(
+                        f"{self.lles[traj_idx][i]},{self.horizons[traj_idx][i]}\n"
+                    )
 
     @staticmethod
     def _lle_to_horizon(lambda_max, base_T, min_T, max_T):

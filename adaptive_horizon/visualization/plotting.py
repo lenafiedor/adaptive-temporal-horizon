@@ -3,11 +3,9 @@ import numpy as np
 import torch
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
-from adaptive_horizon.training_modes import get_mode_abbreviation
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
 
 
@@ -17,19 +15,18 @@ def save_losses(
     save_dir: Path = LOSS_DIR,
     T: int = None,
     adaptive: bool = False,
-    method: str = None,
     var: int | None = None,
 ):
     """Save training history"""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    var_suffix = f"_var_{var}" if adaptive and var is not None else ""
-    filename = (
-        f"loss_T{T}_{timestamp}"
-        if not adaptive
-        else f"adaptive_loss_{get_mode_abbreviation(method)}_{timestamp}{var_suffix}"
-    )
+    if adaptive:
+        suffix = f"var{var}_" if var is not None else ""
+        filename = f"adaptive_loss_{suffix}{timestamp}"
+    else:
+        filename = f"loss_T{T}_{timestamp}"
+
     loss_path = save_dir / filename
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
 
@@ -50,7 +47,7 @@ def save_losses(
     with open(f"{loss_path}.txt", "w") as f:
         f.write("train_loss,val_loss\n")
         f.write(f"{train_losses[-1].item()},{val_losses[-1].item()}")
-    print(f"Final loss values saved to {loss_path}.txt")
+    print(f"Loss values saved to {loss_path}.txt")
 
 
 def save_model(
@@ -60,7 +57,6 @@ def save_model(
     save_dir=MODEL_DIR,
     T=None,
     adaptive=False,
-    method: str = None,
     metadata=None,
     var: int | None = None,
 ):
@@ -68,8 +64,8 @@ def save_model(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
-        var_suffix = f"var{var}" if var is not None else ""
-        filename = f"adaptive_mlp_{get_mode_abbreviation(method)}_seed{seed}_{var_suffix}_{timestamp}.pt"
+        var_suffix = f"var{var}_" if var is not None else ""
+        filename = f"adaptive_mlp_seed{seed}_{var_suffix}{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
@@ -120,7 +116,7 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def summarize_values(values: Sequence[float] | NDArray[np.float64], summary_mode):
+def summarize_values(values, summary_mode):
     values_array: NDArray[np.float64] = np.asarray(values, dtype=np.float64)
     if len(values_array) == 0:
         raise ValueError("Cannot summarize empty values")
@@ -163,7 +159,6 @@ def plot_mse(
     save_dir,
     dt,
     summary_mode="mean-std",
-    adaptive_method: str | None = None,
 ):
     """
     Plot MSE summaries for each validation T as separate lines.
@@ -174,7 +169,6 @@ def plot_mse(
         save_dir: directory to save plot
         dt: simulation time step
         summary_mode: one of mean-std, mean-ci, median-iqr
-        adaptive_method: adaptive method used for training
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -253,9 +247,7 @@ def plot_mse(
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / (
-        f"mse_dt_{str(dt).split('.')[1]}_{get_mode_abbreviation(adaptive_method)}_{get_summary_mode_abbreviation(summary_mode)}_{timestamp}.png"
-    )
+    save_path = save_dir / f"mse_dt_{str(dt).split('.')[1]}_{timestamp}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")
