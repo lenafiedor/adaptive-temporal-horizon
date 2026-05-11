@@ -90,9 +90,11 @@ class LorenzDataset(Dataset):
         num_traj, seq_len, _ = self.trajectories.shape
 
         for traj_idx in range(num_traj):
-            for m in range(seq_len - self.T):
-                input_state = self.trajectories[traj_idx, m]  # [3,]
-                targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]  # [T, 3]
+            for m in range(config.WINDOW_SIZE - 1, seq_len - self.T):
+                input_state = self.trajectories[
+                    traj_idx, m - config.WINDOW_SIZE + 1 : m + 1
+                ].flatten()
+                targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]
                 samples.append((input_state, targets))
 
         return samples
@@ -103,7 +105,7 @@ class LorenzDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            input_state: (3,) tensor - starting state
+            input_state: (window_size * 3,) tensor - flattened history window
             targets: (T, 3) tensor - next T states to predict
         """
         return self.samples[idx]
@@ -111,6 +113,6 @@ class LorenzDataset(Dataset):
 
 def collate_fn(batch):
     """Custom collate function for DataLoader."""
-    inputs = torch.stack([item[0] for item in batch])  # [batch size, 3]
+    inputs = torch.stack([item[0] for item in batch])
     targets = torch.stack([item[1] for item in batch])  # [batch size, T, 3]
     return inputs, targets

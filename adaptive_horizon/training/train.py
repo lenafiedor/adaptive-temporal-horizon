@@ -80,7 +80,7 @@ def get_existing_adaptive_model_seeds(
 ):
     model_seeds = set()
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"adaptive_mlp(?:_[a-z]+)?_seed(\d+)", model_path.name)
+        match = re.search(r"adaptive_mlp_([a-z]+)_.+$", model_path.name)
         if match:
             checkpoint_method = get_adaptive_method(model_path)
             if checkpoint_method != adaptive_method:
@@ -104,24 +104,22 @@ def resolve_dirs(dt, append: bool, debug: bool):
 
         model_save_dir = Path(last_run_file.read_text().strip()).resolve()
         timestamp = model_save_dir.name
+        loss_save_dir = config.LOSS_DIR / timestamp
         if debug:
-            loss_save_dir = config.LOSS_DIR / timestamp
             loss_save_dir.mkdir(parents=True, exist_ok=True)
         if not model_save_dir.exists():
             raise FileNotFoundError(
                 "Cannot append: model directory referenced by last_run.txt was not found."
             )
-
-        return timestamp, model_save_dir, loss_save_dir
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dt_formatted = str(dt).split(".")[1]
-    model_save_dir = config.MODEL_DIR / f"dt_{dt_formatted}_{timestamp}"
-    model_save_dir.mkdir(parents=True, exist_ok=True)
-    if debug:
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dt_formatted = str(dt).split(".")[1]
+        model_save_dir = config.MODEL_DIR / f"dt_{dt_formatted}_{timestamp}"
+        model_save_dir.mkdir(parents=True, exist_ok=True)
         loss_save_dir = config.LOSS_DIR / f"dt_{dt_formatted}_{timestamp}"
-        loss_save_dir.mkdir(parents=True, exist_ok=True)
-    last_run_file.write_text(str(model_save_dir))
+        if debug:
+            loss_save_dir.mkdir(parents=True, exist_ok=True)
+        last_run_file.write_text(str(model_save_dir))
 
     return timestamp, model_save_dir, loss_save_dir
 
@@ -135,7 +133,7 @@ def create_model_and_loaders(
     adaptive_method=ADAPTIVE_HORIZON,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    ftle_window=config.WINDOW_SIZE,
+    window_size=config.WINDOW_SIZE,
     var=config.VARIANCE,
     debug=False,
 ):
@@ -151,7 +149,7 @@ def create_model_and_loaders(
         adaptive_method: Adaptive training method
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
-        ftle_window: Forward FTLE window for adaptive training
+        window_size: Window size for adaptive training
         var: Variance of the adaptive horizon
         debug: Whether adaptive datasets should write T values and Lyapunov exponents
 
@@ -159,7 +157,7 @@ def create_model_and_loaders(
         model, train_loader, val_loader, optimizer, config, metadata
     """
     mlp_config = MLPConfig(
-        input_size=config.INPUT_DIM,
+        input_size=config.INPUT_DIM * config.WINDOW_SIZE,
         output_size=config.INPUT_DIM,
         layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
         residual_connections=True,
@@ -198,7 +196,7 @@ def create_model_and_loaders(
             train_dataset = WeightedLossLorenzDataset(
                 dt=dt,
                 T_max=T,
-                ftle_window=ftle_window,
+                ftle_window=window_size,
                 seed=seed,
                 burn_in=burn_in_steps,
                 debug=debug,
@@ -207,7 +205,7 @@ def create_model_and_loaders(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
                 T_max=T,
-                ftle_window=ftle_window,
+                ftle_window=window_size,
                 seed=seed + 1000,
                 burn_in=burn_in_steps,
                 normalization_stats=train_dataset.normalization_stats,
@@ -222,7 +220,7 @@ def create_model_and_loaders(
         }
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = T
-            metadata["adaptive"]["ftle_window"] = ftle_window
+            metadata["adaptive"]["ftle_window"] = window_size
         else:
             metadata["adaptive"].update(
                 {
@@ -378,7 +376,7 @@ def train_single_model(
     adaptive_method=ADAPTIVE_HORIZON,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    ftle_window=config.WINDOW_SIZE,
+    window_size=config.WINDOW_SIZE,
     var=config.VARIANCE,
     rho=config.RHO,
     temperature=config.TEMPERATURE,
@@ -396,7 +394,7 @@ def train_single_model(
             adaptive_method,
             optimizer_name,
             batch_size,
-            ftle_window,
+            window_size,
             var,
             debug,
         )
@@ -532,12 +530,8 @@ def train_adaptive_models(
     batch_size=config.BATCH_SIZE,
     adaptive_method=ADAPTIVE_HORIZON,
     T_max=None,
-    ftle_window=config.WINDOW_SIZE,
+    window_size=config.WINDOW_SIZE,
     var=config.VARIANCE,
-    rho=config.RHO,
-    temperature=config.TEMPERATURE,
-    weight_floor=config.WEIGHT_FLOOR,
-    anchor_alpha=config.ANCHOR_ALPHA,
     append=False,
     debug=False,
 ):
@@ -580,12 +574,8 @@ def train_adaptive_models(
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
             batch_size=batch_size,
-            ftle_window=ftle_window,
+            window_size=window_size,
             var=var,
-            rho=rho,
-            temperature=temperature,
-            weight_floor=weight_floor,
-            anchor_alpha=anchor_alpha,
             debug=debug,
         )
         train_losses.append(train_loss)
@@ -671,40 +661,16 @@ def main():
         help="Shared rollout horizon for LLE-weighted adaptive training",
     )
     parser.add_argument(
-        "--ftle-window",
+        "--window-size",
         type=int,
         default=config.WINDOW_SIZE,
-        help="Forward FTLE window for adaptive lambda scores",
+        help="Window size for adaptive lambda scores",
     )
     parser.add_argument(
         "--variance",
         type=int,
         default=config.VARIANCE,
         help="Adaptive horizon variance around the default horizon",
-    )
-    parser.add_argument(
-        "--rho",
-        type=float,
-        default=config.RHO,
-        help="Predictability budget threshold for adaptive weights",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=config.TEMPERATURE,
-        help="Sigmoid temperature for adaptive weights",
-    )
-    parser.add_argument(
-        "--weight-floor",
-        type=float,
-        default=config.WEIGHT_FLOOR,
-        help="Minimum unnormalized adaptive rollout weight",
-    )
-    parser.add_argument(
-        "--anchor-alpha",
-        type=float,
-        default=config.ANCHOR_ALPHA,
-        help="One-step anchor fraction in the adaptive loss",
     )
     parser.add_argument(
         "--debug",
@@ -724,10 +690,6 @@ def main():
     )
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {args.optimizer}")
-    print(f"Adaptive method: {args.adaptive_method}")
-    if args.adaptive_method == ADAPTIVE_HORIZON:
-        print(f"Adaptive variance: {args.variance}")
-    print(f"Append mode: {args.append}")
 
     timestamp, model_save_dir, loss_save_dir = resolve_dirs(
         args.dt, args.append, args.debug
@@ -752,12 +714,8 @@ def main():
             adaptive_method=args.adaptive_method,
             optimizer_name=args.optimizer,
             batch_size=args.batch_size,
-            ftle_window=args.ftle_window,
+            window_size=args.window_size,
             var=args.variance,
-            rho=args.rho,
-            temperature=args.temperature,
-            weight_floor=args.weight_floor,
-            anchor_alpha=args.anchor_alpha,
             debug=args.debug,
         )
     else:
@@ -787,12 +745,8 @@ def main():
                 args.batch_size,
                 adaptive_method=args.adaptive_method,
                 T_max=args.adaptive_T_max,
-                ftle_window=args.ftle_window,
+                window_size=args.window_size,
                 var=args.variance,
-                rho=args.rho,
-                temperature=args.temperature,
-                weight_floor=args.weight_floor,
-                anchor_alpha=args.anchor_alpha,
                 append=args.append,
                 debug=args.debug,
             )

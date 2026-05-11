@@ -4,6 +4,19 @@ import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP
 
 
+def _rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
+    """Autoregressively predict future states from a flattened history window."""
+    history = inputs.view(inputs.shape[0], config.WINDOW_SIZE, config.INPUT_DIM)
+    preds = []
+
+    for _ in range(steps):
+        next_state = model(history.reshape(history.shape[0], -1))
+        preds.append(next_state)
+        history = torch.cat([history[:, 1:], next_state.unsqueeze(1)], dim=1)
+
+    return torch.stack(preds, dim=1)
+
+
 def batch_loss(model, inputs, targets, T):
     """Compute per-sample loss with a fixed horizon.
     Args:
@@ -14,12 +27,11 @@ def batch_loss(model, inputs, targets, T):
     Returns:
         float: average loss
     """
-    x_pred = inputs
+    preds = _rollout_predictions(model, inputs, T)
     total_loss = 0.0
 
     for tau in range(T):
-        x_pred = model(x_pred)
-        total_loss += torch.nn.functional.mse_loss(x_pred, targets[:, tau])
+        total_loss += torch.nn.functional.mse_loss(preds[:, tau], targets[:, tau])
 
     return total_loss / T
 
@@ -31,12 +43,7 @@ def adaptive_batch_loss(
     batch_size = inputs.shape[0]
     max_T = int(T.max().item())
 
-    x_pred = inputs
-    all_preds = []
-    for _ in range(max_T):
-        x_pred = model(x_pred)
-        all_preds.append(x_pred)
-    preds = torch.stack(all_preds, dim=1)
+    preds = _rollout_predictions(model, inputs, max_T)
 
     total_loss = 0.0
     for i in range(batch_size):
@@ -102,12 +109,7 @@ def lle_weighted_batch_loss(
         raise ValueError(f"anchor_alpha must be in [0, 1], got {anchor_alpha}")
 
     T_max = targets.shape[1]
-    x_pred = inputs
-    all_preds = []
-    for _ in range(T_max):
-        x_pred = model(x_pred)
-        all_preds.append(x_pred)
-    preds = torch.stack(all_preds, dim=1)
+    preds = _rollout_predictions(model, inputs, T_max)
 
     step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
         dim=2

@@ -5,7 +5,6 @@ from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import (
     compute_global_lyapunov,
     compute_local_lyapunov,
-    smooth_lle,
 )
 from adaptive_horizon.visualization.plotting import (
     plot_lyapunov_exponents,
@@ -59,10 +58,7 @@ def main():
         )
         print(f"Burn-in: {burn_in} steps ({config.BURN_IN_TIME:g} time units)")
 
-        lles = smooth_lle(
-            compute_local_lyapunov(lorenz_trajectory, burn_in=burn_in, dt=args.dt),
-            window=args.window,
-        )
+        lles = compute_local_lyapunov(lorenz_trajectory, burn_in=burn_in, dt=args.dt)
 
         print(f"Mean 1st LLE: {np.mean(lles[:, 0]):.4f}")
         print(f"Std 1st LLE: {np.std(lles[:, 0]):.4f}")

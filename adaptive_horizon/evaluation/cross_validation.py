@@ -117,8 +117,8 @@ def loader_cache_key(normalization_stats):
 def cross_validate_models(
     model_paths,
     adaptive_paths,
-    T_values,
-    dt,
+    T_values=None,
+    dt=config.DT,
     device=config.DEVICE,
 ):
     """
@@ -184,7 +184,6 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
-                    "adaptive_method": get_adaptive_method(model_path),
                     "train_T": None,
                     "seed": int(seed) if seed is not None else None,
                     "val_T": int(val_T),
@@ -244,6 +243,7 @@ def save_cross_validation_results(
     evaluation_records,
     T_values,
     best_train_T,
+    mean_adaptive_mse,
     dt,
     model_dir,
     save_dir=config.EVAL_DIR,
@@ -264,6 +264,7 @@ def save_cross_validation_results(
             "model_dir": str(model_dir),
             "T_max": max(T_values),
             "best_train_T": int(best_train_T),
+            "mean adaptive MSE": mean_adaptive_mse,
         },
         "evaluation_records": evaluation_records,
     }
@@ -278,12 +279,9 @@ def save_cross_validation_results(
     return results_file
 
 
-def load_cross_validation_results(cached, save_dir=config.EVAL_DIR):
+def load_cross_validation_results(cached: Path = None, save_dir: Path = config.EVAL_DIR):
     save_dir = Path(save_dir)
-    if cached == "__last__":
-        results_file = get_last_run(save_dir)
-    else:
-        results_file = Path(cached)
+    results_file = Path(cached)
 
     if not results_file.exists():
         raise FileNotFoundError(
@@ -319,8 +317,8 @@ def cross_validation(
         print(f"Using cached cross-validation results: {results_file}")
 
         plot_mse(
-            T_values=[int(T) for T in metadata["T_values"]],
-            evaluation_records=payload["evaluation_records"],
+            T_values=list(range(metadata["T_max"])),
+            evaluation_records=[record for record in payload["evaluation_records"] if record["model_type"] == "fixed"],
             save_dir=save_dir,
             dt=float(metadata["dt"]),
             summary_mode=plot_summary_mode,
@@ -353,38 +351,33 @@ def cross_validation(
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(model_dir), adaptive_method
     )
-
     print(f"T values: {T_values}")
-    if adaptive_method is None:
-        print(f"Adaptive models included: {len(adaptive_paths)} (all methods)")
-    else:
-        print(
-            f"Adaptive models included: {len(adaptive_paths)} (method={adaptive_method})"
-        )
 
     evaluation_records = cross_validate_models(
         model_paths, adaptive_paths, T_values, dt, device
     )
     stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
 
-    mean_across_val_Ts = {
+    mean_fixed_mse = {
         train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
         for train_T in T_values
     }
-    best_train_T = min(mean_across_val_Ts, key=mean_across_val_Ts.get)
+    best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
+    mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
 
     print(
-        f"Best train_T: {best_train_T} with mean MSE {mean_across_val_Ts[best_train_T]:.6f}"
+        f"Best train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
     )
     if adaptive_stats:
         print(
-            f"Mean MSE for adaptive models: {np.mean([stats[0] for stats in adaptive_stats.values()]):.6f}"
+            f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}"
         )
 
     save_cross_validation_results(
         evaluation_records,
         T_values,
         best_train_T,
+        mean_adaptive_mse,
         dt,
         model_dir,
         save_dir=save_dir,
@@ -420,10 +413,9 @@ def main():
     )
     parser.add_argument(
         "--cached",
-        nargs="?",
-        const="__last__",
+        type=str,
         default=None,
-        help="Plot cached cross-validation results from JSON without re-running evaluation",
+        help="Plot with cached cross-validation results for fixed T values",
     )
     plot_group = parser.add_mutually_exclusive_group()
     plot_group.add_argument(

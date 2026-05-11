@@ -10,7 +10,6 @@ import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
-    smooth_lle,
     compute_local_lyapunov,
 )
 
@@ -60,7 +59,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: Optional[int] = None,
-        var: int = 1,
+        var: int = config.VARIANCE,
         window_size: int = config.WINDOW_SIZE,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
@@ -100,9 +99,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             )
             trajectories.append(traj)
 
-            lles = smooth_lle(
-                compute_local_lyapunov(traj, burn_in=0, dt=dt), window=window_size
-            )
+            lles = compute_local_lyapunov(traj, burn_in=0, dt=dt)
             lle_max = lles[:, 0]
             self.lles.append(lle_max)
 
@@ -136,10 +133,10 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             traj = self.trajectories[traj_idx]
             horizon = self.horizons[traj_idx]
 
-            for m in range(len(horizon)):
+            for m in range(self.window_size - 1, len(horizon)):
                 T = horizon[m]
                 if m + T < seq_len:
-                    input_state = traj[m]
+                    input_state = traj[m - self.window_size + 1 : m + 1].flatten()
                     target_state = traj[m + 1 : m + T + 1]
                     samples.append((input_state, target_state, T))
 
@@ -222,6 +219,7 @@ class WeightedLossLorenzDataset(Dataset):
         self.T_max = int(T_max)
         self.dt = dt
         self.ftle_window = int(ftle_window)
+        self.history_window = config.WINDOW_SIZE
         self.normalize = normalize
         self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
         self.mean: Optional[torch.Tensor] = None
@@ -279,8 +277,8 @@ class WeightedLossLorenzDataset(Dataset):
             lambda_scores = self.lambda_scores[traj_idx]
             max_start = min(seq_len - self.T_max, len(lambda_scores))
 
-            for m in range(max_start):
-                input_state = traj[m]
+            for m in range(self.history_window - 1, max_start):
+                input_state = traj[m - self.history_window + 1 : m + 1].flatten()
                 targets = traj[m + 1 : m + self.T_max + 1]
                 lambda_score = float(lambda_scores[m])
                 samples.append((input_state, targets, lambda_score))
