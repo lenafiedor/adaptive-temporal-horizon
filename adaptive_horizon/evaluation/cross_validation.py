@@ -279,7 +279,9 @@ def save_cross_validation_results(
     return results_file
 
 
-def load_cross_validation_results(cached: Path = None, save_dir: Path = config.EVAL_DIR):
+def load_cross_validation_results(
+    cached: Path = None, save_dir: Path = config.EVAL_DIR
+):
     save_dir = Path(save_dir)
     results_file = Path(cached)
 
@@ -317,8 +319,12 @@ def cross_validation(
         print(f"Using cached cross-validation results: {results_file}")
 
         plot_mse(
-            T_values=list(range(metadata["T_max"])),
-            evaluation_records=[record for record in payload["evaluation_records"] if record["model_type"] == "fixed"],
+            T_values=list(range(1, metadata["T_max"] + 1)),
+            evaluation_records=[
+                record
+                for record in payload["evaluation_records"]
+                if record["model_type"] == "fixed"
+            ],
             save_dir=save_dir,
             dt=float(metadata["dt"]),
             summary_mode=plot_summary_mode,
@@ -369,9 +375,7 @@ def cross_validation(
         f"Best train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
     )
     if adaptive_stats:
-        print(
-            f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}"
-        )
+        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
 
     save_cross_validation_results(
         evaluation_records,

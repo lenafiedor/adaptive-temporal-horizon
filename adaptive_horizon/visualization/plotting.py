@@ -189,8 +189,7 @@ def plot_mse(
             values = [
                 record["mse"]
                 for record in evaluation_records
-                if record["train_T"] == train_T
-                and record["val_T"] == val_T
+                if record["train_T"] == train_T and record["val_T"] == val_T
             ]
             center, lower_error, upper_error, summary_label = summarize_values(
                 values, summary_mode
