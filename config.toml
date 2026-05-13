@@ -24,8 +24,9 @@ rho = 1.0
 temperature = 0.25
 weight_floor = 0.05
 anchor_alpha = 0.25
+ftle_window = 5
 
 [model]
 input_dim = 3
 layer_width = 10
-window_size = 5
+history_window = 5

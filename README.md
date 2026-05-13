@@ -71,24 +71,28 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 | `--batch-size`      | Batch size for training and validation loaders                        | int                                   | 64                 |
 | `--optimizer`       | Optimizer to use                                                      | `sgd` \| `adam` \| `adamw`            | adam               |
 | `--append`          | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false              |
-| `--adaptive-T-max`  | Shared rollout horizon for LLE-weighted adaptive training             | int                                   | None               |
+| `--history-window`  | Number of past trajectory points to use as input                      | int                                   | 5                  |
 | `--ftle-window`     | Forward FTLE window for adaptive lambda scores                        | int                                   | 5                  |
 | `--variance`        | Variance for the T values in adaptive horizon model                   | int                                   | 2                  |
-| `--rho`             | Predictability budget threshold for adaptive weights                  | float                                 | 1.0                |
-| `--temperature`     | Sigmoid temperature for adaptive weights                              | float                                 | 0.25               |
-| `--weight-floor`    | Minimum unnormalized adaptive rollout weight                          | float                                 | 0.05               |
-| `--anchor-alpha`    | One-step anchor fraction in the adaptive loss                         | float                                 | 0.25               |
+| `--debug`           | Debug losses and T values to files                                    | true \| false                         | false              |
+
+**Additional parameters for `weighted-loss` adaptive method stored in `config.toml`:**
+
+| Name            | Description                                                           | Values                                | Default value |
+|-----------------|-----------------------------------------------------------------------|---------------------------------------|---------------|
+| `RHO`           | Predictability budget threshold for adaptive weights                  | float                                 | 1.0           |
+| `TEMPERATURE`   | Sigmoid temperature for adaptive weights                              | float                                 | 0.25          |
+| `WEIGHT_FLOOR`  | Minimum unnormalized adaptive rollout weight                          | float                                 | 0.05          |
+| `ANCHOR_ALPHA`  | One-step anchor fraction in the adaptive loss                         | float                                 | 0.25          |
 
 
 The trained models are saved in the `experiments/lorenz/models/dt_<dt>_<timestamp>` directory by default.
-There should be 10 models by default (10 seeds x (7 horizons + adaptive)) after running the aggregate training script.
+There should be 110 models by default (10 seeds x (10 horizons + adaptive)) after running the aggregate training script.
 
 Notes:
 - `--max-T` only affects fixed-horizon training in aggregate mode. It is ignored when using `--single`.
-- `-T` only affects fixed-horizon `--single` mode.
-- `--single --adaptive` trains one adaptive model with seed `0`.
+- `-T` only affects fixed-horizon in `--single` mode.
 - `--adaptive-method` is only relevant for adaptive training.
-- `--adaptive-T-max`, `--ftle-window`, `--rho`, `--temperature`, `--weight-floor`, and `--anchor-alpha` are only used by the `weighted-loss` adaptive method.
 - `--append` reuses the full model path stored in `experiments/lorenz/models/last_run.txt`.
 - In `--append` mode, training checks seeds `0..n_seeds-1` and only trains the missing ones for each fixed `T` and for adaptive models.
 
@@ -166,6 +170,5 @@ poetry run compute-lyapunov --mode local --plot --window 20
 |------------------|-----------------------------------------------------------------|-----------------|---------------|
 | `--mode`         | Specifies whether to compute global or local Lyapunov exponents | global \| local | global        |
 | `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | true \| false   | false         |
-| `--window`, `-w` | Window size for computing local Lyapunov exponents              | int             | 5             |
 | `--dt`           | Time step for the Lorenz attractor simulation                   | float           | 0.08          |
 | `--steps`        | Number of steps for the Lorenz trajectory                       | int             | 1000          |

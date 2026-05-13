@@ -251,13 +251,12 @@ def plot_mse(
     print(f"Cross-validation MSE plot saved to {save_path}")
 
 
-def plot_lyapunov_exponents(exponents, window):
+def plot_lyapunov_exponents(exponents):
     """
     Plot histograms of all 3 Lyapunov exponents.
 
     Args:
         exponents: array of shape [N, 3] with local Lyapunov exponents
-        window: window size used for computation
     """
     exponents = np.array(exponents)
     labels = [r"$\lambda_1$", r"$\lambda_2$", r"$\lambda_3$"]
@@ -278,30 +277,27 @@ def plot_lyapunov_exponents(exponents, window):
         ax.set_xlabel("Local Lyapunov Exponent")
         ax.set_ylabel("Density")
         ax.set_yscale("log")
-        ax.set_title(f"Distribution of {labels[i]} (window={window})")
+        ax.set_title(f"Distribution of {labels[i]}")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    save_figure(fig, f"lle_histogram_W{window}.png")
+    save_figure(fig, "lle_histogram.png")
 
 
-def plot_trajectory_heatmap(trajectory, exponents, window, burn_in=0):
+def plot_trajectory_heatmap(trajectory, exponents, burn_in=0):
     """
     Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
 
     Args:
         trajectory: array of shape [N, 3] with trajectory states
-        exponents: array of shape [N-window, 3] with local Lyapunov exponents
-        window: window size used for computation
+        exponents: array of shape [N, 3] with local Lyapunov exponents
         burn_in: number of initial steps to ignore
     """
     trajectory = np.array(trajectory)
     exponents = np.array(exponents)
     n_lle = len(exponents)
-
-    offset = burn_in + window
-    traj_aligned = trajectory[offset : offset + n_lle]
+    traj_aligned = trajectory[burn_in : burn_in + n_lle]
 
     x = traj_aligned[:, 0]
     y = traj_aligned[:, 1]
@@ -336,7 +332,7 @@ def plot_trajectory_heatmap(trajectory, exponents, window, burn_in=0):
         cbar.set_label(f"Local {labels[i]}")
 
     plt.tight_layout()
-    save_figure(fig, f"lorenz_lle_heatmap_W{window}.png")
+    save_figure(fig, "lorenz_lle_heatmap.png")
 
 
 def save_figure(fig, filename, save_dir=ANALYSIS_DIR, dpi=150):

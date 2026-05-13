@@ -11,7 +11,6 @@ from adaptive_horizon.visualization.plotting import (
     plot_trajectory_heatmap,
 )
 import adaptive_horizon.config as config
-from adaptive_horizon.config import WINDOW_SIZE
 
 
 def main():
@@ -26,13 +25,6 @@ def main():
     )
     parser.add_argument(
         "--plot", "-p", action="store_true", help="Plot the Lorenz trajectory"
-    )
-    parser.add_argument(
-        "--window",
-        "-w",
-        type=int,
-        default=WINDOW_SIZE,
-        help="Window size for LLE computation (only local mode)",
     )
     parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
     parser.add_argument(
@@ -64,8 +56,8 @@ def main():
         print(f"Std 1st LLE: {np.std(lles[:, 0]):.4f}")
 
         if args.plot:
-            plot_lyapunov_exponents(lles, window=args.window)
-            plot_trajectory_heatmap(lorenz_trajectory, lles, args.window)
+            plot_lyapunov_exponents(lles)
+            plot_trajectory_heatmap(lorenz_trajectory, lles)
 
     else:
         raise ValueError("Invalid mode. Choose 'global' or 'local'.")

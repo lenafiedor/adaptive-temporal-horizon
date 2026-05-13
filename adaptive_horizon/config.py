@@ -37,10 +37,11 @@ RHO = _config["training"]["rho"]
 TEMPERATURE = _config["training"]["temperature"]
 WEIGHT_FLOOR = _config["training"]["weight_floor"]
 ANCHOR_ALPHA = _config["training"]["anchor_alpha"]
+FTLE_WINDOW = _config["training"]["ftle_window"]
 
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
-WINDOW_SIZE = _config["model"]["window_size"]
+HISTORY_WINDOW = _config["model"]["history_window"]
 
 
 def resolve_burn_in_steps(dt=DT, burn_in=None, burn_in_time=BURN_IN_TIME):

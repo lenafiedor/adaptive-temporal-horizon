@@ -2,7 +2,7 @@ import numpy as np
 
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
 from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
-from adaptive_horizon.config import WINDOW_SIZE, resolve_burn_in_steps
+from adaptive_horizon.config import resolve_burn_in_steps
 
 
 def compute_global_lyapunov(dt=0.01, steps=10000, burn_in=None):
@@ -54,7 +54,7 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     return np.array(lles)
 
 
-def compute_forward_ftle(trajectory, dt=0.01, window=WINDOW_SIZE, burn_in=0):
+def compute_forward_ftle(trajectory, dt=0.01, window=5, burn_in=0):
     """
     Compute an aligned forward finite-time Lyapunov score for each start state.
 
@@ -88,10 +88,3 @@ def compute_forward_ftle(trajectory, dt=0.01, window=WINDOW_SIZE, burn_in=0):
         ftles.append(np.log(sigma_max + 1e-12) / (window * dt))
 
     return np.array(ftles)
-
-
-def smooth_lle(lles, window):
-    smoothed = []
-    for i in range(len(lles) - window):
-        smoothed.append(np.mean(lles[i : i + window], axis=0))
-    return np.array(smoothed)

@@ -19,6 +19,7 @@ class LorenzDataset(Dataset):
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: Optional[int] = None,
+        history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
     ):
         """
@@ -30,11 +31,13 @@ class LorenzDataset(Dataset):
             normalize: Whether to normalize the data
             seed: Random seed for reproducibility
             burn_in: Number of initial steps to discard
+            history_window: Number of past trajectory states included in each input
             normalization_stats: Optional mean/std values from a training dataset
         """
         self.T = T
         self.normalize = normalize
         self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
+        self.history_window = int(history_window)
 
         if seed is not None:
             np.random.seed(seed)
@@ -90,9 +93,9 @@ class LorenzDataset(Dataset):
         num_traj, seq_len, _ = self.trajectories.shape
 
         for traj_idx in range(num_traj):
-            for m in range(config.WINDOW_SIZE - 1, seq_len - self.T):
+            for m in range(self.history_window - 1, seq_len - self.T):
                 input_state = self.trajectories[
-                    traj_idx, m - config.WINDOW_SIZE + 1 : m + 1
+                    traj_idx, m - self.history_window + 1 : m + 1
                 ].flatten()
                 targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]
                 samples.append((input_state, targets))
@@ -105,7 +108,7 @@ class LorenzDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            input_state: (window_size * 3,) tensor - flattened history window
+            input_state: (history_window * 3,) tensor - flattened history window
             targets: (T, 3) tensor - next T states to predict
         """
         return self.samples[idx]

@@ -60,14 +60,14 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         seed: Optional[int] = None,
         burn_in: Optional[int] = None,
         var: int = config.VARIANCE,
-        window_size: int = config.WINDOW_SIZE,
+        history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
     ):
         self.normalize = normalize
         self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
         self.var = var
-        self.window_size = window_size
+        self.history_window = int(history_window)
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
@@ -103,9 +103,6 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             lle_max = lles[:, 0]
             self.lles.append(lle_max)
 
-            # ftle = compute_forward_ftle(traj, dt=dt, window=window_size)
-            # self.lles.append(ftle)
-
             self.horizons.append(
                 self._lle_to_horizon(lle_max, self.base_T, self.min_T, self.max_T)
             )
@@ -133,10 +130,10 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             traj = self.trajectories[traj_idx]
             horizon = self.horizons[traj_idx]
 
-            for m in range(self.window_size - 1, len(horizon)):
+            for m in range(self.history_window - 1, len(horizon)):
                 T = horizon[m]
                 if m + T < seq_len:
-                    input_state = traj[m - self.window_size + 1 : m + 1].flatten()
+                    input_state = traj[m - self.history_window + 1 : m + 1].flatten()
                     target_state = traj[m + 1 : m + T + 1]
                     samples.append((input_state, target_state, T))
 
@@ -204,7 +201,8 @@ class WeightedLossLorenzDataset(Dataset):
         steps_per_trajectory: int = config.STEPS_PER_TRAJECTORY,
         dt: float = config.DT,
         T_max: Optional[int] = None,
-        ftle_window: int = config.WINDOW_SIZE,
+        ftle_window: int = config.FTLE_WINDOW,
+        history_window: int = config.HISTORY_WINDOW,
         normalize: bool = True,
         seed: Optional[int] = None,
         burn_in: Optional[int] = None,
@@ -219,7 +217,7 @@ class WeightedLossLorenzDataset(Dataset):
         self.T_max = int(T_max)
         self.dt = dt
         self.ftle_window = int(ftle_window)
-        self.history_window = config.WINDOW_SIZE
+        self.history_window = int(history_window)
         self.normalize = normalize
         self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
         self.mean: Optional[torch.Tensor] = None

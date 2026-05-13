@@ -120,7 +120,8 @@ def create_model_and_loaders(
     adaptive_method=ADAPTIVE_HORIZON,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    window_size=config.WINDOW_SIZE,
+    history_window=config.HISTORY_WINDOW,
+    ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     debug=False,
 ):
@@ -136,7 +137,8 @@ def create_model_and_loaders(
         adaptive_method: Adaptive training method
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
-        window_size: Window size for adaptive training
+        history_window: Number of past trajectory states in each model input
+        ftle_window: Forward FTLE window for weighted-loss training
         var: Variance of the adaptive horizon
         debug: Whether adaptive datasets should write T values and Lyapunov exponents
 
@@ -144,7 +146,7 @@ def create_model_and_loaders(
         model, train_loader, val_loader, optimizer, config, metadata
     """
     mlp_config = MLPConfig(
-        input_size=config.INPUT_DIM * config.WINDOW_SIZE,
+        input_size=config.INPUT_DIM * history_window,
         output_size=config.INPUT_DIM,
         layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
         residual_connections=True,
@@ -166,6 +168,7 @@ def create_model_and_loaders(
                 seed=seed,
                 burn_in=burn_in_steps,
                 var=var,
+                history_window=history_window,
                 debug=debug,
             )
             val_dataset = AdaptiveHorizonLorenzDataset(
@@ -174,6 +177,7 @@ def create_model_and_loaders(
                 seed=seed + 1000,
                 burn_in=burn_in_steps,
                 var=var,
+                history_window=history_window,
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
             )
@@ -183,7 +187,8 @@ def create_model_and_loaders(
             train_dataset = WeightedLossLorenzDataset(
                 dt=dt,
                 T_max=T,
-                ftle_window=window_size,
+                ftle_window=ftle_window,
+                history_window=history_window,
                 seed=seed,
                 burn_in=burn_in_steps,
                 debug=debug,
@@ -192,7 +197,8 @@ def create_model_and_loaders(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
                 T_max=T,
-                ftle_window=window_size,
+                ftle_window=ftle_window,
+                history_window=history_window,
                 seed=seed + 1000,
                 burn_in=burn_in_steps,
                 normalization_stats=train_dataset.normalization_stats,
@@ -207,7 +213,7 @@ def create_model_and_loaders(
         }
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = T
-            metadata["adaptive"]["ftle_window"] = window_size
+            metadata["adaptive"]["ftle_window"] = ftle_window
         else:
             metadata["adaptive"].update(
                 {
@@ -223,6 +229,7 @@ def create_model_and_loaders(
             dt=dt,
             seed=seed,
             burn_in=burn_in_steps,
+            history_window=history_window,
         )
         val_dataset = LorenzDataset(
             num_trajectories=config.NUM_TRAJECTORIES // 5,
@@ -230,10 +237,12 @@ def create_model_and_loaders(
             dt=dt,
             seed=seed + 1000,
             burn_in=burn_in_steps,
+            history_window=history_window,
             normalization_stats=train_dataset.normalization_stats,
         )
         collate_function = collate_fn
 
+    metadata["history_window"] = history_window
     metadata["normalization_stats"] = train_dataset.normalization_stats
 
     train_loader = DataLoader(
@@ -363,7 +372,8 @@ def train_single_model(
     adaptive_method=ADAPTIVE_HORIZON,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    window_size=config.WINDOW_SIZE,
+    history_window=config.HISTORY_WINDOW,
+    ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     rho=config.RHO,
     temperature=config.TEMPERATURE,
@@ -381,7 +391,8 @@ def train_single_model(
             adaptive_method,
             optimizer_name,
             batch_size,
-            window_size,
+            history_window,
+            ftle_window,
             var,
             debug,
         )
@@ -440,6 +451,7 @@ def train_fixed_models(
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
+    history_window=config.HISTORY_WINDOW,
     append=False,
     debug=False,
 ):
@@ -493,6 +505,7 @@ def train_fixed_models(
                 T=T,
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
+                history_window=history_window,
             )
             train_losses.append(train_loss)
             val_losses.append(val_loss)
@@ -517,7 +530,8 @@ def train_adaptive_models(
     batch_size=config.BATCH_SIZE,
     adaptive_method=ADAPTIVE_HORIZON,
     T_max=None,
-    window_size=config.WINDOW_SIZE,
+    history_window=config.HISTORY_WINDOW,
+    ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     append=False,
     debug=False,
@@ -559,7 +573,8 @@ def train_adaptive_models(
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
             batch_size=batch_size,
-            window_size=window_size,
+            history_window=history_window,
+            ftle_window=ftle_window,
             var=var,
             debug=debug,
         )
@@ -640,16 +655,16 @@ def main():
         help="Append outputs to the run referenced by models/last_run.txt",
     )
     parser.add_argument(
-        "--adaptive-T-max",
+        "--history-window",
         type=int,
-        default=None,
-        help="Shared rollout horizon for LLE-weighted adaptive training",
+        default=config.HISTORY_WINDOW,
+        help="Number of past trajectory states included in each model input",
     )
     parser.add_argument(
-        "--window-size",
+        "--ftle-window",
         type=int,
-        default=config.WINDOW_SIZE,
-        help="Window size for adaptive lambda scores",
+        default=config.FTLE_WINDOW,
+        help="Forward FTLE window for weighted-loss adaptive training",
     )
     parser.add_argument(
         "--variance",
@@ -694,12 +709,13 @@ def main():
             model_save_dir=model_save_dir,
             loss_save_dir=loss_save_dir,
             dt=args.dt,
-            T=args.adaptive_T_max if args.adaptive else args.T,
+            T=args.T,
             adaptive=args.adaptive,
             adaptive_method=args.adaptive_method,
             optimizer_name=args.optimizer,
             batch_size=args.batch_size,
-            window_size=args.window_size,
+            history_window=args.history_window,
+            ftle_window=args.ftle_window,
             var=args.variance,
             debug=args.debug,
         )
@@ -715,6 +731,7 @@ def main():
                 args.dt,
                 args.optimizer,
                 args.batch_size,
+                history_window=args.history_window,
                 append=args.append,
                 debug=args.debug,
             )
@@ -730,7 +747,8 @@ def main():
                 args.batch_size,
                 adaptive_method=args.adaptive_method,
                 T_max=args.adaptive_T_max,
-                window_size=args.window_size,
+                history_window=args.history_window,
+                ftle_window=args.ftle_window,
                 var=args.variance,
                 append=args.append,
                 debug=args.debug,

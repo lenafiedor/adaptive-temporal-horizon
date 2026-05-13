@@ -6,7 +6,13 @@ from adaptive_horizon.model.mlp import MLP
 
 def _rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
     """Autoregressively predict future states from a flattened history window."""
-    history = inputs.view(inputs.shape[0], config.WINDOW_SIZE, config.INPUT_DIM)
+    if inputs.shape[1] % config.INPUT_DIM != 0:
+        raise ValueError(
+            f"Input feature size {inputs.shape[1]} is not divisible by "
+            f"state dimension {config.INPUT_DIM}"
+        )
+    history_window = inputs.shape[1] // config.INPUT_DIM
+    history = inputs.view(inputs.shape[0], history_window, config.INPUT_DIM)
     preds = []
 
     for _ in range(steps):

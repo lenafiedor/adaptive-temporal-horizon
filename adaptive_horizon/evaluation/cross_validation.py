@@ -71,7 +71,20 @@ def get_normalization_stats(checkpoint):
     return metadata.get("normalization_stats")
 
 
-def make_eval_loader(max_val_T, dt, normalization_stats=None):
+def get_history_window(checkpoint):
+    metadata = checkpoint.get("metadata", {})
+    if "history_window" in metadata:
+        return int(metadata["history_window"])
+
+    model_config = checkpoint.get("config", {})
+    input_size = model_config.get("input_size")
+    if input_size is not None:
+        return int(input_size) // config.INPUT_DIM
+
+    return config.HISTORY_WINDOW
+
+
+def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=None):
     burn_in_steps = config.resolve_burn_in_steps(dt)
     eval_dataset = LorenzDataset(
         num_trajectories=config.NUM_TRAJECTORIES,
@@ -81,6 +94,7 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None):
         normalize=True,
         seed=config.EVAL_SEED,
         burn_in=burn_in_steps,
+        history_window=history_window or config.HISTORY_WINDOW,
         normalization_stats=normalization_stats,
     )
     return DataLoader(
@@ -91,12 +105,12 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None):
     )
 
 
-def loader_cache_key(normalization_stats):
+def eval_loader_cache_key(normalization_stats, history_window):
     if normalization_stats is None:
-        return None
+        return None, history_window
     mean = tuple(float(value) for value in normalization_stats["mean"])
     std = tuple(float(value) for value in normalization_stats["std"])
-    return mean, std
+    return mean, std, history_window
 
 
 def cross_validate_models(
@@ -123,9 +137,12 @@ def cross_validate_models(
 
     def get_eval_loader(checkpoint):
         normalization_stats = get_normalization_stats(checkpoint)
-        key = loader_cache_key(normalization_stats)
+        history_window = get_history_window(checkpoint)
+        key = eval_loader_cache_key(normalization_stats, history_window)
         if key not in eval_loaders:
-            eval_loaders[key] = make_eval_loader(max(T_values), dt, normalization_stats)
+            eval_loaders[key] = make_eval_loader(
+                max(T_values), dt, normalization_stats, history_window
+            )
         return eval_loaders[key]
 
     evaluation_records = []
