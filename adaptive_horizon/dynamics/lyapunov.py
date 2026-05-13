@@ -2,7 +2,7 @@ import numpy as np
 
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
 from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
-from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.config import resolve_burn_in_steps, FTLE_WINDOW
 
 
 def compute_global_lyapunov(dt=0.01, steps=10000, burn_in=None):
@@ -27,13 +27,12 @@ def compute_global_lyapunov(dt=0.01, steps=10000, burn_in=None):
     return lyap
 
 
-def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
+def compute_local_lyapunov(trajectory, dt=0.01):
     """
     Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
 
     Args:
         trajectory (array [N, 3]): array of states
-        burn_in (int): number of initial steps to ignore
         dt (float): time step
     Returns:
         LLEs (array [N - 1, 3]): array of local Lyapunov exponents
@@ -41,20 +40,18 @@ def compute_local_lyapunov(trajectory, burn_in=None, dt=0.01):
     trajectory = np.array(trajectory)
     Q = np.eye(3)
     lles = []
-    burn_in = resolve_burn_in_steps(dt, burn_in)
 
     for i in range(len(trajectory) - 1):
         x = trajectory[i]
         _, Q = rk4_step_coupled(x, Q, dt, lorenz_f, jacobian_lorenz)
         Q, R = np.linalg.qr(Q)
 
-        if i >= burn_in:
-            lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
+        lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
 
     return np.array(lles)
 
 
-def compute_forward_ftle(trajectory, dt=0.01, window=5, burn_in=0):
+def compute_forward_ftle(trajectory, dt=0.01, window=FTLE_WINDOW):
     """
     Compute an aligned forward finite-time Lyapunov score for each start state.
 
@@ -66,14 +63,13 @@ def compute_forward_ftle(trajectory, dt=0.01, window=5, burn_in=0):
         trajectory (array [N, 3]): states along a trajectory
         dt (float): time step
         window (int): number of forward integration steps
-        burn_in (int): number of initial trajectory steps to ignore
     Returns:
-        array [N - burn_in - window]: largest forward FTLE for each valid start index
+        array [N - window]: largest forward FTLE for each valid start index
     """
     if window < 1:
         raise ValueError(f"window must be at least 1, got {window}")
 
-    trajectory = np.array(trajectory)[burn_in:]
+    trajectory = np.array(trajectory)
     ftles = []
 
     for start in range(len(trajectory) - window):

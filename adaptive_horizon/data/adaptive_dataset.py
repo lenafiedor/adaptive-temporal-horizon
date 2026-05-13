@@ -99,7 +99,7 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             )
             trajectories.append(traj)
 
-            lles = compute_local_lyapunov(traj, burn_in=0, dt=dt)
+            lles = compute_local_lyapunov(traj, dt=dt)
             lle_max = lles[:, 0]
             self.lles.append(lle_max)
 

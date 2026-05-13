@@ -76,7 +76,7 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 | `--variance`        | Variance for the T values in adaptive horizon model                   | int                                   | 2                  |
 | `--debug`           | Debug losses and T values to files                                    | true \| false                         | false              |
 
-**Additional parameters for `weighted-loss` adaptive method stored in `config.toml`:**
+Additional parameters for `weighted-loss` adaptive method stored in `config.toml`:
 
 | Name            | Description                                                           | Values                                | Default value |
 |-----------------|-----------------------------------------------------------------------|---------------------------------------|---------------|
@@ -140,13 +140,13 @@ poetry run cross-validation --cached path/to/mse/results/file.json --plot median
 
 **Args:**
 
-| Name                | Description                                                     | Values                                  | Default value                      |
-|---------------------|-----------------------------------------------------------------|-----------------------------------------|------------------------------------|
-| `--model-dir`       | Path to the directory containing trained models                 | str                                     | Read from `last_run.txt`           |
-| `--max-T`           | Maximum training horizon to consider for evaluation             | int                                     | Max T found in the model directory |
-| `--adaptive-method` | Evaluate only adaptive models trained with this method          | `adaptive-horizon` \| `weighted-loss`   | None (both used)                   |
-| `--cached`          | Reuse cached cross-validation JSON and only regenerate the plot | `None` \| `filename.json`               | None                               |
-| `--plot`            | Plot summary statistic and interval style for the figure        | `mean-std` \| `mean-ci` \| `median-iqr` | `mean-ci`                          |
+| Name                | Description                                              | Values                                  | Default value                      |
+|---------------------|----------------------------------------------------------|-----------------------------------------|------------------------------------|
+| `--model-dir`       | Path to the directory containing trained models          | str                                     | Read from `last_run.txt`           |
+| `--max-T`           | Maximum training horizon to consider for evaluation      | int                                     | Max T found in the model directory |
+| `--adaptive-method` | Evaluate only adaptive models trained with this method   | `adaptive-horizon` \| `weighted-loss`   | None (both used)                   |
+| `--cached`          | Reuse cached cross-validation JSON for fixed T values    | `None` \| `filename.json`               | None                               |
+| `--plot`            | Plot summary statistic and interval style for the figure | `mean-std` \| `mean-ci` \| `median-iqr` | `mean-ci`                          |
 
 Notes:
 - `cross-validation` infers `dt` from the model directory name rather than taking it as a CLI argument.

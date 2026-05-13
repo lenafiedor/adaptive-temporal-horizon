@@ -34,13 +34,13 @@ def main():
         help="Trajectory length",
     )
     args = parser.parse_args()
-    burn_in = config.resolve_burn_in_steps(args.dt)
 
     if args.mode == "global":
-        lle = compute_global_lyapunov(dt=args.dt, burn_in=burn_in)
+        lle = compute_global_lyapunov(dt=args.dt)
         print(f"Largest Lyapunov Exponent: {lle:.4f}")
 
     elif args.mode == "local":
+        burn_in = config.resolve_burn_in_steps(args.dt)
         lorenz_trajectory = np.array(
             simulate_lorenz(
                 dt=args.dt,
@@ -50,7 +50,7 @@ def main():
         )
         print(f"Burn-in: {burn_in} steps ({config.BURN_IN_TIME:g} time units)")
 
-        lles = compute_local_lyapunov(lorenz_trajectory, burn_in=burn_in, dt=args.dt)
+        lles = compute_local_lyapunov(lorenz_trajectory, dt=args.dt)
 
         print(f"Mean 1st LLE: {np.mean(lles[:, 0]):.4f}")
         print(f"Std 1st LLE: {np.std(lles[:, 0]):.4f}")
