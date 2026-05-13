@@ -26,11 +26,11 @@ def main():
     parser.add_argument(
         "--plot", "-p", action="store_true", help="Plot the Lorenz trajectory"
     )
-    parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
+    parser.add_argument("--dt", type=float, default=0.01, help="Simulation step")
     parser.add_argument(
         "--steps",
         type=int,
-        default=config.STEPS_PER_TRAJECTORY,
+        default=10000,
         help="Trajectory length",
     )
     args = parser.parse_args()

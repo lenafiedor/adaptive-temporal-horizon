@@ -29,7 +29,6 @@ NUM_SEEDS = _config["training"]["num_seeds"]
 NUM_TRAJECTORIES = _config["training"]["num_trajectories"]
 STEPS_PER_TRAJECTORY = _config["training"]["steps_per_trajectory"]
 DT = _config["training"]["dt"]
-EVAL_SEED = _config["training"]["eval_seed"]
 BURN_IN_TIME = _config["training"]["burn_in_time"]
 VARIANCE = _config["training"]["variance"]
 DEFAULT_ADAPTIVE_HORIZON = _config["training"]["default_adaptive_horizon"]
@@ -42,6 +41,9 @@ FTLE_WINDOW = _config["training"]["ftle_window"]
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
 HISTORY_WINDOW = _config["model"]["history_window"]
+
+NUM_BATCHES = _config["evaluation"]["num_batches"]
+EVAL_SEED = _config["evaluation"]["eval_seed"]
 
 
 def resolve_burn_in_steps(dt=DT, burn_in=None, burn_in_time=BURN_IN_TIME):

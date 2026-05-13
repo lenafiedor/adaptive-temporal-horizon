@@ -200,7 +200,9 @@ def lle_weighted_validation_loss(
     return total_loss / len(val_loader)
 
 
-def compute_gradient_norm(model, loader, T, max_batches=5, device=config.DEVICE):
+def compute_gradient_norm(
+    model, loader, T, max_batches=config.NUM_BATCHES, device=config.DEVICE
+):
     """Compute gradient norm using loss per paper Eq. 3."""
     model.zero_grad()
     total_loss = 0.0
@@ -224,7 +226,9 @@ def compute_gradient_norm(model, loader, T, max_batches=5, device=config.DEVICE)
     return torch.sqrt(total_norm)
 
 
-def compute_g_T(model, loader, T_vals, max_batches=5, device=config.DEVICE):
+def compute_g_T(
+    model, loader, T_vals, max_batches=config.NUM_BATCHES, device=config.DEVICE
+):
     model.eval()
 
     g1 = compute_gradient_norm(

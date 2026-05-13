@@ -122,7 +122,7 @@ poetry run gradient-scaling --model path/to/trained/model.pt --max-eval-T 100 --
 | Name                | Description                                           | Values                                | Default value   |
 |---------------------|-------------------------------------------------------|---------------------------------------|-----------------|
 | `--model` `-m`      | Path to the trained model                             | str                                   | None (required) |
-| `--max-eval-T`      | Maximum evaluation horizon to consider for evaluation | int                                   | 200             |
+| `--max-eval-T`      | Maximum evaluation horizon to consider for evaluation | int                                   | 120             |
 | `--dt`              | Time step for the Lorenz attractor simulation         | float                                 | 0.08            |
 
 #### Cross-validation on all trained models
@@ -161,7 +161,7 @@ To analyze Lyapunov exponents, run the following command:
 
 ```bash
 poetry run compute-lyapunov
-poetry run compute-lyapunov --mode local --plot --window 20
+poetry run compute-lyapunov --mode local --plot
 ```
 
 **Args:**

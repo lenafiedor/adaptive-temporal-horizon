@@ -52,7 +52,7 @@ def main():
         help="Path to saved model",
     )
     parser.add_argument(
-        "--max-eval-T", type=int, default=200, help="Maximum T for evaluation"
+        "--max-eval-T", type=int, default=120, help="Maximum T for evaluation"
     )
     parser.add_argument(
         "--dt", type=float, default=config.DT, help="Time step for simulation"
