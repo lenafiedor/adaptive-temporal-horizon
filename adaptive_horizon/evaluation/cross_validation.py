@@ -6,11 +6,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-from adaptive_horizon.training_modes import (
-    ADAPTIVE_HORIZON,
-    WEIGHTED_LOSS,
-    get_adaptive_method,
-)
+from adaptive_horizon.training.train import ADAPTIVE_HORIZON, WEIGHTED_LOSS
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -68,17 +64,6 @@ def get_model_paths(train_Ts, model_dir=config.MODEL_DIR):
 def get_adaptive_paths(model_dir=config.MODEL_DIR):
     """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
-
-
-def filter_adaptive_paths(adaptive_paths, adaptive_method):
-    if adaptive_method is None:
-        return adaptive_paths
-
-    return [
-        model_path
-        for model_path in adaptive_paths
-        if get_adaptive_method(model_path) == adaptive_method
-    ]
 
 
 def get_normalization_stats(checkpoint):
@@ -354,9 +339,7 @@ def cross_validation(
             return
 
     model_paths = get_model_paths(T_values, model_dir)
-    adaptive_paths = filter_adaptive_paths(
-        get_adaptive_paths(model_dir), adaptive_method
-    )
+    adaptive_paths = get_adaptive_paths(model_dir)
     print(f"T values: {T_values}")
 
     evaluation_records = cross_validate_models(

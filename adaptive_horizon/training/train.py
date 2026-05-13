@@ -6,11 +6,6 @@ from pathlib import Path
 import re
 
 import adaptive_horizon.config as config
-from adaptive_horizon.training_modes import (
-    ADAPTIVE_HORIZON,
-    WEIGHTED_LOSS,
-    get_adaptive_method,
-)
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.data.adaptive_dataset import (
@@ -29,6 +24,9 @@ from adaptive_horizon.training.loss import (
     validation_loss,
 )
 from adaptive_horizon.visualization.plotting import save_losses, save_model
+
+ADAPTIVE_HORIZON = "adaptive-horizon"
+WEIGHTED_LOSS = "weighted-loss"
 
 
 def create_optimizer(optimizer_name, model):
@@ -73,22 +71,11 @@ def get_existing_fixed_model_seeds(model_dir: Path):
     return model_seeds
 
 
-def get_existing_adaptive_model_seeds(
-    model_dir: Path,
-    adaptive_method=ADAPTIVE_HORIZON,
-    var=None,
-):
+def get_existing_adaptive_model_seeds(model_dir: Path):
     model_seeds = set()
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"adaptive_mlp_([a-z]+)_.+$", model_path.name)
+        match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
         if match:
-            checkpoint_method = get_adaptive_method(model_path)
-            if checkpoint_method != adaptive_method:
-                continue
-            if var is not None and checkpoint_method == ADAPTIVE_HORIZON:
-                var_match = re.search(r"_var_(\d+)\.pt$", model_path.name)
-                if var_match and int(var_match.group(1)) != var:
-                    continue
             model_seeds.add(int(match.group(1)))
     return model_seeds
 
@@ -544,9 +531,7 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method, var)
-        if append
-        else set()
+        get_existing_adaptive_model_seeds(model_save_dir) if append else set()
     )
     missing_seeds = [seed for seed in seed_range if seed not in existing_seeds]
 
