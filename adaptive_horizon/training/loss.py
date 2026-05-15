@@ -175,9 +175,35 @@ def lle_weighted_validation_loss(model, val_loader, dt=config.DT, device=config.
 
 
 def compute_gradient_norm(
-    model, loader, T, max_batches=config.NUM_BATCHES, device=config.DEVICE
+    model,
+    loader,
+    T,
+    max_batches=config.NUM_BATCHES,
+    device=config.DEVICE,
+    per_batch=False,
 ):
     """Compute gradient norm using loss per paper Eq. 3."""
+    if per_batch:
+        gradient_norms = []
+
+        for i, (inputs, targets) in enumerate(loader):
+            if i >= max_batches:
+                break
+
+            inputs, targets = inputs.to(device), targets.to(device)
+            model.zero_grad()
+            loss = batch_loss(model, inputs, targets[:, :T], T)
+            loss.backward()
+
+            total_norm = torch.zeros((), device=device)
+            for p in model.parameters():
+                if p.grad is not None:
+                    total_norm += p.grad.norm().pow(2)
+
+            gradient_norms.append(torch.sqrt(total_norm).item())
+
+        return gradient_norms
+
     model.zero_grad()
     total_loss = 0.0
     batch_count = 0
@@ -201,7 +227,12 @@ def compute_gradient_norm(
 
 
 def compute_g_T(
-    model, loader, T_vals, max_batches=config.NUM_BATCHES, device=config.DEVICE
+    model,
+    loader,
+    T_vals,
+    max_batches=config.NUM_BATCHES,
+    device=config.DEVICE,
+    per_batch=False,
 ):
     """Compute g(T) function per paper Eq. 4.
 
@@ -211,10 +242,32 @@ def compute_g_T(
         T_vals: list of horizon values to evaluate
         max_batches: maximum number of batches to use for gradient norm estimation
         device: CPU or GPU
+        per_batch: whether to return per-batch g(T) ratios instead of aggregated values
     Returns:
-        dict: mapping from evaluation horizon to g(T) value
+        dict: mapping from evaluation horizon to g(T) value or list of per-batch values
     """
     model.eval()
+
+    if per_batch:
+        g1_values = compute_gradient_norm(
+            model, loader, T=1, device=device, max_batches=max_batches, per_batch=True
+        )
+        gT_values = {
+            T: compute_gradient_norm(
+                model,
+                loader,
+                T=T,
+                device=device,
+                max_batches=max_batches,
+                per_batch=True,
+            )
+            for T in T_vals
+        }
+
+        return {
+            T: [gT / g1 for gT, g1 in zip(gT_values[T], g1_values) if g1 != 0]
+            for T in T_vals
+        }
 
     g1 = compute_gradient_norm(
         model, loader, T=1, device=device, max_batches=max_batches

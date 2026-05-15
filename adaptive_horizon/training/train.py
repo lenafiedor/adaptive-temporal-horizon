@@ -357,15 +357,17 @@ def train(
             raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
         val_losses.append(val_loss)
 
-        if epoch % 10 == 0:
+        if (epoch + 1) % 10 == 0:
             print(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
             )
-        if debug:
-            gradients = compute_g_T(model, debug_loader, debug_T_vals, device=device)
-            save_gradients_histogram(
-                gradients, save_dir=save_dir, epoch=epoch, train_T=T
-            )
+            if debug:
+                gradients = compute_g_T(
+                    model, debug_loader, debug_T_vals, device=device, per_batch=True
+                )
+                save_gradients_histogram(
+                    gradients, save_dir=save_dir, epoch=epoch, train_T=T
+                )
 
     return train_losses, val_losses
 

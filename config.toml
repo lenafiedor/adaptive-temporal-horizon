@@ -31,6 +31,6 @@ layer_width = 10
 history_window = 5
 
 [evaluation]
-num_batches = 10
+num_batches = 50
 eval_seed = 12345
 max_eval_T = 100

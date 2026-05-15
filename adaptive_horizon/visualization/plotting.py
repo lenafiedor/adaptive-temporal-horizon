@@ -135,8 +135,6 @@ def save_gradients_histogram(
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Gradients: {gradients}")
-
     if not gradients:
         raise ValueError("Cannot plot histograms for empty gradients")
 
@@ -154,7 +152,7 @@ def save_gradients_histogram(
     flat_axes = axes.flatten()
 
     for ax, (T, values) in zip(flat_axes, gradient_items):
-        ax.hist(values, bins=20, alpha=0.85)
+        ax.hist(values, bins=min(20, max(1, len(values))), alpha=0.85)
         ax.set_xlabel("g(T)")
         ax.set_ylabel("batch count")
         ax.set_title(f"T = {T}")
