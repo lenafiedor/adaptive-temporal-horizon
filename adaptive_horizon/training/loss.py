@@ -120,14 +120,7 @@ def lle_weighted_batch_loss(
     step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
         dim=2
     )
-    weights = lle_predictability_weights(
-        lambda_scores=lambda_scores,
-        T=T_max,
-        dt=dt,
-        rho=rho,
-        temperature=temperature,
-        floor=floor,
-    )
+    weights = lle_predictability_weights(lambda_scores=lambda_scores, T=T_max, dt=dt)
 
     weighted_rollout_loss = (step_mse * weights).sum(dim=1).mean()
     one_step_loss = torch.nn.functional.mse_loss(preds[:, 0], targets[:, 0])
@@ -165,16 +158,7 @@ def adaptive_validation_loss(model, val_loader, device="cpu"):
     return total_loss / len(val_loader)
 
 
-def lle_weighted_validation_loss(
-    model,
-    val_loader,
-    dt=config.DT,
-    device=config.DEVICE,
-    rho: float = config.RHO,
-    temperature: float = config.TEMPERATURE,
-    floor: float = config.WEIGHT_FLOOR,
-    anchor_alpha: float = config.ANCHOR_ALPHA,
-):
+def lle_weighted_validation_loss(model, val_loader, dt=config.DT, device=config.DEVICE):
     """Compute validation loss for the LLE-weighted training objective."""
     model.eval()
     total_loss = 0.0
@@ -184,17 +168,7 @@ def lle_weighted_validation_loss(
             inputs = inputs.to(device)
             targets = targets.to(device)
             lambda_scores = lambda_scores.to(device)
-            loss = lle_weighted_batch_loss(
-                model,
-                inputs,
-                targets,
-                lambda_scores,
-                dt=dt,
-                rho=rho,
-                temperature=temperature,
-                floor=floor,
-                anchor_alpha=anchor_alpha,
-            )
+            loss = lle_weighted_batch_loss(model, inputs, targets, lambda_scores, dt=dt)
             total_loss += loss.item()
 
     return total_loss / len(val_loader)
@@ -229,6 +203,17 @@ def compute_gradient_norm(
 def compute_g_T(
     model, loader, T_vals, max_batches=config.NUM_BATCHES, device=config.DEVICE
 ):
+    """Compute g(T) function per paper Eq. 4.
+
+    Args:
+        model: MLP model
+        loader: DataLoader
+        T_vals: list of horizon values to evaluate
+        max_batches: maximum number of batches to use for gradient norm estimation
+        device: CPU or GPU
+    Returns:
+        dict: mapping from evaluation horizon to g(T) value
+    """
     model.eval()
 
     g1 = compute_gradient_norm(

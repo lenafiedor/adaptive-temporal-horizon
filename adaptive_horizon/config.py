@@ -19,7 +19,7 @@ LOSS_DIR = Path(_config["paths"]["loss_dir"])
 ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
 
 DEVICE = _config["training"]["device"]
-MAX_T = _config["training"]["max_T"]
+MAX_TRAIN_T = _config["training"]["max_train_T"]
 EPOCHS = _config["training"]["epochs"]
 BATCH_SIZE = _config["training"]["batch_size"]
 OPTIMIZER = _config["training"]["optimizer"]
@@ -44,6 +44,7 @@ HISTORY_WINDOW = _config["model"]["history_window"]
 
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 EVAL_SEED = _config["evaluation"]["eval_seed"]
+MAX_EVAL_T = _config["evaluation"]["max_eval_T"]
 
 
 def resolve_burn_in_steps(dt=DT, burn_in=None, burn_in_time=BURN_IN_TIME):

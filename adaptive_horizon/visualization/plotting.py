@@ -116,6 +116,65 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
+def save_gradients_histogram(
+    gradients: dict[int, list[float]],
+    save_dir=LOSS_DIR,
+    epoch=None,
+    train_T=None,
+):
+    """Save per-batch g(T) histogram diagnostics.
+
+    Args:
+        gradients: dictionary of g(T) values for each horizon
+        save_dir: directory to save plot
+        epoch: training epoch number
+        train_T: training horizon
+    Returns:
+        save_path: path to the saved histogram
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Gradients: {gradients}")
+
+    if not gradients:
+        raise ValueError("Cannot plot histograms for empty gradients")
+
+    gradient_items = sorted(gradients.items())
+    num_plots = len(gradient_items)
+    num_cols = min(3, num_plots)
+    num_rows = int(np.ceil(num_plots / num_cols))
+
+    fig, axes = plt.subplots(
+        num_rows,
+        num_cols,
+        figsize=(5 * num_cols, 4 * num_rows),
+        squeeze=False,
+    )
+    flat_axes = axes.flatten()
+
+    for ax, (T, values) in zip(flat_axes, gradient_items):
+        ax.hist(values, bins=20, alpha=0.85)
+        ax.set_xlabel("g(T)")
+        ax.set_ylabel("batch count")
+        ax.set_title(f"T = {T}")
+
+    for ax in flat_axes[num_plots:]:
+        ax.set_visible(False)
+
+    fig.suptitle(f"g(T) batch histograms (train T = {train_T})")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    label = f"T{train_T}"
+    epoch_part = f"_epoch{epoch + 1:03d}" if epoch is not None else ""
+    save_path = save_dir / f"g_T_hist_{label}{epoch_part}_{timestamp}.png"
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"g(T) histogram saved to {save_path}")
+    return save_path
+
+
 def summarize_values(values, summary_mode):
     values_array: NDArray[np.float64] = np.asarray(values, dtype=np.float64)
     if len(values_array) == 0:

@@ -19,11 +19,16 @@ from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
     adaptive_validation_loss,
     batch_loss,
+    compute_g_T,
     lle_weighted_batch_loss,
     lle_weighted_validation_loss,
     validation_loss,
 )
-from adaptive_horizon.visualization.plotting import save_losses, save_model
+from adaptive_horizon.visualization.plotting import (
+    save_gradients_histogram,
+    save_losses,
+    save_model,
+)
 
 ADAPTIVE_HORIZON = "adaptive-horizon"
 WEIGHTED_LOSS = "weighted-loss"
@@ -267,10 +272,8 @@ def train(
     adaptive=False,
     adaptive_method=ADAPTIVE_HORIZON,
     dt=config.DT,
-    rho=config.RHO,
-    temperature=config.TEMPERATURE,
-    weight_floor=config.WEIGHT_FLOOR,
-    anchor_alpha=config.ANCHOR_ALPHA,
+    debug=False,
+    save_dir=config.LOSS_DIR,
 ):
     """
     Train model with fixed temporal horizon T.
@@ -286,10 +289,8 @@ def train(
         adaptive: Whether to use the adaptive temporal horizon
         adaptive_method: Adaptive training method
         dt: Time step used by adaptive predictability weights
-        rho: Predictability budget threshold
-        temperature: Sigmoid softness for adaptive weights
-        weight_floor: Minimum unnormalized adaptive weight
-        anchor_alpha: Weight of the one-step anchor loss
+        debug: Whether to save g(T) histograms during training
+        save_dir: Directory to save gradient histograms
 
     Returns:
         losses: List of training_results losses
@@ -297,6 +298,25 @@ def train(
     """
     train_losses = []
     val_losses = []
+    if debug:
+        debug_dataset = LorenzDataset(
+            num_trajectories=config.NUM_TRAJECTORIES,
+            steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
+            T=config.MAX_EVAL_T,
+            dt=dt,
+            normalize=True,
+            seed=config.EVAL_SEED,
+            burn_in=config.resolve_burn_in_steps(dt),
+            history_window=getattr(model, "history_window", config.HISTORY_WINDOW),
+            normalization_stats=getattr(model, "normalization_stats", None),
+        )
+        debug_loader = DataLoader(
+            debug_dataset,
+            batch_size=train_loader.batch_size,
+            shuffle=False,
+            collate_fn=collate_fn,
+        )
+        debug_T_vals = list(range(10, config.MAX_EVAL_T + 1, 10))
 
     for epoch in range(epochs):
         model.train()
@@ -312,15 +332,7 @@ def train(
                 elif adaptive_method == WEIGHTED_LOSS:
                     lambda_scores = rest[0].to(device) if rest else None
                     loss = lle_weighted_batch_loss(
-                        model,
-                        inputs,
-                        targets,
-                        lambda_scores,
-                        dt=dt,
-                        rho=rho,
-                        temperature=temperature,
-                        floor=weight_floor,
-                        anchor_alpha=anchor_alpha,
+                        model, inputs, targets, lambda_scores, dt=dt
                     )
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
@@ -339,22 +351,20 @@ def train(
             val_loss = adaptive_validation_loss(model, val_loader, device)
         elif adaptive_method == WEIGHTED_LOSS:
             val_loss = lle_weighted_validation_loss(
-                model,
-                val_loader,
-                dt=dt,
-                device=device,
-                rho=rho,
-                temperature=temperature,
-                floor=weight_floor,
-                anchor_alpha=anchor_alpha,
+                model, val_loader, dt=dt, device=device
             )
         else:
             raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
         val_losses.append(val_loss)
 
-        if epoch == 0 or (epoch + 1) % 10 == 0:
+        if epoch % 10 == 0:
             print(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+            )
+        if debug:
+            gradients = compute_g_T(model, debug_loader, debug_T_vals, device=device)
+            save_gradients_histogram(
+                gradients, save_dir=save_dir, epoch=epoch, train_T=T
             )
 
     return train_losses, val_losses
@@ -375,10 +385,6 @@ def train_single_model(
     history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
-    rho=config.RHO,
-    temperature=config.TEMPERATURE,
-    weight_floor=config.WEIGHT_FLOOR,
-    anchor_alpha=config.ANCHOR_ALPHA,
     debug=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
@@ -402,10 +408,11 @@ def train_single_model(
             T = metadata["adaptive"]["T_max"]
             metadata["adaptive"].update(
                 {
-                    "rho": rho,
-                    "temperature": temperature,
-                    "weight_floor": weight_floor,
-                    "anchor_alpha": anchor_alpha,
+                    "ftle_window": ftle_window,
+                    "rho": config.RHO,
+                    "temperature": config.TEMPERATURE,
+                    "weight_floor": config.WEIGHT_FLOOR,
+                    "anchor_alpha": config.ANCHOR_ALPHA,
                 }
             )
         else:
@@ -422,10 +429,8 @@ def train_single_model(
         adaptive=adaptive,
         adaptive_method=adaptive_method,
         dt=dt,
-        rho=rho,
-        temperature=temperature,
-        weight_floor=weight_floor,
-        anchor_alpha=anchor_alpha,
+        debug=debug,
+        save_dir=loss_save_dir,
     )
 
     save_model(
@@ -506,6 +511,7 @@ def train_fixed_models(
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
                 history_window=history_window,
+                debug=debug,
             )
             train_losses.append(train_loss)
             val_losses.append(val_loss)
@@ -627,7 +633,7 @@ def main():
     parser.add_argument(
         "--max-T",
         type=int,
-        default=config.MAX_T,
+        default=config.MAX_TRAIN_T,
         help="Train fixed-horizon models for T from 1 to this value",
     )
     parser.add_argument(

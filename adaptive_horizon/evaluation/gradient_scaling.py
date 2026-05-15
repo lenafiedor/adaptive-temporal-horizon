@@ -12,7 +12,7 @@ from adaptive_horizon.evaluation.cross_validation import (
 )
 
 
-def gradient_scaling(model_path, max_T, dt=config.DT):
+def gradient_scaling(model_path, max_T=config.MAX_EVAL_T, dt=config.DT):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
     burn_in_steps = config.resolve_burn_in_steps(dt)
@@ -52,7 +52,10 @@ def main():
         help="Path to saved model",
     )
     parser.add_argument(
-        "--max-eval-T", type=int, default=120, help="Maximum T for evaluation"
+        "--max-eval-T",
+        type=int,
+        default=config.MAX_EVAL_T,
+        help="Maximum T for evaluation",
     )
     parser.add_argument(
         "--dt", type=float, default=config.DT, help="Time step for simulation"
