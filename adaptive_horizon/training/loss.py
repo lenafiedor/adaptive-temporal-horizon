@@ -189,7 +189,6 @@ def compute_gradient_norm(
         for i, (inputs, targets) in enumerate(loader):
             if i >= max_batches:
                 break
-
             inputs, targets = inputs.to(device), targets.to(device)
             model.zero_grad()
             loss = batch_loss(model, inputs, targets[:, :T], T)

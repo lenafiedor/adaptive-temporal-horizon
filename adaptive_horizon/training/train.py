@@ -25,6 +25,7 @@ from adaptive_horizon.training.loss import (
     validation_loss,
 )
 from adaptive_horizon.visualization.plotting import (
+    save_gradient_history,
     save_gradients_histogram,
     save_losses,
     save_model,
@@ -298,6 +299,7 @@ def train(
     """
     train_losses = []
     val_losses = []
+    gradient_history = []
     if debug:
         debug_dataset = LorenzDataset(
             num_trajectories=config.NUM_TRAJECTORIES,
@@ -312,11 +314,11 @@ def train(
         )
         debug_loader = DataLoader(
             debug_dataset,
-            batch_size=train_loader.batch_size,
+            batch_size=1,
             shuffle=False,
             collate_fn=collate_fn,
         )
-        debug_T_vals = list(range(10, config.MAX_EVAL_T + 1, 10))
+        debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
     for epoch in range(epochs):
         model.train()
@@ -365,9 +367,12 @@ def train(
                 gradients = compute_g_T(
                     model, debug_loader, debug_T_vals, device=device, per_batch=True
                 )
+                gradient_history.append((epoch, gradients))
                 save_gradients_histogram(
                     gradients, save_dir=save_dir, epoch=epoch, train_T=T
                 )
+    if debug:
+        save_gradient_history(gradient_history, save_dir=save_dir, train_T=T)
 
     return train_losses, val_losses
 

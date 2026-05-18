@@ -105,7 +105,7 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     plot_path = save_dir / filename
 
     plt.figure()
-    plt.plot(Ts, values, marker="o")
+    plt.plot(Ts, values, color="#8B87B0")
     plt.xlabel("T")
     plt.ylabel("g(T)")
     plt.title("Gradient Scaling")
@@ -173,6 +173,73 @@ def save_gradients_histogram(
     return save_path
 
 
+def save_gradient_history(
+    gradient_history: list[tuple[int, dict[int, list[float]]]],
+    save_dir=LOSS_DIR,
+    train_T=None,
+    summary_mode="median-ci",
+):
+    if not gradient_history:
+        raise ValueError("Cannot plot gradient scaling history for empty history")
+
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    sorted_history = sorted(gradient_history, key=lambda item: item[0])
+    epochs = [epoch + 1 for epoch, _ in sorted_history]
+    T_values = sorted(sorted_history[0][1].keys())
+    cmap = plt.cm.tab10
+    colors = [cmap(i / max(1, len(T_values) - 1)) for i in range(len(T_values))]
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    summary_label = None
+
+    for color, T in zip(colors, T_values):
+        centers = []
+        lower_errors = []
+        upper_errors = []
+
+        for _, gradients in sorted_history:
+            center, lower_error, upper_error, summary_label = summarize_values(
+                gradients[T], summary_mode
+            )
+            centers.append(center)
+            lower_errors.append(lower_error)
+            upper_errors.append(upper_error)
+
+        centers_array = np.asarray(centers, dtype=np.float64)
+        lower_array = np.asarray(lower_errors, dtype=np.float64)
+        upper_array = np.asarray(upper_errors, dtype=np.float64)
+
+        lower_bound = np.maximum(centers_array - lower_array, 0.0)
+        upper_bound = centers_array + upper_array
+
+        ax.plot(epochs, centers_array, color=color, linewidth=1.8, label=f"T = {T}")
+        ax.fill_between(
+            epochs,
+            lower_bound,
+            upper_bound,
+            color=color,
+            alpha=0.2,
+        )
+
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(f"g(T) ({summary_label})")
+    ax.set_title(f"Gradient scaling over epochs (train T = {train_T})")
+    ax.grid(True, alpha=0.3)
+    ax.legend(title="Validation Horizon", loc="center left", bbox_to_anchor=(1.02, 0.5))
+
+    fig.tight_layout()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    label = f"T{train_T}"
+    save_path = save_dir / f"g_T_history_{label}_{timestamp}.png"
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"g(T) history plot saved to {save_path}")
+    return save_path
+
+
 def summarize_values(values, summary_mode):
     values_array: NDArray[np.float64] = np.asarray(values, dtype=np.float64)
     if len(values_array) == 0:
@@ -193,6 +260,13 @@ def summarize_values(values, summary_mode):
     if summary_mode == "median-iqr":
         q1, median, q3 = np.percentile(values_array, [25, 50, 75])
         return float(median), float(median - q1), float(q3 - median), "median with IQR"
+
+    if summary_mode == "median-ci":
+        median = float(np.median(values_array))
+        std = float(np.std(values_array))
+        sem = std / np.sqrt(len(values_array))
+        half_width = 1.96 * sem
+        return median, half_width, half_width, "median +/- 95% CI"
 
     raise ValueError(f"Unsupported summary mode: {summary_mode}")
 
