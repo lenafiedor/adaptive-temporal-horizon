@@ -277,15 +277,14 @@ def save_gradient_history(
     train_time = train_T * dt if train_T is not None else None
     title = "Gradient scaling over epochs"
     if train_time is not None:
-        title += rf" (train $t_L = {train_time:.2f}$)"
+        title += rf" (train $\tau = {train_time:.2f}$)"
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     ax.legend(title="Validation Horizon", loc="center left", bbox_to_anchor=(1.02, 0.5))
 
     fig.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    label = f"T{train_T}"
-    save_path = save_dir / f"g_T_history_{label}_{timestamp}.png"
+    save_path = save_dir / f"g_T_history_T{train_T}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -305,9 +304,7 @@ def summarize_values(values, summary_mode):
 
     if summary_mode == "mean-ci":
         center = float(values_array.mean())
-        std = float(values_array.std())
-        sem = std / np.sqrt(len(values_array))
-        half_width = 1.96 * sem
+        half_width = 1.96 * (float(values_array.std()) / np.sqrt(len(values_array)))
         return center, half_width, half_width, "mean +/- 95% CI"
 
     if summary_mode == "median-iqr":
@@ -316,9 +313,7 @@ def summarize_values(values, summary_mode):
 
     if summary_mode == "median-ci":
         median = float(np.median(values_array))
-        std = float(np.std(values_array))
-        sem = std / np.sqrt(len(values_array))
-        half_width = 1.96 * sem
+        half_width = 1.96 * (float(np.std(values_array)) / np.sqrt(len(values_array)))
         return median, half_width, half_width, "median +/- 95% CI"
 
     raise ValueError(f"Unsupported summary mode: {summary_mode}")

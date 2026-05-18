@@ -314,7 +314,7 @@ def train(
         )
         debug_loader = DataLoader(
             debug_dataset,
-            batch_size=1,
+            batch_size=train_loader.batch_size,
             shuffle=False,
             collate_fn=collate_fn,
         )
