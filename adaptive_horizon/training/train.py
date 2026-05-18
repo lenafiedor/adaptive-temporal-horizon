@@ -369,10 +369,10 @@ def train(
                 )
                 gradient_history.append((epoch, gradients))
                 save_gradients_histogram(
-                    gradients, save_dir=save_dir, epoch=epoch, train_T=T
+                    gradients, save_dir=save_dir, epoch=epoch, train_T=T, dt=dt
                 )
     if debug:
-        save_gradient_history(gradient_history, save_dir=save_dir, train_T=T)
+        save_gradient_history(gradient_history, save_dir=save_dir, train_T=T, dt=dt)
 
     return train_losses, val_losses
 

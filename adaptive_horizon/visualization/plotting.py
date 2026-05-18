@@ -6,7 +6,19 @@ from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
-from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR
+from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
+
+COLOR = "#8B87B0"
+
+
+def plot_bounds(centers, lower_errors, upper_errors):
+    centers_array = np.asarray(centers, dtype=np.float64)
+    lower_array = np.asarray(lower_errors, dtype=np.float64)
+    upper_array = np.asarray(upper_errors, dtype=np.float64)
+    lower_bound = np.maximum(centers_array - lower_array, 0.0)
+    upper_bound = centers_array + upper_array
+
+    return centers_array, lower_bound, upper_bound
 
 
 def save_losses(
@@ -91,11 +103,20 @@ def save_model(
     return model_path
 
 
-def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
+def plot_g_T(
+    g_values,
+    save_dir=EVAL_DIR,
+    train_T=None,
+    adaptive=False,
+    summary_mode="median-ci",
+    dt=DT,
+):
     Ts = list(g_values.keys())
     values = list(g_values.values())
+    times = [T * dt for T in Ts]
 
-    save_dir.mkdir(exist_ok=True)
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = (
         f"gradient_scaling_T{train_T}_{timestamp}.png"
@@ -104,14 +125,37 @@ def plot_g_T(g_values, save_dir=EVAL_DIR, train_T=None, adaptive=False):
     )
     plot_path = save_dir / filename
 
-    plt.figure()
-    plt.plot(Ts, values, color="#8B87B0")
-    plt.xlabel("T")
-    plt.ylabel("g(T)")
-    plt.title("Gradient Scaling")
-    plt.grid(True)
-    plt.savefig(plot_path, dpi=150)
-    plt.close()
+    fig, ax = plt.subplots()
+    if values and isinstance(values[0], list):
+        centers = []
+        lower_errors = []
+        upper_errors = []
+        summary_label = None
+
+        for T in Ts:
+            center, lower_error, upper_error, summary_label = summarize_values(
+                g_values[T], summary_mode
+            )
+            centers.append(center)
+            lower_errors.append(lower_error)
+            upper_errors.append(upper_error)
+
+        centers_array, lower_bound, upper_bound = plot_bounds(
+            centers, lower_errors, upper_errors
+        )
+
+        ax.plot(times, centers_array, color=COLOR, linewidth=1.8)
+        ax.fill_between(times, lower_bound, upper_bound, color=COLOR, alpha=0.2)
+        ax.set_ylabel(f"g(T) ({summary_label})")
+    else:
+        ax.plot(times, values, color=COLOR, linewidth=1.8)
+        ax.set_ylabel("g(T)")
+
+    ax.set_xlabel(r"Validation Horizon ($\tau = T \cdot dt$)")
+    ax.set_title("Gradient Scaling")
+    fig.tight_layout()
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
 
     print(f"Gradient scaling plot saved to {plot_path}")
 
@@ -121,6 +165,7 @@ def save_gradients_histogram(
     save_dir=LOSS_DIR,
     epoch=None,
     train_T=None,
+    dt=DT,
 ):
     """Save per-batch g(T) histogram diagnostics.
 
@@ -129,6 +174,7 @@ def save_gradients_histogram(
         save_dir: directory to save plot
         epoch: training epoch number
         train_T: training horizon
+        dt: time step
     Returns:
         save_path: path to the saved histogram
     """
@@ -155,12 +201,16 @@ def save_gradients_histogram(
         ax.hist(values, bins=min(20, max(1, len(values))), alpha=0.85)
         ax.set_xlabel("g(T)")
         ax.set_ylabel("batch count")
-        ax.set_title(f"T = {T}")
+        ax.set_title(rf"$t_L = {T * dt:.2f}$")
 
     for ax in flat_axes[num_plots:]:
         ax.set_visible(False)
 
-    fig.suptitle(f"g(T) batch histograms (train T = {train_T})")
+    train_time = train_T * dt if train_T is not None else None
+    title = "g(T) batch histograms"
+    if train_time is not None:
+        title += rf" (train $t_L = {train_time:.2f}$)"
+    fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     label = f"T{train_T}"
@@ -178,6 +228,7 @@ def save_gradient_history(
     save_dir=LOSS_DIR,
     train_T=None,
     summary_mode="median-ci",
+    dt=DT,
 ):
     if not gradient_history:
         raise ValueError("Cannot plot gradient scaling history for empty history")
@@ -188,13 +239,14 @@ def save_gradient_history(
     sorted_history = sorted(gradient_history, key=lambda item: item[0])
     epochs = [epoch + 1 for epoch, _ in sorted_history]
     T_values = sorted(sorted_history[0][1].keys())
+    T_times = [T * dt for T in T_values]
     cmap = plt.cm.tab10
     colors = [cmap(i / max(1, len(T_values) - 1)) for i in range(len(T_values))]
 
     fig, ax = plt.subplots(figsize=(12, 8))
     summary_label = None
 
-    for color, T in zip(colors, T_values):
+    for color, T, T_time in zip(colors, T_values, T_times):
         centers = []
         lower_errors = []
         upper_errors = []
@@ -207,25 +259,26 @@ def save_gradient_history(
             lower_errors.append(lower_error)
             upper_errors.append(upper_error)
 
-        centers_array = np.asarray(centers, dtype=np.float64)
-        lower_array = np.asarray(lower_errors, dtype=np.float64)
-        upper_array = np.asarray(upper_errors, dtype=np.float64)
-
-        lower_bound = np.maximum(centers_array - lower_array, 0.0)
-        upper_bound = centers_array + upper_array
-
-        ax.plot(epochs, centers_array, color=color, linewidth=1.8, label=f"T = {T}")
-        ax.fill_between(
-            epochs,
-            lower_bound,
-            upper_bound,
-            color=color,
-            alpha=0.2,
+        centers_array, lower_bound, upper_bound = plot_bounds(
+            centers, lower_errors, upper_errors
         )
+
+        ax.plot(
+            epochs,
+            centers_array,
+            color=color,
+            linewidth=1.8,
+            label=rf"$t_L = {T_time:.2f}$",
+        )
+        ax.fill_between(epochs, lower_bound, upper_bound, color=color, alpha=0.2)
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel(f"g(T) ({summary_label})")
-    ax.set_title(f"Gradient scaling over epochs (train T = {train_T})")
+    train_time = train_T * dt if train_T is not None else None
+    title = "Gradient scaling over epochs"
+    if train_time is not None:
+        title += rf" (train $t_L = {train_time:.2f}$)"
+    ax.set_title(title)
     ax.grid(True, alpha=0.3)
     ax.legend(title="Validation Horizon", loc="center left", bbox_to_anchor=(1.02, 0.5))
 
@@ -269,19 +322,6 @@ def summarize_values(values, summary_mode):
         return median, half_width, half_width, "median +/- 95% CI"
 
     raise ValueError(f"Unsupported summary mode: {summary_mode}")
-
-
-def get_summary_mode_abbreviation(summary_mode: str) -> str:
-    abbreviations = {
-        "mean-std": "std",
-        "mean-ci": "ci",
-        "median-iqr": "iqr",
-    }
-
-    try:
-        return abbreviations[summary_mode]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported summary mode: {summary_mode}") from exc
 
 
 def plot_mse(
