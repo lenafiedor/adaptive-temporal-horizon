@@ -227,7 +227,6 @@ def save_gradient_history(
     gradient_history: list[tuple[int, dict[int, list[float]]]],
     save_dir=LOSS_DIR,
     train_T=None,
-    summary_mode="median-ci",
     dt=DT,
 ):
     if not gradient_history:
@@ -243,46 +242,80 @@ def save_gradient_history(
     cmap = plt.cm.tab10
     colors = [cmap(i / max(1, len(T_values) - 1)) for i in range(len(T_values))]
 
-    fig, ax = plt.subplots(figsize=(12, 8))
-    summary_label = None
+    num_plots = len(T_values)
+    num_cols = min(3, num_plots)
+    num_rows = int(np.ceil(num_plots / num_cols))
+    fig, axes = plt.subplots(
+        num_rows,
+        num_cols,
+        figsize=(5 * num_cols, 3.8 * num_rows),
+        squeeze=False,
+        sharex=True,
+    )
+    flat_axes = axes.flatten()
 
-    for color, T, T_time in zip(colors, T_values, T_times):
-        centers = []
-        lower_errors = []
-        upper_errors = []
+    for ax, color, T, T_time in zip(flat_axes, colors, T_values, T_times):
+        medians = []
+        p25_values = []
+        p75_values = []
+        p05_values = []
+        p95_values = []
+        p99_values = []
 
         for _, gradients in sorted_history:
-            center, lower_error, upper_error, summary_label = summarize_values(
-                gradients[T], summary_mode
+            values = np.asarray(gradients[T], dtype=np.float64)
+            p05, p25, median, p75, p95, p99 = np.percentile(
+                values, [5, 25, 50, 75, 95, 99]
             )
-            centers.append(center)
-            lower_errors.append(lower_error)
-            upper_errors.append(upper_error)
+            medians.append(median)
+            p25_values.append(p25)
+            p75_values.append(p75)
+            p05_values.append(p05)
+            p95_values.append(p95)
+            p99_values.append(p99)
 
-        centers_array, lower_bound, upper_bound = plot_bounds(
-            centers, lower_errors, upper_errors
-        )
+        medians = np.asarray(medians, dtype=np.float64)
+        p25_values = np.asarray(p25_values, dtype=np.float64)
+        p75_values = np.asarray(p75_values, dtype=np.float64)
+        p05_values = np.asarray(p05_values, dtype=np.float64)
+        p95_values = np.asarray(p95_values, dtype=np.float64)
+        p99_values = np.asarray(p99_values, dtype=np.float64)
 
         ax.plot(
             epochs,
-            centers_array,
+            medians,
             color=color,
             linewidth=1.8,
             label=rf"$t_L = {T_time:.2f}$",
         )
-        ax.fill_between(epochs, lower_bound, upper_bound, color=color, alpha=0.2)
+        ax.fill_between(
+            epochs, p05_values, p95_values, color=color, alpha=0.12, linewidth=0
+        )
+        ax.fill_between(
+            epochs, p25_values, p75_values, color=color, alpha=0.25, linewidth=0
+        )
+        ax.scatter(epochs, p99_values, color=color, alpha=0.35, s=14, linewidths=0)
+        ax.set_title(rf"$t_L = {T_time:.2f}$")
+        ax.set_yscale("log")
+        ax.grid(True, alpha=0.3)
 
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel(f"g(T) ({summary_label})")
+    for ax in flat_axes[num_plots:]:
+        ax.set_visible(False)
+
+    for ax in axes[-1, :]:
+        ax.set_xlabel("Epoch")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("g(T)")
+
     train_time = train_T * dt if train_T is not None else None
     title = "Gradient scaling over epochs"
     if train_time is not None:
         title += rf" (train $\tau = {train_time:.2f}$)"
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3)
-    ax.legend(title="Validation Horizon", loc="center left", bbox_to_anchor=(1.02, 0.5))
+    fig.suptitle(
+        title + "\nmedian line, p25-p75 inner band, p05-p95 outer band, p99 markers"
+    )
 
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = save_dir / f"g_T_history_T{train_T}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
