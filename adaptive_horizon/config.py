@@ -17,6 +17,7 @@ MODEL_DIR = Path(_config["paths"]["models_dir"])
 EVAL_DIR = Path(_config["paths"]["eval_dir"])
 LOSS_DIR = Path(_config["paths"]["loss_dir"])
 ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
+DATA_DIR = Path(_config["paths"]["data_dir"])
 
 DEVICE = _config["training"]["device"]
 MAX_TRAIN_T = _config["training"]["max_train_T"]

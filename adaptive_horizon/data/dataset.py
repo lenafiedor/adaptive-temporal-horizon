@@ -4,6 +4,11 @@ import numpy as np
 from typing import Optional
 
 import adaptive_horizon.config as config
+from adaptive_horizon.data.utils import (
+    apply_normalization,
+    normalization_stats as get_normalization_stats,
+    sample_lorenz_initial_state,
+)
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 
 
@@ -44,13 +49,8 @@ class LorenzDataset(Dataset):
 
         trajectories = []
         for _ in range(num_trajectories):
-            initial_state = [
-                np.random.uniform(-20, 20),
-                np.random.uniform(-20, 20),
-                np.random.uniform(0, 50),
-            ]
             traj = simulate_lorenz(
-                initial_state=initial_state,
+                initial_state=sample_lorenz_initial_state(),
                 dt=dt,
                 steps=steps_per_trajectory,
                 burn_in=self.burn_in,
@@ -58,34 +58,13 @@ class LorenzDataset(Dataset):
             trajectories.append(traj)
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
-
-        # Z-score normalization
-        if self.normalize:
-            if normalization_stats is None:
-                self.mean = self.trajectories.mean(dim=(0, 1))
-                self.std = self.trajectories.std(dim=(0, 1))
-            else:
-                self.mean = torch.as_tensor(
-                    normalization_stats["mean"], dtype=torch.float32
-                )
-                self.std = torch.as_tensor(
-                    normalization_stats["std"], dtype=torch.float32
-                )
-            self.trajectories = (self.trajectories - self.mean) / (self.std + 1e-8)
-        else:
-            self.mean = None
-            self.std = None
+        apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
 
     @property
     def normalization_stats(self):
-        if self.mean is None or self.std is None:
-            return None
-        return {
-            "mean": self.mean.detach().cpu().tolist(),
-            "std": self.std.detach().cpu().tolist(),
-        }
+        return get_normalization_stats(self)
 
     def _create_samples(self):
         """Create (input, targets) pairs for all valid starting points."""

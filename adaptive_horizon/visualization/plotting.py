@@ -8,7 +8,8 @@ from numpy.typing import NDArray
 
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
 
-COLOR = "#8B87B0"
+COLOR_TRAIN = "#8B87B0"
+COLOR_EVAL = "#A0BAB5"
 
 
 def plot_bounds(centers, lower_errors, upper_errors):
@@ -144,11 +145,11 @@ def plot_g_T(
             centers, lower_errors, upper_errors
         )
 
-        ax.plot(times, centers_array, color=COLOR, linewidth=1.8)
-        ax.fill_between(times, lower_bound, upper_bound, color=COLOR, alpha=0.2)
+        ax.plot(times, centers_array, color=COLOR_TRAIN, linewidth=1.8)
+        ax.fill_between(times, lower_bound, upper_bound, color=COLOR_TRAIN, alpha=0.2)
         ax.set_ylabel(f"g(T) ({summary_label})")
     else:
-        ax.plot(times, values, color=COLOR, linewidth=1.8)
+        ax.plot(times, values, color=COLOR_TRAIN, linewidth=1.8)
         ax.set_ylabel("g(T)")
 
     ax.set_xlabel(r"Validation Horizon ($\tau = T \cdot dt$)")
@@ -198,7 +199,9 @@ def save_gradients_histogram(
     flat_axes = axes.flatten()
 
     for ax, (T, values) in zip(flat_axes, gradient_items):
-        ax.hist(values, bins=min(20, max(1, len(values))), alpha=0.85, color=COLOR)
+        ax.hist(
+            values, bins=min(20, max(1, len(values))), alpha=0.85, color=COLOR_TRAIN
+        )
         ax.set_xlabel("g(T)")
         ax.set_ylabel("batch count")
         ax.set_title(rf"$t_L = {T * dt:.2f}$")
@@ -224,8 +227,12 @@ def save_gradients_histogram(
 
 
 def gradient_history_quantiles(sorted_history, T):
+    percentile_levels = (5.0, 25.0, 50.0, 75.0, 95.0, 99.0)
     percentile_rows = [
-        np.percentile([float(value) for value in gradients[T]], [5, 25, 50, 75, 95, 99])
+        [
+            float(np.percentile([float(value) for value in gradients[T]], level))
+            for level in percentile_levels
+        ]
         for _, gradients in sorted_history
     ]
     p05, p25, median, p75, p95, p99 = np.asarray(percentile_rows, dtype=np.float64).T
@@ -605,7 +612,6 @@ def plot_prediction_overlay(
         ground_truth[:, 0],
         ground_truth[:, 1],
         ground_truth[:, 2],
-        color="#4C78A8",
         linewidth=2,
         label="Ground truth",
     )
@@ -613,7 +619,6 @@ def plot_prediction_overlay(
         prediction[:, 0],
         prediction[:, 1],
         prediction[:, 2],
-        color="#F58518",
         linewidth=2,
         linestyle="--",
         label="Prediction",
@@ -635,7 +640,7 @@ def plot_prediction_overlay(
 
     if filename is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"lorenz_prediction_overlay_T{T_val}_{timestamp}.png"
+        filename = f"lorenz_prediction_T{T_val}_{timestamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
     plt.close(fig)
 

@@ -30,6 +30,7 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
     save_model,
 )
+from adaptive_horizon.utils import format_dt
 
 ADAPTIVE_HORIZON = "adaptive-horizon"
 WEIGHTED_LOSS = "weighted-loss"
@@ -106,10 +107,9 @@ def resolve_dirs(dt, append: bool, debug: bool):
             )
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dt_formatted = str(dt).split(".")[1]
-        model_save_dir = config.MODEL_DIR / f"dt_{dt_formatted}_{timestamp}"
+        model_save_dir = config.MODEL_DIR / f"dt_{format_dt(dt)}_{timestamp}"
         model_save_dir.mkdir(parents=True, exist_ok=True)
-        loss_save_dir = config.LOSS_DIR / f"dt_{dt_formatted}_{timestamp}"
+        loss_save_dir = config.LOSS_DIR / f"dt_{format_dt(dt)}_{timestamp}"
         if debug:
             loss_save_dir.mkdir(parents=True, exist_ok=True)
         last_run_file.write_text(str(model_save_dir))

@@ -1,10 +1,11 @@
 import argparse
 from pathlib import Path
-
 import numpy as np
 import torch
+from datetime import datetime
 
 import adaptive_horizon.config as config
+from adaptive_horizon.data.utils import sample_lorenz_initial_state
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.evaluation.cross_validation import (
     get_history_window,
@@ -12,35 +13,18 @@ from adaptive_horizon.evaluation.cross_validation import (
 )
 from adaptive_horizon.evaluation.utils import load_model
 from adaptive_horizon.training.loss import rollout_predictions, batch_loss
+from adaptive_horizon.utils import format_dt
 from adaptive_horizon.visualization.plotting import (
     plot_g_T_heatmap,
     plot_prediction_overlay,
 )
 
 
-def format_dt(dt: float) -> str:
-    return str(dt).split(".")[1]
-
-
 def trajectory_path(dt: float, seed: int):
-    return (
-        config.ANALYSIS_DIR / f"diagnostic_trajectory_dt{format_dt(dt)}_seed{seed}.npz"
-    )
+    return config.DATA_DIR / f"lorenz_trajectory_dt{format_dt(dt)}_seed{seed}.npz"
 
 
-def generate_initial_state(seed: int):
-    rng = np.random.default_rng(seed)
-    return np.array(
-        [
-            rng.uniform(-20, 20),
-            rng.uniform(-20, 20),
-            rng.uniform(0, 50),
-        ],
-        dtype=np.float64,
-    )
-
-
-def load_or_generate_trajectory(
+def create_trajectory(
     dt: float,
     steps: int,
     seed: int,
@@ -60,7 +44,8 @@ def load_or_generate_trajectory(
             return trajectory[: steps + 1], path
         print("Cached diagnostic trajectory metadata does not match; regenerating")
 
-    initial_state = generate_initial_state(seed)
+    rng = np.random.default_rng(seed)
+    initial_state = sample_lorenz_initial_state(rng)
     trajectory = np.asarray(
         simulate_lorenz(
             initial_state=initial_state,
@@ -84,17 +69,6 @@ def load_or_generate_trajectory(
     )
     print(f"Saved diagnostic trajectory to {path}")
     return trajectory, path
-
-
-def resolve_T_val(T_val, tau, dt):
-    if T_val is not None:
-        print(f"Using T_val={T_val} ({T_val * dt:.4f} time units)")
-        return int(T_val)
-    if tau is None:
-        raise ValueError("Provide either --T-val or --tau")
-    resolved = max(1, int(round(tau / dt)))
-    print(f"Resolved tau={tau:g} to T_val={resolved} ({resolved * dt:.4f} time units)")
-    return resolved
 
 
 def normalize_trajectory(trajectory, normalization_stats):
@@ -226,17 +200,13 @@ def save_gradient_values(
 
 
 def compute_gradient_heatmap(args):
-    T_val = resolve_T_val(args.T_val, args.tau, args.dt)
-    if args.microbatch_size < 1:
-        raise ValueError("--microbatch-size must be at least 1")
-
     device = "cuda" if torch.cuda.is_available() and config.DEVICE == "cuda" else "cpu"
     model, checkpoint = load_model(args.model)
     model = model.to(device)
     history_window = get_history_window(checkpoint)
     normalization_stats = get_normalization_stats(checkpoint)
 
-    trajectory, diagnostic_path = load_or_generate_trajectory(
+    trajectory, diagnostic_path = create_trajectory(
         dt=args.dt,
         steps=args.steps,
         seed=args.seed,
@@ -247,32 +217,28 @@ def compute_gradient_heatmap(args):
         trajectory, normalization_stats
     )
     inputs, targets, sample_indices = build_diagnostic_samples(
-        trajectory_normalized, history_window, T_val
+        trajectory_normalized, history_window, args.T_val
     )
 
     g_values, g1_norms, gT_norms = compute_local_g_values(
         model=model,
         inputs=inputs,
         targets=targets,
-        T_val=T_val,
+        T_val=args.T_val,
         microbatch_size=args.microbatch_size,
         device=device,
     )
 
-    timestamp = args.output_suffix
-    if timestamp is None:
-        from datetime import datetime
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_name = Path(args.model).stem
     values_path = (
-        config.ANALYSIS_DIR / f"gradient_heatmap_{model_name}_T{T_val}_{timestamp}.npz"
+        config.ANALYSIS_DIR
+        / f"gradient_heatmap_{model_name}_T{args.T_val}_{timestamp}.npz"
     )
     metadata = {
         "dt": args.dt,
-        "T_val": T_val,
-        "tau": T_val * args.dt,
+        "T_val": args.T_val,
+        "tau": args.T_val * args.dt,
         "steps": args.steps,
         "seed": args.seed,
         "microbatch_size": args.microbatch_size,
@@ -293,9 +259,9 @@ def compute_gradient_heatmap(args):
         trajectory,
         g_values,
         sample_indices,
-        T_val=T_val,
+        T_val=args.T_val,
         dt=args.dt,
-        filename=f"lorenz_gradient_heatmap_{model_name}_T{T_val}_{timestamp}.png",
+        filename=f"lorenz_gradient_heatmap_{model_name}_T{args.T_val}_{timestamp}.png",
     )
 
     overlay_position = int(np.nanargmax(g_values))
@@ -304,36 +270,32 @@ def compute_gradient_heatmap(args):
         model,
         inputs,
         overlay_position,
-        T_val,
+        args.T_val,
         mean,
         std,
         device,
     )
     prediction_path = np.vstack([trajectory[m], prediction])
-    ground_truth_path = trajectory[m : m + T_val + 1]
+    ground_truth_path = trajectory[m : m + args.T_val + 1]
     plot_prediction_overlay(
         ground_truth_path,
         prediction_path,
-        T_val=T_val,
+        T_val=args.T_val,
         dt=args.dt,
-        filename=f"lorenz_prediction_overlay_{model_name}_T{T_val}_{timestamp}.png",
+        filename=f"lorenz_prediction_{model_name}_T{args.T_val}_{timestamp}.png",
     )
 
     print(
         f"Computed {len(g_values)} local g(T) values "
-        f"for T={T_val} ({T_val * args.dt:.4f} time units)"
+        f"for T={args.T_val} ({args.T_val * args.dt:.4f} time units)"
     )
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", "-m", type=str, required=True, help="Model path")
-    parser.add_argument("--T-val", type=int, default=None, help="Evaluation horizon")
     parser.add_argument(
-        "--tau",
-        type=float,
-        default=None,
-        help="Evaluation horizon in physical Lorenz time",
+        "--T-val", type=int, default=config.MAX_EVAL_T, help="Evaluation horizon"
     )
     parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
     parser.add_argument(
@@ -355,12 +317,6 @@ def main():
         "--regenerate",
         action="store_true",
         help="Regenerate the cached diagnostic trajectory",
-    )
-    parser.add_argument(
-        "--output-suffix",
-        type=str,
-        default=None,
-        help="Optional suffix for output filenames",
     )
     args = parser.parse_args()
     compute_gradient_heatmap(args)

@@ -7,45 +7,22 @@ import torch
 from torch.utils.data import Dataset
 
 import adaptive_horizon.config as config
+from adaptive_horizon.data.utils import (
+    apply_normalization,
+    normalization_stats as get_normalization_stats,
+    sample_lorenz_initial_state,
+)
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
 )
+from adaptive_horizon.utils import time_to_steps
 
 
 def default_adaptive_T_max(dt: float) -> int:
     """Default fixed rollout for weighted-loss training."""
-    return max(1, int(round(config.DEFAULT_ADAPTIVE_HORIZON / dt)))
-
-
-def _apply_normalization(dataset, normalization_stats):
-    if dataset.normalize:
-        if normalization_stats is None:
-            dataset.mean = dataset.trajectories.mean(dim=(0, 1))
-            dataset.std = dataset.trajectories.std(dim=(0, 1))
-        else:
-            dataset.mean = torch.as_tensor(
-                normalization_stats["mean"], dtype=torch.float32
-            )
-            dataset.std = torch.as_tensor(
-                normalization_stats["std"], dtype=torch.float32
-            )
-        dataset.trajectories = (dataset.trajectories - dataset.mean) / (
-            dataset.std + 1e-8
-        )
-    else:
-        dataset.mean = None
-        dataset.std = None
-
-
-def _normalization_stats(dataset):
-    if dataset.mean is None or dataset.std is None:
-        return None
-    return {
-        "mean": dataset.mean.detach().cpu().tolist(),
-        "std": dataset.std.detach().cpu().tolist(),
-    }
+    return time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
 
 
 class AdaptiveHorizonLorenzDataset(Dataset):
@@ -83,14 +60,9 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         self.horizons = []
 
         for _ in range(num_trajectories):
-            initial_state = [
-                np.random.uniform(-20, 20),
-                np.random.uniform(-20, 20),
-                np.random.uniform(0, 50),
-            ]
             traj = np.array(
                 simulate_lorenz(
-                    initial_state=initial_state,
+                    initial_state=sample_lorenz_initial_state(),
                     dt=dt,
                     steps=steps_per_trajectory,
                     burn_in=self.burn_in,
@@ -108,19 +80,16 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
-        _apply_normalization(self, normalization_stats)
+        apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._write_t_values(config.EVAL_DIR / f"t_values_{timestamp}.txt")
 
-    def _apply_normalization(self, normalization_stats):
-        _apply_normalization(self, normalization_stats)
-
     @property
     def normalization_stats(self):
-        return _normalization_stats(self)
+        return get_normalization_stats(self)
 
     def _create_samples(self):
         samples = []
@@ -154,16 +123,6 @@ class AdaptiveHorizonLorenzDataset(Dataset):
             for value, count in zip(unique_t_values, counts):
                 file.write(f"T={int(value)} count={int(count)}\n")
 
-            # file.write("\n# FTLE and T value per sample\n")
-            # num_traj, seq_len, _ = self.trajectories.shape
-            # for traj_idx in range(num_traj):
-            #     ftle_scores = self.lles[traj_idx]
-            #     horizon = self.horizons[traj_idx]
-            #
-            #     for m, t_value in enumerate(horizon):
-            #         if m + t_value < seq_len:
-            #             file.write(f"{float(ftle_scores[m])},{int(t_value)}\n")
-
             file.write("\n# LLE and T value per sample\n")
             num_traj, seq_len, _ = self.trajectories.shape
             for traj_idx in range(num_traj):
@@ -181,7 +140,6 @@ class AdaptiveHorizonLorenzDataset(Dataset):
         half_range = max(1.0, (max_T - min_T) / 2.0)
         T = base_T - z_scores * half_range
         T = np.clip(np.round(T), min_T, max_T)
-        # T = np.clip(np.round(T), 1, 100)  # non-clipped version
         return T.astype(int)
 
     def __len__(self):
@@ -230,14 +188,9 @@ class WeightedLossLorenzDataset(Dataset):
         self.lambda_scores = []
 
         for _ in range(num_trajectories):
-            initial_state = [
-                np.random.uniform(-20, 20),
-                np.random.uniform(-20, 20),
-                np.random.uniform(0, 50),
-            ]
             traj = np.array(
                 simulate_lorenz(
-                    initial_state=initial_state,
+                    initial_state=sample_lorenz_initial_state(),
                     dt=dt,
                     steps=steps_per_trajectory,
                     burn_in=self.burn_in,
@@ -250,7 +203,7 @@ class WeightedLossLorenzDataset(Dataset):
             )
 
         self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
-        _apply_normalization(self, normalization_stats)
+        apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
         if debug:
@@ -259,12 +212,9 @@ class WeightedLossLorenzDataset(Dataset):
                 config.EVAL_DIR / f"lambda_values_{timestamp}.txt"
             )
 
-    def _apply_normalization(self, normalization_stats):
-        _apply_normalization(self, normalization_stats)
-
     @property
     def normalization_stats(self):
-        return _normalization_stats(self)
+        return get_normalization_stats(self)
 
     def _create_samples(self):
         samples = []

@@ -3,6 +3,7 @@ models_dir = "experiments/lorenz/models"
 eval_dir = "experiments/lorenz/evaluation"
 loss_dir = "experiments/lorenz/training_results"
 analysis_dir = "experiments/lorenz/analysis"
+data_dir = "experiments/lorenz/data"
 
 [training]
 device = "cpu"
