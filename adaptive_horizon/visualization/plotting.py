@@ -167,6 +167,7 @@ def save_gradients_histogram(
     epoch=None,
     train_T=None,
     dt=DT,
+    adaptive=False,
 ):
     """Save per-batch g(T) histogram diagnostics.
 
@@ -176,6 +177,7 @@ def save_gradients_histogram(
         epoch: training epoch number
         train_T: training horizon
         dt: time step
+        adaptive: whether the model is adaptive
     Returns:
         save_path: path to the saved histogram
     """
@@ -216,7 +218,7 @@ def save_gradients_histogram(
     fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    label = f"T{train_T}"
+    label = f"T{train_T}" if not adaptive else "adaptive"
     epoch_part = f"_epoch{epoch + 1:03d}" if epoch is not None else ""
     save_path = save_dir / f"g_T_hist_{label}{epoch_part}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -244,6 +246,7 @@ def save_gradient_history(
     save_dir=LOSS_DIR,
     train_T=None,
     dt=DT,
+    adaptive=False,
 ):
     if not gradient_history:
         raise ValueError("Cannot plot gradient scaling history for empty history")
@@ -311,7 +314,8 @@ def save_gradient_history(
 
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"g_T_history_T{train_T}_{timestamp}.png"
+    label = f"T{train_T}" if not adaptive else "adaptive"
+    save_path = save_dir / f"g_T_history_T{label}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 

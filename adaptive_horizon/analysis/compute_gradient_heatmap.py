@@ -173,30 +173,7 @@ def rollout_prediction(model, inputs, sample_index, T_val, mean, std, device):
     with torch.no_grad():
         input_tensor = inputs[sample_index : sample_index + 1].to(device)
         preds = rollout_predictions(model, input_tensor, T_val)[0].cpu().numpy()
-    preds_raw = denormalize(preds, mean, std)
-    return preds_raw
-
-
-def save_gradient_values(
-    output_path,
-    trajectory,
-    sample_indices,
-    g_values,
-    g1_norms,
-    gT_norms,
-    metadata,
-):
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        output_path,
-        trajectory=trajectory,
-        sample_indices=sample_indices,
-        g_values=g_values,
-        g1_norms=g1_norms,
-        gT_norms=gT_norms,
-        **metadata,
-    )
-    print(f"Saved gradient heatmap values to {output_path}")
+    return denormalize(preds, mean, std)
 
 
 def compute_gradient_heatmap(args):
@@ -231,29 +208,6 @@ def compute_gradient_heatmap(args):
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_name = Path(args.model).stem
-    values_path = (
-        config.ANALYSIS_DIR
-        / f"gradient_heatmap_{model_name}_T{args.T_val}_{timestamp}.npz"
-    )
-    metadata = {
-        "dt": args.dt,
-        "T_val": args.T_val,
-        "tau": args.T_val * args.dt,
-        "steps": args.steps,
-        "seed": args.seed,
-        "microbatch_size": args.microbatch_size,
-        "history_window": history_window,
-        "diagnostic_trajectory_path": str(diagnostic_path),
-    }
-    save_gradient_values(
-        values_path,
-        trajectory,
-        sample_indices,
-        g_values,
-        g1_norms,
-        gT_norms,
-        metadata,
-    )
 
     plot_g_T_heatmap(
         trajectory,
