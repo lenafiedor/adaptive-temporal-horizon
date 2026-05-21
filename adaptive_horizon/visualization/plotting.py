@@ -198,7 +198,7 @@ def save_gradients_histogram(
     flat_axes = axes.flatten()
 
     for ax, (T, values) in zip(flat_axes, gradient_items):
-        ax.hist(values, bins=min(20, max(1, len(values))), alpha=0.85)
+        ax.hist(values, bins=min(20, max(1, len(values))), alpha=0.85, color=COLOR)
         ax.set_xlabel("g(T)")
         ax.set_ylabel("batch count")
         ax.set_title(rf"$t_L = {T * dt:.2f}$")
@@ -221,6 +221,17 @@ def save_gradients_histogram(
 
     print(f"g(T) histogram saved to {save_path}")
     return save_path
+
+
+def gradient_history_quantiles(sorted_history, T):
+    percentile_rows = [
+        np.percentile([float(value) for value in gradients[T]], [5, 25, 50, 75, 95, 99])
+        for _, gradients in sorted_history
+    ]
+    p05, p25, median, p75, p95, p99 = np.asarray(
+        percentile_rows, dtype=np.float64
+    ).T
+    return p05, p25, median, p75, p95, p99
 
 
 def save_gradient_history(
@@ -255,31 +266,9 @@ def save_gradient_history(
     flat_axes = axes.flatten()
 
     for ax, color, T, T_time in zip(flat_axes, colors, T_values, T_times):
-        medians = []
-        p25_values = []
-        p75_values = []
-        p05_values = []
-        p95_values = []
-        p99_values = []
-
-        for _, gradients in sorted_history:
-            values = np.asarray(gradients[T], dtype=np.float64)
-            p05, p25, median, p75, p95, p99 = np.percentile(
-                values, [5, 25, 50, 75, 95, 99]
-            )
-            medians.append(median)
-            p25_values.append(p25)
-            p75_values.append(p75)
-            p05_values.append(p05)
-            p95_values.append(p95)
-            p99_values.append(p99)
-
-        medians = np.asarray(medians, dtype=np.float64)
-        p25_values = np.asarray(p25_values, dtype=np.float64)
-        p75_values = np.asarray(p75_values, dtype=np.float64)
-        p05_values = np.asarray(p05_values, dtype=np.float64)
-        p95_values = np.asarray(p95_values, dtype=np.float64)
-        p99_values = np.asarray(p99_values, dtype=np.float64)
+        p05_values, p25_values, medians, p75_values, p95_values, p99_values = (
+            gradient_history_quantiles(sorted_history, T)
+        )
 
         ax.plot(
             epochs,
@@ -484,7 +473,7 @@ def plot_lyapunov_exponents(exponents):
     save_figure(fig, "lle_histogram.png")
 
 
-def plot_trajectory_heatmap(trajectory, exponents, burn_in=0):
+def plot_lle_heatmap(trajectory, exponents, burn_in=0):
     """
     Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
 
@@ -532,6 +521,129 @@ def plot_trajectory_heatmap(trajectory, exponents, burn_in=0):
 
     plt.tight_layout()
     save_figure(fig, "lorenz_lle_heatmap.png")
+
+
+def plot_g_T_heatmap(
+    trajectory,
+    g_values,
+    sample_indices,
+    T_val,
+    dt=DT,
+    save_dir=ANALYSIS_DIR,
+    filename=None,
+):
+    """Plot Lorenz trajectory colored by local gradient scaling values."""
+    trajectory = np.asarray(trajectory, dtype=np.float64)
+    g_values = np.asarray(g_values, dtype=np.float64)
+    sample_indices = np.asarray(sample_indices, dtype=int)
+
+    if len(g_values) == 0:
+        raise ValueError("Cannot plot gradient heatmap with no g(T) values")
+    if len(g_values) != len(sample_indices):
+        raise ValueError(
+            f"g_values length {len(g_values)} does not match sample_indices length "
+            f"{len(sample_indices)}"
+        )
+
+    segment_values = []
+    segments = []
+    for index, value in zip(sample_indices, g_values):
+        if index + 1 >= len(trajectory):
+            continue
+        segments.append([trajectory[index], trajectory[index + 1]])
+        segment_values.append(value)
+
+    if not segments:
+        raise ValueError("No valid trajectory segments for gradient heatmap")
+
+    segments = np.asarray(segments, dtype=np.float64)
+    segment_values = np.asarray(segment_values, dtype=np.float64)
+    percentile_values = [float(value) for value in segment_values]
+    vmin = float(np.percentile(percentile_values, 5.0))
+    vmax = float(np.percentile(percentile_values, 95.0))
+    if np.isclose(vmin, vmax):
+        vmin = float(segment_values.min())
+        vmax = float(segment_values.max())
+
+    norm = plt.Normalize(vmin=vmin, vmax=vmax, clip=True)
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    lc = Line3DCollection(segments, cmap="viridis", norm=norm)
+    lc.set_array(segment_values)
+    lc.set_linewidth(1.1)
+    ax.add_collection3d(lc)
+
+    x, y, z = trajectory[:, 0], trajectory[:, 1], trajectory[:, 2]
+    ax.set_xlim(x.min(), x.max())
+    ax.set_ylim(y.min(), y.max())
+    ax.set_zlim(z.min(), z.max())
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title(rf"Lorenz attractor colored by local $g(T)$, $t_L={T_val * dt:.2f}$")
+
+    cbar = fig.colorbar(lc, ax=ax, shrink=0.65, aspect=20, pad=0.1)
+    cbar.set_label(rf"$g(T)$ at $T={T_val}$ ({T_val * dt:.2f} time units)")
+
+    fig.tight_layout()
+    if filename is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"lorenz_gradient_heatmap_T{T_val}_{timestamp}.png"
+    save_figure(fig, filename, save_dir=save_dir)
+    plt.close(fig)
+
+
+def plot_prediction_overlay(
+    ground_truth,
+    prediction,
+    T_val,
+    dt=DT,
+    save_dir=ANALYSIS_DIR,
+    filename=None,
+):
+    """Plot one ground-truth trajectory segment and the matching model rollout."""
+    ground_truth = np.asarray(ground_truth, dtype=np.float64)
+    prediction = np.asarray(prediction, dtype=np.float64)
+
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(
+        ground_truth[:, 0],
+        ground_truth[:, 1],
+        ground_truth[:, 2],
+        color="#4C78A8",
+        linewidth=2,
+        label="Ground truth",
+    )
+    ax.plot(
+        prediction[:, 0],
+        prediction[:, 1],
+        prediction[:, 2],
+        color="#F58518",
+        linewidth=2,
+        linestyle="--",
+        label="Prediction",
+    )
+    ax.scatter(
+        ground_truth[0, 0],
+        ground_truth[0, 1],
+        ground_truth[0, 2],
+        color="black",
+        s=25,
+        label="Start",
+    )
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title(rf"Prediction rollout overlay, $t_L={T_val * dt:.2f}$")
+    ax.legend()
+    fig.tight_layout()
+
+    if filename is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"lorenz_prediction_overlay_T{T_val}_{timestamp}.png"
+    save_figure(fig, filename, save_dir=save_dir)
+    plt.close(fig)
 
 
 def save_figure(fig, filename, save_dir=ANALYSIS_DIR, dpi=150):

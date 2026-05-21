@@ -17,6 +17,7 @@ train-mlp = "adaptive_horizon.training.train:main"
 gradient-scaling = "adaptive_horizon.evaluation.gradient_scaling:main"
 cross-validation = "adaptive_horizon.evaluation.cross_validation:main"
 compute-lyapunov = "adaptive_horizon.analysis.compute_lyapunov:main"
+gradient-heatmap = "adaptive_horizon.analysis.compute_gradient_heatmap:main"
 
 [build-system]
 requires = ["poetry-core"]

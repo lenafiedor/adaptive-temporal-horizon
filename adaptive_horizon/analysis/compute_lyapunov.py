@@ -8,7 +8,7 @@ from adaptive_horizon.dynamics.lyapunov import (
 )
 from adaptive_horizon.visualization.plotting import (
     plot_lyapunov_exponents,
-    plot_trajectory_heatmap,
+    plot_lle_heatmap,
 )
 import adaptive_horizon.config as config
 
@@ -57,7 +57,7 @@ def main():
 
         if args.plot:
             plot_lyapunov_exponents(lles)
-            plot_trajectory_heatmap(lorenz_trajectory, lles)
+            plot_lle_heatmap(lorenz_trajectory, lles)
 
     else:
         raise ValueError("Invalid mode. Choose 'global' or 'local'.")

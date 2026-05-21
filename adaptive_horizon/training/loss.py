@@ -4,7 +4,7 @@ import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP
 
 
-def _rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
+def rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
     """Autoregressively predict future states from a flattened history window."""
     if inputs.shape[1] % config.INPUT_DIM != 0:
         raise ValueError(
@@ -33,7 +33,7 @@ def batch_loss(model, inputs, targets, T):
     Returns:
         float: average loss
     """
-    preds = _rollout_predictions(model, inputs, T)
+    preds = rollout_predictions(model, inputs, T)
     total_loss = 0.0
 
     for tau in range(T):
@@ -49,7 +49,7 @@ def adaptive_batch_loss(
     batch_size = inputs.shape[0]
     max_T = int(T.max().item())
 
-    preds = _rollout_predictions(model, inputs, max_T)
+    preds = rollout_predictions(model, inputs, max_T)
 
     total_loss = 0.0
     for i in range(batch_size):
@@ -115,7 +115,7 @@ def lle_weighted_batch_loss(
         raise ValueError(f"anchor_alpha must be in [0, 1], got {anchor_alpha}")
 
     T_max = targets.shape[1]
-    preds = _rollout_predictions(model, inputs, T_max)
+    preds = rollout_predictions(model, inputs, T_max)
 
     step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
         dim=2
