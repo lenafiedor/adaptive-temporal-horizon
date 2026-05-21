@@ -23,7 +23,9 @@ def format_dt(dt: float) -> str:
 
 
 def trajectory_path(dt: float, seed: int):
-    return config.ANALYSIS_DIR / f"diagnostic_trajectory_dt{format_dt(dt)}_seed{seed}.npz"
+    return (
+        config.ANALYSIS_DIR / f"diagnostic_trajectory_dt{format_dt(dt)}_seed{seed}.npz"
+    )
 
 
 def generate_initial_state(seed: int):
@@ -99,7 +101,9 @@ def normalize_trajectory(trajectory, normalization_stats):
     if normalization_stats is None:
         mean = trajectory.mean(axis=0)
         std = trajectory.std(axis=0)
-        print("Checkpoint has no normalization stats; using diagnostic trajectory stats")
+        print(
+            "Checkpoint has no normalization stats; using diagnostic trajectory stats"
+        )
     else:
         mean = np.asarray(normalization_stats["mean"], dtype=np.float64)
         std = np.asarray(normalization_stats["std"], dtype=np.float64)
@@ -175,7 +179,9 @@ def compute_local_g_values(
                 loss_1 = batch_loss(model, batch_inputs, batch_targets[:, :1], 1)
                 norm_1 = gradient_norm(loss_1, params, device)
 
-                loss_T = batch_loss(model, batch_inputs, batch_targets[:, :T_val], T_val)
+                loss_T = batch_loss(
+                    model, batch_inputs, batch_targets[:, :T_val], T_val
+                )
                 norm_T = gradient_norm(loss_T, params, device)
 
                 ratio = (norm_T / norm_1.clamp_min(epsilon)).item()
@@ -283,8 +289,14 @@ def compute_gradient_heatmap(args):
         metadata,
     )
 
-    plot_g_T_heatmap(trajectory, g_values, sample_indices, T_val=T_val, dt=args.dt,
-                     filename=f"lorenz_gradient_heatmap_{model_name}_T{T_val}_{timestamp}.png")
+    plot_g_T_heatmap(
+        trajectory,
+        g_values,
+        sample_indices,
+        T_val=T_val,
+        dt=args.dt,
+        filename=f"lorenz_gradient_heatmap_{model_name}_T{T_val}_{timestamp}.png",
+    )
 
     overlay_position = int(np.nanargmax(g_values))
     m = int(sample_indices[overlay_position])

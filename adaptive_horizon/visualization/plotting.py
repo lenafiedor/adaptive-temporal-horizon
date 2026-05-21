@@ -228,9 +228,7 @@ def gradient_history_quantiles(sorted_history, T):
         np.percentile([float(value) for value in gradients[T]], [5, 25, 50, 75, 95, 99])
         for _, gradients in sorted_history
     ]
-    p05, p25, median, p75, p95, p99 = np.asarray(
-        percentile_rows, dtype=np.float64
-    ).T
+    p05, p25, median, p75, p95, p99 = np.asarray(percentile_rows, dtype=np.float64).T
     return p05, p25, median, p75, p95, p99
 
 
@@ -545,22 +543,18 @@ def plot_g_T_heatmap(
             f"{len(sample_indices)}"
         )
 
-    segment_values = []
-    segments = []
-    for index, value in zip(sample_indices, g_values):
-        if index + 1 >= len(trajectory):
-            continue
-        segments.append([trajectory[index], trajectory[index + 1]])
-        segment_values.append(value)
-
-    if not segments:
+    valid_mask = sample_indices + 1 < len(trajectory)
+    valid_indices = sample_indices[valid_mask]
+    if len(valid_indices) == 0:
         raise ValueError("No valid trajectory segments for gradient heatmap")
 
-    segments = np.asarray(segments, dtype=np.float64)
-    segment_values = np.asarray(segment_values, dtype=np.float64)
-    percentile_values = [float(value) for value in segment_values]
-    vmin = float(np.percentile(percentile_values, 5.0))
-    vmax = float(np.percentile(percentile_values, 95.0))
+    segments = np.stack(
+        [trajectory[valid_indices], trajectory[valid_indices + 1]], axis=1
+    )
+    segment_values = g_values[valid_mask]
+    values_for_percentiles = segment_values.astype(float).tolist()
+    vmin = float(np.percentile(values_for_percentiles, 5.0))
+    vmax = float(np.percentile(values_for_percentiles, 95.0))
     if np.isclose(vmin, vmax):
         vmin = float(segment_values.min())
         vmax = float(segment_values.max())
