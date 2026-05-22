@@ -12,7 +12,12 @@ from adaptive_horizon.evaluation.cross_validation import (
 )
 
 
-def gradient_scaling(model_path, max_T=config.MAX_EVAL_T, dt=config.DT):
+def gradient_scaling(
+    model_path,
+    max_T=config.MAX_EVAL_T,
+    dt=config.DT,
+    per_batch=False,
+):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
     burn_in_steps = config.resolve_burn_in_steps(dt)
@@ -38,7 +43,7 @@ def gradient_scaling(model_path, max_T=config.MAX_EVAL_T, dt=config.DT):
     )
 
     T_vals = list(range(1, max_T + 1))
-    g_vals = compute_g_T(model, eval_loader, T_vals)
+    g_vals = compute_g_T(model, eval_loader, T_vals, per_batch=per_batch)
     plot_g_T(g_vals, train_T=train_T, adaptive=adaptive, dt=dt)
 
 
@@ -60,9 +65,14 @@ def main():
     parser.add_argument(
         "--dt", type=float, default=config.DT, help="Time step for simulation"
     )
+    parser.add_argument(
+        "--per-batch",
+        action="store_true",
+        help="Compute per-batch gradient scaling ratios",
+    )
     args = parser.parse_args()
 
-    gradient_scaling(args.model, args.max_eval_T, args.dt)
+    gradient_scaling(args.model, args.max_eval_T, args.dt, args.per_batch)
 
 
 if __name__ == "__main__":
