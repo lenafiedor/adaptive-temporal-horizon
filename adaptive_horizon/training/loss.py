@@ -4,8 +4,20 @@ import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP
 
 
-def rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
-    """Autoregressively predict future states from a flattened history window."""
+def rollout_predictions(
+    model: MLP,
+    inputs: torch.Tensor,
+    steps: int,
+    targets: torch.Tensor | None = None,
+    scheduled_sampling: bool = False,
+    teacher_forcing_prob: float = 0.0,
+):
+    """Predict future states from a flattened history window.
+
+    By default this is a pure autoregressive rollout. If scheduled_sampling is
+    enabled, the next history state is sampled from either the target sequence
+    or the model prediction according to teacher_forcing_prob.
+    """
     if inputs.shape[1] % config.INPUT_DIM != 0:
         raise ValueError(
             f"Input feature size {inputs.shape[1]} is not divisible by "
@@ -15,15 +27,36 @@ def rollout_predictions(model: MLP, inputs: torch.Tensor, steps: int):
     history = inputs.view(inputs.shape[0], history_window, config.INPUT_DIM)
     preds = []
 
-    for _ in range(steps):
+    for tau in range(steps):
         next_state = model(history.reshape(history.shape[0], -1))
         preds.append(next_state)
-        history = torch.cat([history[:, 1:], next_state.unsqueeze(1)], dim=1)
+
+        if not scheduled_sampling or teacher_forcing_prob <= 0.0:
+            next_history_state = next_state
+        elif teacher_forcing_prob >= 1.0:
+            assert targets is not None
+            next_history_state = targets[:, tau]
+        else:
+            assert targets is not None
+            use_target = (
+                torch.rand(next_state.shape[0], 1, device=next_state.device)
+                < teacher_forcing_prob
+            )
+            next_history_state = torch.where(use_target, targets[:, tau], next_state)
+
+        history = torch.cat([history[:, 1:], next_history_state.unsqueeze(1)], dim=1)
 
     return torch.stack(preds, dim=1)
 
 
-def batch_loss(model, inputs, targets, T):
+def batch_loss(
+    model,
+    inputs,
+    targets,
+    T,
+    scheduled_sampling=False,
+    teacher_forcing_prob=0.0,
+):
     """Compute per-sample loss with a fixed horizon.
     Args:
         model: MLP model
@@ -33,7 +66,14 @@ def batch_loss(model, inputs, targets, T):
     Returns:
         float: average loss
     """
-    preds = rollout_predictions(model, inputs, T)
+    preds = rollout_predictions(
+        model,
+        inputs,
+        T,
+        targets=targets,
+        scheduled_sampling=scheduled_sampling,
+        teacher_forcing_prob=teacher_forcing_prob,
+    )
     total_loss = 0.0
 
     for tau in range(T):
@@ -43,13 +83,25 @@ def batch_loss(model, inputs, targets, T):
 
 
 def adaptive_batch_loss(
-    model: MLP, inputs: torch.Tensor, targets: torch.Tensor, T: torch.Tensor
+    model: MLP,
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    T: torch.Tensor,
+    scheduled_sampling: bool = False,
+    teacher_forcing_prob: float = 0.0,
 ):
     """Compute loss for sample-specific adaptive temporal horizons."""
     batch_size = inputs.shape[0]
     max_T = int(T.max().item())
 
-    preds = rollout_predictions(model, inputs, max_T)
+    preds = rollout_predictions(
+        model,
+        inputs,
+        max_T,
+        targets=targets,
+        scheduled_sampling=scheduled_sampling,
+        teacher_forcing_prob=teacher_forcing_prob,
+    )
 
     total_loss = 0.0
     for i in range(batch_size):
@@ -95,6 +147,8 @@ def lle_weighted_batch_loss(
     temperature: float = config.TEMPERATURE,
     floor: float = config.WEIGHT_FLOOR,
     anchor_alpha: float = config.ANCHOR_ALPHA,
+    scheduled_sampling: bool = False,
+    teacher_forcing_prob: float = 0.0,
 ):
     """Compute an LLE-weighted fixed-horizon autoregressive loss.
 
@@ -115,7 +169,14 @@ def lle_weighted_batch_loss(
         raise ValueError(f"anchor_alpha must be in [0, 1], got {anchor_alpha}")
 
     T_max = targets.shape[1]
-    preds = rollout_predictions(model, inputs, T_max)
+    preds = rollout_predictions(
+        model,
+        inputs,
+        T_max,
+        targets=targets,
+        scheduled_sampling=scheduled_sampling,
+        teacher_forcing_prob=teacher_forcing_prob,
+    )
 
     step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
         dim=2

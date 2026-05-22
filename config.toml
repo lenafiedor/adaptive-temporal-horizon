@@ -29,7 +29,7 @@ ftle_window = 5
 [model]
 input_dim = 3
 layer_width = 10
-history_window = 5
+history_window = 1
 
 [evaluation]
 num_batches = 50

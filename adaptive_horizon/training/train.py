@@ -13,7 +13,6 @@ from adaptive_horizon.data.adaptive_dataset import (
     WeightedLossLorenzDataset,
     collate_fn_adaptive_horizon,
     collate_fn_weighted_loss,
-    default_adaptive_T_max,
 )
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
@@ -85,6 +84,13 @@ def get_existing_adaptive_model_seeds(model_dir: Path):
         if match:
             model_seeds.add(int(match.group(1)))
     return model_seeds
+
+
+def scheduled_sampling_probability(epoch: int, epochs: int) -> float:
+    """Linearly decay teacher forcing from 1 to 0 over the training run."""
+    if epochs <= 1:
+        return 0.0
+    return max(0.0, 1.0 - epoch / float(epochs - 1))
 
 
 def resolve_dirs(dt, append: bool, debug: bool):
@@ -189,10 +195,8 @@ def create_model_and_loaders(
             )
             collate_function = collate_fn_adaptive_horizon
         elif adaptive_method == WEIGHTED_LOSS:
-            T = T if T is not None else default_adaptive_T_max(dt)
             train_dataset = WeightedLossLorenzDataset(
                 dt=dt,
-                T_max=T,
                 ftle_window=ftle_window,
                 history_window=history_window,
                 seed=seed,
@@ -202,7 +206,6 @@ def create_model_and_loaders(
             val_dataset = WeightedLossLorenzDataset(
                 num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
-                T_max=T,
                 ftle_window=ftle_window,
                 history_window=history_window,
                 seed=seed + 1000,
@@ -218,7 +221,7 @@ def create_model_and_loaders(
             "method": adaptive_method,
         }
         if adaptive_method == WEIGHTED_LOSS:
-            metadata["adaptive"]["T_max"] = T
+            metadata["adaptive"]["T_max"] = train_dataset.T_max
             metadata["adaptive"]["ftle_window"] = ftle_window
         else:
             metadata["adaptive"].update(
@@ -250,6 +253,8 @@ def create_model_and_loaders(
 
     metadata["history_window"] = history_window
     metadata["normalization_stats"] = train_dataset.normalization_stats
+    model.history_window = history_window
+    model.normalization_stats = train_dataset.normalization_stats
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function
@@ -273,6 +278,7 @@ def train(
     adaptive=False,
     adaptive_method=ADAPTIVE_HORIZON,
     dt=config.DT,
+    scheduled_sampling=False,
     debug=False,
     save_dir=config.LOSS_DIR,
 ):
@@ -290,6 +296,7 @@ def train(
         adaptive: Whether to use the adaptive temporal horizon
         adaptive_method: Adaptive training method
         dt: Time step used by adaptive predictability weights
+        scheduled_sampling: Whether to use scheduled sampling during training
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
 
@@ -323,6 +330,9 @@ def train(
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
+        teacher_forcing_prob = (
+            scheduled_sampling_probability(epoch, epochs) if scheduled_sampling else 0.0
+        )
         for batch in train_loader:
             inputs, targets, *rest = batch
             inputs, targets = inputs.to(device), targets.to(device)
@@ -330,16 +340,36 @@ def train(
             if adaptive:
                 if adaptive_method == ADAPTIVE_HORIZON:
                     T_values = rest[0].to(device) if rest else None
-                    loss = adaptive_batch_loss(model, inputs, targets, T_values)
+                    loss = adaptive_batch_loss(
+                        model,
+                        inputs,
+                        targets,
+                        T_values,
+                        scheduled_sampling=scheduled_sampling,
+                        teacher_forcing_prob=teacher_forcing_prob,
+                    )
                 elif adaptive_method == WEIGHTED_LOSS:
                     lambda_scores = rest[0].to(device) if rest else None
                     loss = lle_weighted_batch_loss(
-                        model, inputs, targets, lambda_scores, dt=dt
+                        model,
+                        inputs,
+                        targets,
+                        lambda_scores,
+                        dt=dt,
+                        scheduled_sampling=scheduled_sampling,
+                        teacher_forcing_prob=teacher_forcing_prob,
                     )
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
             else:
-                loss = batch_loss(model, inputs, targets, T)
+                loss = batch_loss(
+                    model,
+                    inputs,
+                    targets,
+                    T,
+                    scheduled_sampling=scheduled_sampling,
+                    teacher_forcing_prob=teacher_forcing_prob,
+                )
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -399,6 +429,7 @@ def train_single_model(
     history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
+    scheduled_sampling=False,
     debug=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
@@ -407,7 +438,7 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            T,
+            None if adaptive else T,
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -432,6 +463,13 @@ def train_single_model(
         else:
             T = None
 
+    metadata["scheduled_sampling"] = {
+        "enabled": bool(scheduled_sampling),
+        "schedule": "linear",
+        "start_probability": 1.0,
+        "end_probability": 0.0,
+    }
+
     train_losses, val_losses = train(
         model,
         train_loader,
@@ -443,6 +481,7 @@ def train_single_model(
         adaptive=adaptive,
         adaptive_method=adaptive_method,
         dt=dt,
+        scheduled_sampling=scheduled_sampling,
         debug=debug,
         save_dir=loss_save_dir,
     )
@@ -472,6 +511,7 @@ def train_fixed_models(
     batch_size=config.BATCH_SIZE,
     history_window=config.HISTORY_WINDOW,
     append=False,
+    scheduled_sampling=False,
     debug=False,
 ):
     seed_range = range(n_seeds)
@@ -525,6 +565,7 @@ def train_fixed_models(
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
                 history_window=history_window,
+                scheduled_sampling=scheduled_sampling,
                 debug=debug,
             )
             train_losses.append(train_loss)
@@ -549,11 +590,11 @@ def train_adaptive_models(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     adaptive_method=ADAPTIVE_HORIZON,
-    T_max=None,
     history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     append=False,
+    scheduled_sampling=False,
     debug=False,
 ):
     print(f"\n{'=' * 50}")
@@ -588,7 +629,6 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=T_max,
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -596,6 +636,7 @@ def train_adaptive_models(
             history_window=history_window,
             ftle_window=ftle_window,
             var=var,
+            scheduled_sampling=scheduled_sampling,
             debug=debug,
         )
         train_losses.append(train_loss)
@@ -643,6 +684,11 @@ def main():
         choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS],
         default=ADAPTIVE_HORIZON,
         help="Adaptive training method used with --adaptive",
+    )
+    parser.add_argument(
+        "--scheduled-sampling",
+        action="store_true",
+        help="Use linear scheduled sampling during training",
     )
     parser.add_argument(
         "--max-T",
@@ -710,6 +756,7 @@ def main():
     )
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {args.optimizer}")
+    print(f"History window: {args.history_window}")
 
     timestamp, model_save_dir, loss_save_dir = resolve_dirs(
         args.dt, args.append, args.debug
@@ -729,7 +776,7 @@ def main():
             model_save_dir=model_save_dir,
             loss_save_dir=loss_save_dir,
             dt=args.dt,
-            T=args.T,
+            T=None if args.adaptive else args.T,
             adaptive=args.adaptive,
             adaptive_method=args.adaptive_method,
             optimizer_name=args.optimizer,
@@ -737,6 +784,7 @@ def main():
             history_window=args.history_window,
             ftle_window=args.ftle_window,
             var=args.variance,
+            scheduled_sampling=args.scheduled_sampling,
             debug=args.debug,
         )
     else:
@@ -753,6 +801,7 @@ def main():
                 args.batch_size,
                 history_window=args.history_window,
                 append=args.append,
+                scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
             )
         if args.adaptive or not args.fixed:
@@ -766,11 +815,11 @@ def main():
                 args.optimizer,
                 args.batch_size,
                 adaptive_method=args.adaptive_method,
-                T_max=args.adaptive_T_max,
                 history_window=args.history_window,
                 ftle_window=args.ftle_window,
                 var=args.variance,
                 append=args.append,
+                scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
             )
 

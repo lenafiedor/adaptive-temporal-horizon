@@ -44,8 +44,8 @@ def save_losses(
     plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
 
     fig, ax1 = plt.subplots(figsize=(10, 6))
-    ax1.plot(train_losses, label="Train Loss", linewidth=2)
-    ax1.plot(val_losses, label="Val Loss", linewidth=2)
+    ax1.plot(train_losses, label="Train Loss", color=COLOR_TRAIN, linewidth=2)
+    ax1.plot(val_losses, label="Val Loss", color=COLOR_EVAL, linewidth=2)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
     ax1.set_title(plot_title)
@@ -315,7 +315,7 @@ def save_gradient_history(
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     label = f"T{train_T}" if not adaptive else "adaptive"
-    save_path = save_dir / f"g_T_history_T{label}_{timestamp}.png"
+    save_path = save_dir / f"g_T_history_{label}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -616,6 +616,7 @@ def plot_prediction_overlay(
         ground_truth[:, 0],
         ground_truth[:, 1],
         ground_truth[:, 2],
+        color=COLOR_EVAL,
         linewidth=2,
         label="Ground truth",
     )
@@ -623,6 +624,7 @@ def plot_prediction_overlay(
         prediction[:, 0],
         prediction[:, 1],
         prediction[:, 2],
+        color=COLOR_TRAIN,
         linewidth=2,
         linestyle="--",
         label="Prediction",
