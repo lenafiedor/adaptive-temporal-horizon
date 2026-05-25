@@ -29,10 +29,12 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
     save_model,
 )
-from adaptive_horizon.utils import format_dt
+from adaptive_horizon.utils import format_dt, time_to_steps
 
 ADAPTIVE_HORIZON = "adaptive-horizon"
 WEIGHTED_LOSS = "weighted-loss"
+CURRICULUM_HORIZON = "curriculum-horizon"
+CURRICULUM_RAMP_FRACTION = 0.7
 
 
 def create_optimizer(optimizer_name, model):
@@ -93,6 +95,21 @@ def scheduled_sampling_probability(epoch: int, epochs: int) -> float:
     return max(0.0, 1.0 - epoch / float(epochs - 1))
 
 
+def curriculum_horizon(
+    epoch: int,
+    epochs: int,
+    T_max: int,
+    ramp_fraction: float = CURRICULUM_RAMP_FRACTION,
+) -> int:
+    """Linearly increase T from 1 to T_max over the ramp portion of training."""
+    if not 0 < ramp_fraction <= 1:
+        raise ValueError(f"ramp_fraction must be in (0, 1], got {ramp_fraction}")
+
+    ramp_epochs = max(1, int(epochs * ramp_fraction))
+    progress = min(1.0, epoch / float(ramp_epochs))
+    return 1 + int((T_max - 1) * progress)
+
+
 def resolve_dirs(dt, append: bool, debug: bool):
     last_run_file = config.MODEL_DIR / "last_run.txt"
 
@@ -118,9 +135,8 @@ def resolve_dirs(dt, append: bool, debug: bool):
         loss_save_dir = config.LOSS_DIR / f"dt_{format_dt(dt)}_{timestamp}"
         if debug:
             loss_save_dir.mkdir(parents=True, exist_ok=True)
-        last_run_file.write_text(str(model_save_dir))
 
-    return timestamp, model_save_dir, loss_save_dir
+    return timestamp, model_save_dir, loss_save_dir, last_run_file
 
 
 def create_model_and_loaders(
@@ -214,6 +230,25 @@ def create_model_and_loaders(
                 debug=debug,
             )
             collate_function = collate_fn_weighted_loss
+        elif adaptive_method == CURRICULUM_HORIZON:
+            T = time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
+            train_dataset = LorenzDataset(
+                T=T,
+                dt=dt,
+                seed=seed,
+                burn_in=burn_in_steps,
+                history_window=history_window,
+            )
+            val_dataset = LorenzDataset(
+                num_trajectories=config.NUM_TRAJECTORIES // 5,
+                T=T,
+                dt=dt,
+                seed=seed + 1000,
+                burn_in=burn_in_steps,
+                history_window=history_window,
+                normalization_stats=train_dataset.normalization_stats,
+            )
+            collate_function = collate_fn
         else:
             raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
 
@@ -223,6 +258,13 @@ def create_model_and_loaders(
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = train_dataset.T_max
             metadata["adaptive"]["ftle_window"] = ftle_window
+        elif adaptive_method == CURRICULUM_HORIZON:
+            metadata["adaptive"].update(
+                {
+                    "T_max": T,
+                    "ramp_fraction": CURRICULUM_RAMP_FRACTION,
+                }
+            )
         else:
             metadata["adaptive"].update(
                 {
@@ -327,9 +369,22 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
+    previous_curriculum_T = None
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
+        current_T = (
+            curriculum_horizon(epoch, epochs, T)
+            if adaptive and adaptive_method == CURRICULUM_HORIZON
+            else T
+        )
+        if (
+            adaptive
+            and adaptive_method == CURRICULUM_HORIZON
+            and current_T != previous_curriculum_T
+        ):
+            print(f"Curriculum horizon: epoch {epoch + 1}/{epochs}, T={current_T}/{T}")
+            previous_curriculum_T = current_T
         teacher_forcing_prob = (
             scheduled_sampling_probability(epoch, epochs) if scheduled_sampling else 0.0
         )
@@ -359,6 +414,15 @@ def train(
                         scheduled_sampling=scheduled_sampling,
                         teacher_forcing_prob=teacher_forcing_prob,
                     )
+                elif adaptive_method == CURRICULUM_HORIZON:
+                    loss = batch_loss(
+                        model,
+                        inputs,
+                        targets[:, :current_T],
+                        current_T,
+                        scheduled_sampling=scheduled_sampling,
+                        teacher_forcing_prob=teacher_forcing_prob,
+                    )
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
             else:
@@ -385,14 +449,20 @@ def train(
             val_loss = lle_weighted_validation_loss(
                 model, val_loader, dt=dt, device=device
             )
+        elif adaptive_method == CURRICULUM_HORIZON:
+            val_loss = validation_loss(model, val_loader, current_T, device)
         else:
             raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
         val_losses.append(val_loss)
 
         if (epoch + 1) % 10 == 0:
-            print(
-                f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, Val Loss: {val_loss:.6f}"
+            message = (
+                f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
+                f"Val Loss: {val_loss:.6f}"
             )
+            if adaptive and adaptive_method == CURRICULUM_HORIZON:
+                message += f", T={current_T}/{T}"
+            print(message)
             if debug:
                 gradients = compute_g_T(
                     model, debug_loader, debug_T_vals, device=device, per_batch=True
@@ -459,6 +529,11 @@ def train_single_model(
                     "weight_floor": config.WEIGHT_FLOOR,
                     "anchor_alpha": config.ANCHOR_ALPHA,
                 }
+            )
+        elif adaptive_method == CURRICULUM_HORIZON:
+            T = metadata["adaptive"]["T_max"]
+            metadata["adaptive"]["ramp_epochs"] = max(
+                1, int(epochs * CURRICULUM_RAMP_FRACTION)
             )
         else:
             T = None
@@ -681,7 +756,7 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS],
+        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON],
         default=ADAPTIVE_HORIZON,
         help="Adaptive training method used with --adaptive",
     )
@@ -758,7 +833,7 @@ def main():
     print(f"Optimizer: {args.optimizer}")
     print(f"History window: {args.history_window}")
 
-    timestamp, model_save_dir, loss_save_dir = resolve_dirs(
+    timestamp, model_save_dir, loss_save_dir, last_run_file = resolve_dirs(
         args.dt, args.append, args.debug
     )
 
@@ -828,6 +903,8 @@ def main():
     print("=" * 50)
     print(f"Models saved to {model_save_dir}")
     print(f"Losses saved to {loss_save_dir}")
+    if not args.append:
+        last_run_file.write_text(str(model_save_dir))
 
 
 if __name__ == "__main__":

@@ -6,7 +6,11 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-from adaptive_horizon.training.train import ADAPTIVE_HORIZON, WEIGHTED_LOSS
+from adaptive_horizon.training.train import (
+    ADAPTIVE_HORIZON,
+    CURRICULUM_HORIZON,
+    WEIGHTED_LOSS,
+)
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -64,6 +68,24 @@ def get_model_paths(train_Ts, model_dir=config.MODEL_DIR):
 def get_adaptive_paths(model_dir=config.MODEL_DIR):
     """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
+
+
+def get_adaptive_method(checkpoint):
+    metadata = checkpoint.get("metadata", {})
+    adaptive_metadata = metadata.get("adaptive", {})
+    return adaptive_metadata.get("method")
+
+
+def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
+    if adaptive_method is None:
+        return adaptive_paths
+
+    filtered_paths = []
+    for model_path in adaptive_paths:
+        _, checkpoint = load_model(model_path)
+        if get_adaptive_method(checkpoint) == adaptive_method:
+            filtered_paths.append(model_path)
+    return filtered_paths
 
 
 def get_normalization_stats(checkpoint):
@@ -154,6 +176,7 @@ def cross_validate_models(
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
+            method = get_adaptive_method(checkpoint)
             model_records = []
 
             for val_T in T_values:
@@ -186,6 +209,7 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
+                    "adaptive_method": method,
                     "train_T": None,
                     "seed": int(seed) if seed is not None else None,
                     "val_T": int(val_T),
@@ -358,7 +382,7 @@ def cross_validation(
             return
 
     model_paths = get_model_paths(T_values, model_dir)
-    adaptive_paths = get_adaptive_paths(model_dir)
+    adaptive_paths = filter_adaptive_paths(get_adaptive_paths(model_dir), adaptive_method)
     print(f"T values: {T_values}")
 
     evaluation_records = cross_validate_models(
@@ -414,7 +438,7 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS],
+        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON],
         default=None,
         help="Evaluate only adaptive models trained with the selected method",
     )
