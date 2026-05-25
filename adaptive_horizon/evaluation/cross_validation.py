@@ -382,7 +382,9 @@ def cross_validation(
             return
 
     model_paths = get_model_paths(T_values, model_dir)
-    adaptive_paths = filter_adaptive_paths(get_adaptive_paths(model_dir), adaptive_method)
+    adaptive_paths = filter_adaptive_paths(
+        get_adaptive_paths(model_dir), adaptive_method
+    )
     print(f"T values: {T_values}")
 
     evaluation_records = cross_validate_models(
