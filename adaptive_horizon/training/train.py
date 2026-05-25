@@ -29,7 +29,11 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
     save_model,
 )
-from adaptive_horizon.utils import format_dt, time_to_steps
+from adaptive_horizon.utils import (
+    adaptive_method_abbreviation,
+    format_dt,
+    time_to_steps,
+)
 
 ADAPTIVE_HORIZON = "adaptive-horizon"
 WEIGHTED_LOSS = "weighted-loss"
@@ -79,12 +83,21 @@ def get_existing_fixed_model_seeds(model_dir: Path):
     return model_seeds
 
 
-def get_existing_adaptive_model_seeds(model_dir: Path):
+def get_existing_adaptive_model_seeds(
+    model_dir: Path, adaptive_method: str | None = None
+):
     model_seeds = set()
+    method_short = adaptive_method_abbreviation(adaptive_method)
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"adaptive_mlp_seed(\d+)", model_path.name)
-        if match:
-            model_seeds.add(int(match.group(1)))
+        match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed(\d+)", model_path.name)
+        if not match:
+            continue
+
+        method_abbr = match.group(1)
+        if method_abbr != method_short:
+            continue
+
+        model_seeds.add(int(match.group(2)))
     return model_seeds
 
 
@@ -570,6 +583,7 @@ def train_single_model(
         adaptive=adaptive,
         metadata=metadata,
         var=var if adaptive_method == ADAPTIVE_HORIZON else None,
+        adaptive_method=adaptive_method if adaptive else None,
     )
     return train_losses, val_losses
 
@@ -681,7 +695,9 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir) if append else set()
+        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method)
+        if append
+        else set()
     )
     missing_seeds = [seed for seed in seed_range if seed not in existing_seeds]
 

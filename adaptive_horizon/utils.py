@@ -1,5 +1,20 @@
 from typing import Optional
 
+ADAPTIVE_METHODS = {
+    "adaptive-horizon": "ah",
+    "weighted-loss": "wl",
+    "curriculum-horizon": "ch",
+}
+
+
+def adaptive_method_abbreviation(method: Optional[str]) -> Optional[str]:
+    """Return a short filename-safe abbreviation for an adaptive method."""
+    if method is None:
+        return None
+    if method not in ADAPTIVE_METHODS:
+        raise ValueError(f"Unknown adaptive method: {method}")
+    return ADAPTIVE_METHODS[method]
+
 
 def time_to_steps(time_value: float, dt: float, min_steps: int = 1) -> int:
     """Convert physical time to an integer number of simulation steps."""

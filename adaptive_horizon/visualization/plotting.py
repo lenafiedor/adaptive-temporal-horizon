@@ -7,6 +7,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
+from adaptive_horizon.utils import adaptive_method_abbreviation
 
 COLOR_TRAIN = "#8B87B0"
 COLOR_EVAL = "#A0BAB5"
@@ -72,13 +73,15 @@ def save_model(
     adaptive=False,
     metadata=None,
     var: int | None = None,
+    adaptive_method: str | None = None,
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
+        method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
         var_suffix = f"var{var}_" if var is not None else ""
-        filename = f"adaptive_mlp_seed{seed}_{var_suffix}{timestamp}.pt"
+        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
