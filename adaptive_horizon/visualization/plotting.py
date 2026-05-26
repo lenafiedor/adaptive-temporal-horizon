@@ -78,12 +78,19 @@ def save_model(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scheduled_sampling = bool(
+        metadata and metadata.get("scheduled_sampling", {}).get("enabled", False)
+    )
+    ss_suffix = "ss_" if scheduled_sampling else ""
     if adaptive:
         method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
         var_suffix = f"var{var}_" if var is not None else ""
-        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}{timestamp}.pt"
+        filename = (
+            f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}"
+            f"{ss_suffix}{timestamp}.pt"
+        )
     else:
-        filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
+        filename = f"mlp_T{T}_seed{seed}_{ss_suffix}{timestamp}.pt"
 
     model_path = save_dir / filename
 
