@@ -25,6 +25,8 @@ temperature = 0.25
 weight_floor = 0.05
 anchor_alpha = 0.25
 ftle_window = 5
+gradient_scaling_median_threshold = 10.0
+gradient_scaling_p90_threshold = 50.0
 
 [model]
 input_dim = 3
@@ -32,6 +34,6 @@ layer_width = 10
 history_window = 1
 
 [evaluation]
-num_batches = 50
+num_batches = 10
 eval_seed = 12345
 max_eval_T = 20

@@ -9,6 +9,7 @@ from pathlib import Path
 from adaptive_horizon.training.train import (
     ADAPTIVE_HORIZON,
     CURRICULUM_HORIZON,
+    GRADIENT_SCALING_HORIZON,
     WEIGHTED_LOSS,
 )
 import adaptive_horizon.config as config
@@ -176,7 +177,6 @@ def cross_validate_models(
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
-            method = get_adaptive_method(checkpoint)
             model_records = []
 
             for val_T in T_values:
@@ -203,6 +203,7 @@ def cross_validate_models(
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
+            method = get_adaptive_method(checkpoint)
             model_records = []
 
             for val_T in T_values:
@@ -273,6 +274,7 @@ def save_cross_validation_results(
     mean_adaptive_mse,
     dt,
     model_dir,
+    fixed_dir=None,
     save_dir=config.EVAL_DIR,
 ):
     """Save cross-validation summaries to a JSON file."""
@@ -289,6 +291,7 @@ def save_cross_validation_results(
             "burn_in_time": config.BURN_IN_TIME,
             "burn_in_steps": config.resolve_burn_in_steps(dt),
             "model_dir": str(model_dir),
+            "fixed_dir": str(fixed_dir or model_dir),
             "T_max": max(T_values),
             "best_train_T": int(best_train_T),
             "best_fixed_MSE": best_fixed_mse,
@@ -332,6 +335,7 @@ def load_cross_validation_results(
 
 def cross_validation(
     model_dir=None,
+    fixed_dir=None,
     max_T=None,
     adaptive_method=None,
     plot_summary_mode="mean-std",
@@ -367,12 +371,23 @@ def cross_validation(
     if not model_dir.exists():
         raise FileNotFoundError(f"Model directory not found: {model_dir}")
 
-    dt = get_dt_from_model_dir(model_dir)
-    print(f"Using model directory: {model_dir}")
+    if fixed_dir is None:
+        fixed_dir = model_dir
+    else:
+        fixed_dir = Path(fixed_dir)
 
-    T_values = get_T_values(model_dir)
+    if not fixed_dir.exists():
+        raise FileNotFoundError(f"Fixed model directory not found: {fixed_dir}")
+
+    dt = get_dt_from_model_dir(model_dir)
+    fixed_dt = get_dt_from_model_dir(fixed_dir)
+
+    print(f"Using model directory for adaptive models: {model_dir}")
+    print(f"Using fixed model directory: {fixed_dir}")
+
+    T_values = get_T_values(fixed_dir)
     if not T_values:
-        print("No fixed models found to evaluate")
+        print(f"No fixed models found to evaluate in {fixed_dir}")
         return
 
     if max_T is not None:
@@ -381,7 +396,7 @@ def cross_validation(
             print(f"No models found with T <= {max_T}")
             return
 
-    model_paths = get_model_paths(T_values, model_dir)
+    model_paths = get_model_paths(T_values, fixed_dir)
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(model_dir), adaptive_method
     )
@@ -413,6 +428,7 @@ def cross_validation(
         mean_adaptive_mse,
         dt,
         model_dir,
+        fixed_dir=fixed_dir,
         save_dir=save_dir,
     )
     plot_mse(
@@ -430,7 +446,13 @@ def main():
         "--model-dir",
         type=str,
         default=None,
-        help="Directory containing models (default: reads from last_run.txt)",
+        help="Directory containing adaptive models, and fixed models unless --fixed-dir is set (default: reads from last_run.txt)",
+    )
+    parser.add_argument(
+        "--fixed-dir",
+        type=str,
+        default=None,
+        help="Directory containing fixed-horizon models; defaults to --model-dir",
     )
     parser.add_argument(
         "--max-T",
@@ -440,7 +462,12 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON],
+        choices=[
+            ADAPTIVE_HORIZON,
+            WEIGHTED_LOSS,
+            CURRICULUM_HORIZON,
+            GRADIENT_SCALING_HORIZON,
+        ],
         default=None,
         help="Evaluate only adaptive models trained with the selected method",
     )
@@ -461,6 +488,7 @@ def main():
 
     cross_validation(
         model_dir=args.model_dir,
+        fixed_dir=args.fixed_dir,
         max_T=args.max_T,
         adaptive_method=args.adaptive_method,
         plot_summary_mode=args.plot,
