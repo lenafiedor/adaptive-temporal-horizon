@@ -234,7 +234,7 @@ def save_gradients_histogram(
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"g(T) histogram saved to {save_path}")
+    print(f"\tg(T) histogram saved to {save_path}")
     return save_path
 
 

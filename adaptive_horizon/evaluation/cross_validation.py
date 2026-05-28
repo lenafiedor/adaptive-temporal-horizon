@@ -333,6 +333,17 @@ def load_cross_validation_results(
     return results_file, payload
 
 
+def cached_fixed_records(payload, T_values):
+    T_values = set(T_values)
+    return [
+        record
+        for record in payload["evaluation_records"]
+        if record["model_type"] == "fixed"
+        and record["train_T"] in T_values
+        and record["val_T"] in T_values
+    ]
+
+
 def cross_validation(
     model_dir=None,
     fixed_dir=None,
@@ -345,24 +356,6 @@ def cross_validation(
 ):
     save_dir = Path(save_dir)
 
-    if cached is not None:
-        results_file, payload = load_cross_validation_results(cached, save_dir)
-        metadata = payload["metadata"]
-        print(f"Using cached cross-validation results: {results_file}")
-
-        plot_mse(
-            T_values=list(range(1, metadata["T_max"] + 1)),
-            evaluation_records=[
-                record
-                for record in payload["evaluation_records"]
-                if record["model_type"] == "fixed"
-            ],
-            save_dir=save_dir,
-            dt=float(metadata["dt"]),
-            summary_mode=plot_summary_mode,
-        )
-        return
-
     if model_dir is None:
         model_dir = get_last_run(config.MODEL_DIR)
     else:
@@ -370,6 +363,80 @@ def cross_validation(
 
     if not model_dir.exists():
         raise FileNotFoundError(f"Model directory not found: {model_dir}")
+
+    if cached is not None and fixed_dir is not None:
+        raise ValueError(
+            "--cached and --fixed-dir both provide fixed baselines; use one"
+        )
+
+    if cached is not None:
+        results_file, payload = load_cross_validation_results(cached, save_dir)
+        metadata = payload["metadata"]
+        dt = float(metadata["dt"])
+        model_dir_dt = get_dt_from_model_dir(model_dir)
+        if not np.isclose(dt, model_dir_dt):
+            raise ValueError(
+                "Cached fixed results and adaptive model directory use different dt values: "
+                f"cached dt={dt}, model-dir dt={model_dir_dt}"
+            )
+
+        T_values = list(range(1, int(metadata["T_max"]) + 1))
+        if max_T is not None:
+            T_values = [T for T in T_values if T <= max_T]
+            if not T_values:
+                print(f"No cached fixed records found with T <= {max_T}")
+                return
+
+        fixed_records = cached_fixed_records(payload, T_values)
+        if not fixed_records:
+            print("No fixed records found in cached cross-validation results")
+            return
+
+        adaptive_paths = filter_adaptive_paths(
+            get_adaptive_paths(model_dir), adaptive_method
+        )
+        print(f"Using cached fixed cross-validation results: {results_file}")
+        print(f"Using model directory for adaptive models: {model_dir}")
+        print(f"T values: {T_values}")
+
+        adaptive_records = cross_validate_models(
+            {T: [] for T in T_values}, adaptive_paths, T_values, dt, device
+        )
+        evaluation_records = fixed_records + adaptive_records
+
+        stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
+        mean_fixed_mse = {
+            train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
+            for train_T in T_values
+        }
+        best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
+        mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
+
+        print(
+            f"Best cached train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
+        )
+        if adaptive_stats:
+            print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
+
+        save_cross_validation_results(
+            evaluation_records,
+            T_values,
+            best_train_T,
+            mean_fixed_mse[best_train_T],
+            mean_adaptive_mse,
+            dt,
+            model_dir,
+            fixed_dir=f"cached:{results_file}",
+            save_dir=save_dir,
+        )
+        plot_mse(
+            T_values,
+            evaluation_records,
+            save_dir,
+            dt,
+            summary_mode=plot_summary_mode,
+        )
+        return
 
     if fixed_dir is None:
         fixed_dir = model_dir
@@ -380,7 +447,6 @@ def cross_validation(
         raise FileNotFoundError(f"Fixed model directory not found: {fixed_dir}")
 
     dt = get_dt_from_model_dir(model_dir)
-    fixed_dt = get_dt_from_model_dir(fixed_dir)
 
     print(f"Using model directory for adaptive models: {model_dir}")
     print(f"Using fixed model directory: {fixed_dir}")
@@ -475,7 +541,7 @@ def main():
         "--cached",
         type=str,
         default=None,
-        help="Plot with cached cross-validation results for fixed T values",
+        help="Reuse fixed-model records from cached cross-validation results and evaluate adaptive models from --model-dir",
     )
     plot_group = parser.add_mutually_exclusive_group()
     plot_group.add_argument(

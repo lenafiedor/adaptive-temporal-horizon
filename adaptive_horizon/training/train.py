@@ -628,7 +628,9 @@ def train_single_model(
             (
                 T
                 if adaptive_method == GRADIENT_SCALING_HORIZON
-                else None if adaptive else T
+                else None
+                if adaptive
+                else T
             ),
             adaptive_method,
             optimizer_name,
@@ -988,7 +990,9 @@ def main():
             T=(
                 args.max_T
                 if args.adaptive and args.adaptive_method == GRADIENT_SCALING_HORIZON
-                else None if args.adaptive else args.T
+                else None
+                if args.adaptive
+                else args.T
             ),
             adaptive=args.adaptive,
             adaptive_method=args.adaptive_method,
