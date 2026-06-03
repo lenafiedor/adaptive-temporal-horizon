@@ -4,6 +4,7 @@ from math import sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
 import torch
+import json
 
 import adaptive_horizon.config as config
 from adaptive_horizon.evaluation.cross_validation import (
@@ -232,6 +233,7 @@ def compute_budget_comparison(
     dt,
     max_train_T,
     epochs_per_T,
+    n_seeds=config.NUM_SEEDS,
     max_eval_T=config.MAX_EVAL_T,
     batch_size=config.BATCH_SIZE,
     device=config.DEVICE,
@@ -349,6 +351,7 @@ def main():
         dt=args.dt,
         max_train_T=args.max_T,
         epochs_per_T=args.epochs_per_T,
+        n_seeds=args.n_seeds,
         max_eval_T=args.max_eval_T,
         batch_size=args.batch_size,
         device=device,

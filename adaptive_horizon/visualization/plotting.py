@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
+from adaptive_horizon.utils import format_dt
 
 COLOR_TRAIN = "#8B87B0"
 COLOR_EVAL = "#A0BAB5"
@@ -81,10 +82,7 @@ def save_model(
     if adaptive:
         method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
         var_suffix = f"var{var}_" if var is not None else ""
-        filename = (
-            f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}"
-            f"{timestamp}.pt"
-        )
+        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 
