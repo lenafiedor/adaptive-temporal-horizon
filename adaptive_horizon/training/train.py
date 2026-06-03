@@ -518,7 +518,11 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=max_T if adaptive_method == GRADIENT_SCALING_HORIZON else None,
+            T=(
+                max_T
+                if adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON)
+                else None
+            ),
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -599,34 +603,9 @@ def main():
         help="Batch size for training and validation loaders",
     )
     parser.add_argument(
-        "--optimizer",
-        type=str,
-        default=config.OPTIMIZER,
-        choices=["sgd", "adam", "adamw"],
-        help="Optimizer to use",
-    )
-    parser.add_argument(
         "--append",
         action="store_true",
         help="Append outputs to the run referenced by models/last_run.txt",
-    )
-    parser.add_argument(
-        "--history-window",
-        type=int,
-        default=config.HISTORY_WINDOW,
-        help="Number of past trajectory states included in each model input",
-    )
-    parser.add_argument(
-        "--ftle-window",
-        type=int,
-        default=config.FTLE_WINDOW,
-        help="Forward FTLE window for weighted-loss adaptive training",
-    )
-    parser.add_argument(
-        "--variance",
-        type=int,
-        default=config.VARIANCE,
-        help="Adaptive horizon variance around the default horizon",
     )
     parser.add_argument(
         "--debug",
@@ -645,8 +624,7 @@ def main():
         f"({config.BURN_IN_TIME:g} time units)"
     )
     print(f"Batch size: {args.batch_size}")
-    print(f"Optimizer: {args.optimizer}")
-    print(f"History window: {args.history_window}")
+    print(f"Optimizer: {config.OPTIMIZER}")
 
     timestamp, model_save_dir, loss_save_dir, last_run_file = resolve_dirs(
         args.dt, args.append, args.debug
@@ -675,11 +653,7 @@ def main():
             ),
             adaptive=args.adaptive,
             adaptive_method=args.adaptive_method,
-            optimizer_name=args.optimizer,
             batch_size=args.batch_size,
-            history_window=args.history_window,
-            ftle_window=args.ftle_window,
-            var=args.variance,
             scheduled_sampling=args.scheduled_sampling,
             debug=args.debug,
         )
@@ -692,10 +666,8 @@ def main():
                 device,
                 model_save_dir,
                 loss_save_dir,
-                args.dt,
-                args.optimizer,
-                args.batch_size,
-                history_window=args.history_window,
+                dt=args.dt,
+                batch_size=args.batch_size,
                 append=args.append,
                 scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
@@ -707,14 +679,10 @@ def main():
                 device,
                 model_save_dir,
                 loss_save_dir,
-                args.dt,
-                args.optimizer,
-                args.batch_size,
+                dt=args.dt,
+                batch_size=args.batch_size,
                 adaptive_method=args.adaptive_method,
                 max_T=args.max_T,
-                history_window=args.history_window,
-                ftle_window=args.ftle_window,
-                var=args.variance,
                 append=args.append,
                 scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
