@@ -3,13 +3,6 @@ import numpy as np
 import adaptive_horizon.config as config
 
 
-def scheduled_sampling_probability(epoch: int, epochs: int) -> float:
-    """Linear decay teacher forcing from 1 to 0 over the training run."""
-    if epochs <= 1:
-        return 0.0
-    return max(0.0, 1.0 - epoch / float(epochs - 1))
-
-
 def curriculum_horizon(
     epoch: int,
     epochs: int,

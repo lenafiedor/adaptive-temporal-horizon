@@ -35,7 +35,6 @@ from adaptive_horizon.training.run_utils import (
 )
 from adaptive_horizon.training.schedules import (
     curriculum_horizon,
-    scheduled_sampling_probability,
     select_gradient_scaling_horizon,
     summarize_gradient_scaling,
 )
@@ -53,7 +52,6 @@ def train(
     adaptive=False,
     adaptive_method=ADAPTIVE_HORIZON,
     dt=config.DT,
-    scheduled_sampling=False,
     debug=False,
     save_dir=config.LOSS_DIR,
     metadata=None,
@@ -72,7 +70,6 @@ def train(
         adaptive: Whether to use the adaptive temporal horizon
         adaptive_method: Adaptive training method
         dt: Time step used by adaptive predictability weights
-        scheduled_sampling: Whether to use scheduled sampling during training
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
@@ -140,9 +137,6 @@ def train(
         ):
             print(f"Curriculum horizon: epoch {epoch + 1}/{epochs}, T={current_T}/{T}")
             previous_curriculum_T = current_T
-        teacher_forcing_prob = (
-            scheduled_sampling_probability(epoch, epochs) if scheduled_sampling else 0.0
-        )
         for batch in train_loader:
             batch_start = perf_counter()
             inputs, targets, *rest = batch
@@ -157,8 +151,6 @@ def train(
                         inputs,
                         targets,
                         T_values,
-                        scheduled_sampling=scheduled_sampling,
-                        teacher_forcing_prob=teacher_forcing_prob,
                     )
                 elif adaptive_method == WEIGHTED_LOSS:
                     lambda_scores = rest[0].to(device) if rest else None
@@ -169,8 +161,6 @@ def train(
                         targets,
                         lambda_scores,
                         dt=dt,
-                        scheduled_sampling=scheduled_sampling,
-                        teacher_forcing_prob=teacher_forcing_prob,
                     )
                 elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
                     batch_T = int(current_T)
@@ -179,8 +169,6 @@ def train(
                         inputs,
                         targets[:, :current_T],
                         current_T,
-                        scheduled_sampling=scheduled_sampling,
-                        teacher_forcing_prob=teacher_forcing_prob,
                     )
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
@@ -191,8 +179,6 @@ def train(
                     inputs,
                     targets,
                     T,
-                    scheduled_sampling=scheduled_sampling,
-                    teacher_forcing_prob=teacher_forcing_prob,
                 )
             loss.backward()
             optimizer.step()
@@ -302,7 +288,6 @@ def train_single_model(
     history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
-    scheduled_sampling=False,
     debug=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
@@ -347,13 +332,6 @@ def train_single_model(
         else:
             T = None
 
-    metadata["scheduled_sampling"] = {
-        "enabled": bool(scheduled_sampling),
-        "schedule": "linear",
-        "start_probability": 1.0,
-        "end_probability": 0.0,
-    }
-
     train_losses, val_losses = train(
         model,
         train_loader,
@@ -365,7 +343,6 @@ def train_single_model(
         adaptive=adaptive,
         adaptive_method=adaptive_method,
         dt=dt,
-        scheduled_sampling=scheduled_sampling,
         debug=debug,
         save_dir=loss_save_dir,
         metadata=metadata,
@@ -397,7 +374,6 @@ def train_fixed_models(
     batch_size=config.BATCH_SIZE,
     history_window=config.HISTORY_WINDOW,
     append=False,
-    scheduled_sampling=False,
     debug=False,
 ):
     seed_range = range(n_seeds)
@@ -451,7 +427,6 @@ def train_fixed_models(
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
                 history_window=history_window,
-                scheduled_sampling=scheduled_sampling,
                 debug=debug,
             )
             train_losses.append(train_loss)
@@ -481,7 +456,6 @@ def train_adaptive_models(
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     append=False,
-    scheduled_sampling=False,
     debug=False,
 ):
     print(f"\n{'=' * 50}")
@@ -530,7 +504,6 @@ def train_adaptive_models(
             history_window=history_window,
             ftle_window=ftle_window,
             var=var,
-            scheduled_sampling=scheduled_sampling,
             debug=debug,
         )
         train_losses.append(train_loss)
@@ -578,11 +551,6 @@ def main():
         choices=ADAPTIVE_METHOD_CHOICES,
         default=ADAPTIVE_HORIZON,
         help="Adaptive training method used with --adaptive",
-    )
-    parser.add_argument(
-        "--scheduled-sampling",
-        action="store_true",
-        help="Use linear scheduled sampling during training",
     )
     parser.add_argument(
         "--max-T",
@@ -654,7 +622,6 @@ def main():
             adaptive=args.adaptive,
             adaptive_method=args.adaptive_method,
             batch_size=args.batch_size,
-            scheduled_sampling=args.scheduled_sampling,
             debug=args.debug,
         )
     else:
@@ -669,7 +636,6 @@ def main():
                 dt=args.dt,
                 batch_size=args.batch_size,
                 append=args.append,
-                scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
             )
         if args.adaptive or not args.fixed:
@@ -684,7 +650,6 @@ def main():
                 adaptive_method=args.adaptive_method,
                 max_T=args.max_T,
                 append=args.append,
-                scheduled_sampling=args.scheduled_sampling,
                 debug=args.debug,
             )
 
