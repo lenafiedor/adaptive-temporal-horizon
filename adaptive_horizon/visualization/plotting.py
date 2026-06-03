@@ -7,7 +7,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from numpy.typing import NDArray
 
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
-from adaptive_horizon.utils import adaptive_method_abbreviation
+from adaptive_horizon.training.methods import adaptive_method_abbreviation
 
 COLOR_TRAIN = "#8B87B0"
 COLOR_EVAL = "#A0BAB5"
@@ -452,6 +452,44 @@ def plot_mse(
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")
+
+
+def plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp):
+    save_dir.mkdir(parents=True, exist_ok=True)
+    x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
+    means = np.asarray(
+        [summary["by_val_T"][str(T)]["mean"] for T in val_Ts], dtype=np.float64
+    )
+    lows = np.asarray(
+        [summary["by_val_T"][str(T)]["ci95_low"] for T in val_Ts], dtype=np.float64
+    )
+    highs = np.asarray(
+        [summary["by_val_T"][str(T)]["ci95_high"] for T in val_Ts], dtype=np.float64
+    )
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.axhline(0.0, color="#333333", linewidth=1.0, linestyle="--", alpha=0.7)
+    ax.plot(
+        x,
+        means,
+        color=COLOR_TRAIN,
+        linewidth=2.0,
+        marker="o",
+        label="Best fixed MSE - adaptive MSE",
+    )
+    ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
+    ax.set_xlabel("Validation horizon time")
+    ax.set_ylabel("Paired MSE delta")
+    ax.set_title("Compute-budget horizon search: paired validation deltas")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+
+    plot_path = save_dir / f"compute_budget_deltas_dt_{format_dt(dt)}_{timestamp}.png"
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
+    print(f"Paired delta plot saved to {plot_path}")
+    return plot_path
 
 
 def plot_lyapunov_exponents(exponents):

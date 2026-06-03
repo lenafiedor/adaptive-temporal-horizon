@@ -36,4 +36,4 @@ history_window = 1
 [evaluation]
 num_batches = 50
 eval_seed = 12345
-max_eval_T = 20
+max_eval_T = 10

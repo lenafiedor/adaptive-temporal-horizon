@@ -1,15 +1,8 @@
 import argparse
-import json
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
-
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 
 import adaptive_horizon.config as config
@@ -23,10 +16,18 @@ from adaptive_horizon.evaluation.utils import load_model
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
-
+from adaptive_horizon.visualization.plotting import plot_paired_deltas
 
 RESOURCE_METRIC = "rollout_model_calls"
+
+
+def infer_dt_from_models(model_dir: Path, fallback_dt: float):
+    for model_path in sorted(model_dir.rglob("*.pt")):
+        _, checkpoint = load_model(model_path)
+        metadata = checkpoint.get("metadata", {})
+        if "dt" in metadata:
+            return float(metadata["dt"])
+    return float(fallback_dt)
 
 
 def confidence_summary(values):
@@ -157,7 +158,7 @@ def build_paired_deltas(records, seeds, val_Ts):
                     "best_fixed_train_T": int(best_fixed["train_T"]),
                     "best_fixed_mse": float(best_fixed["mse"]),
                     "adaptive_mse": float(adaptive["mse"]),
-                    "delta_mse": float(adaptive["mse"] - best_fixed["mse"]),
+                    "delta_mse": float(best_fixed["mse"] - adaptive["mse"]),
                     "fixed_grid_rollout_model_calls": int(
                         sum(
                             record["train_rollout_model_calls"]
@@ -200,44 +201,6 @@ def summarize_paired_deltas(paired, val_Ts, primary_val_T):
     }
 
 
-def plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp):
-    save_dir.mkdir(parents=True, exist_ok=True)
-    x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
-    means = np.asarray(
-        [summary["by_val_T"][str(T)]["mean"] for T in val_Ts], dtype=np.float64
-    )
-    lows = np.asarray(
-        [summary["by_val_T"][str(T)]["ci95_low"] for T in val_Ts], dtype=np.float64
-    )
-    highs = np.asarray(
-        [summary["by_val_T"][str(T)]["ci95_high"] for T in val_Ts], dtype=np.float64
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.axhline(0.0, color="#333333", linewidth=1.0, linestyle="--", alpha=0.7)
-    ax.plot(
-        x,
-        means,
-        color=COLOR_TRAIN,
-        linewidth=2.0,
-        marker="o",
-        label="Curriculum - best fixed grid",
-    )
-    ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
-    ax.set_xlabel("Validation horizon time")
-    ax.set_ylabel("Paired MSE delta")
-    ax.set_title("Compute-budget horizon search: paired validation deltas")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    plt.tight_layout()
-
-    plot_path = save_dir / f"compute_budget_deltas_dt_{format_dt(dt)}_{timestamp}.png"
-    plt.savefig(plot_path, dpi=150)
-    plt.close()
-    print(f"Paired delta plot saved to {plot_path}")
-    return plot_path
-
-
 def save_results(
     records,
     paired,
@@ -269,15 +232,14 @@ def compute_budget_comparison(
     dt,
     max_train_T,
     epochs_per_T,
-    n_seeds,
     max_eval_T=config.MAX_EVAL_T,
     batch_size=config.BATCH_SIZE,
     device=config.DEVICE,
     save_dir=config.EVAL_DIR,
+    cached=False,
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     seeds = list(range(n_seeds))
-    train_Ts = list(range(1, max_train_T + 1))
     val_Ts = list(range(1, max_eval_T + 1))
 
     model_root, loss_root, fixed_dir, adaptive_dir = train_compute_budget_models(
@@ -336,17 +298,14 @@ def compute_budget_comparison(
         "created_at": timestamp,
         "dt": float(dt),
         "max_train_T": int(max_train_T),
-        "train_Ts": train_Ts,
-        "val_Ts": val_Ts,
+        "max_val_T": int(max_eval_T),
         "epochs_per_T": int(epochs_per_T),
         "adaptive_epochs": int(epochs_per_T * max_train_T),
-        "seeds": seeds,
-        "n_seeds": int(n_seeds),
+        "n_seeds": int(len(seeds)),
         "batch_size": int(batch_size),
         "resource_metric": RESOURCE_METRIC,
-        "resource_formula": "sum_over_epochs(num_batches * T_epoch)",
-        "model_dir": str(model_root),
-        "loss_dir": str(loss_root),
+        "fixed_dir": str(fixed_dir),
+        "adaptive_dir": str(adaptive_dir),
         "fixed_grid_rollout_model_calls_by_seed": fixed_budget_by_seed,
         "adaptive_rollout_model_calls_by_seed": adaptive_budget_by_seed,
     }
@@ -369,6 +328,12 @@ def main():
     parser.add_argument("--n-seeds", type=int, default=config.NUM_SEEDS)
     parser.add_argument("--batch-size", type=int, default=config.BATCH_SIZE)
     parser.add_argument("--save-dir", type=Path, default=config.EVAL_DIR)
+    parser.add_argument(
+        "--cached",
+        type=Path,
+        default=None,
+        help="Skip training and cross-validate an existing model directory",
+    )
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
@@ -384,10 +349,11 @@ def main():
         dt=args.dt,
         max_train_T=args.max_T,
         epochs_per_T=args.epochs_per_T,
-        n_seeds=args.n_seeds,
+        max_eval_T=args.max_eval_T,
         batch_size=args.batch_size,
         device=device,
         save_dir=args.save_dir,
+        cached=args.cached,
     )
 
 

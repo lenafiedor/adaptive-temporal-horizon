@@ -3,7 +3,8 @@ from pathlib import Path
 import re
 
 import adaptive_horizon.config as config
-from adaptive_horizon.utils import adaptive_method_abbreviation, format_dt
+from adaptive_horizon.training.methods import adaptive_method_abbreviation
+from adaptive_horizon.utils import format_dt
 
 
 def get_train_Ts(max_T: int):
