@@ -12,12 +12,13 @@ from adaptive_horizon.evaluation.cross_validation import (
     filter_adaptive_paths,
     get_adaptive_paths,
     get_model_paths,
+    get_T_values,
 )
 from adaptive_horizon.evaluation.utils import load_model
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.visualization.plotting import plot_paired_deltas
+from adaptive_horizon.visualization.plotting import plot_mse, plot_paired_deltas
 
 RESOURCE_METRIC = "rollout_model_calls"
 
@@ -80,12 +81,8 @@ def train_compute_budget_models(
     timestamp,
 ):
     model_root = config.MODEL_DIR / f"compute_budget_dt_{format_dt(dt)}_{timestamp}"
-    loss_root = config.LOSS_DIR / f"compute_budget_dt_{format_dt(dt)}_{timestamp}"
     fixed_dir = model_root / "fixed"
     adaptive_dir = model_root / "adaptive"
-    fixed_loss_dir = loss_root / "fixed"
-    adaptive_loss_dir = loss_root / "adaptive"
-    loss_root.mkdir(parents=True, exist_ok=True)
 
     train_fixed_models(
         train_Ts=list(range(1, max_train_T + 1)),
@@ -93,7 +90,6 @@ def train_compute_budget_models(
         epochs=epochs_per_T,
         device=device,
         model_save_dir=fixed_dir,
-        loss_save_dir=fixed_loss_dir,
         dt=dt,
         batch_size=batch_size,
     )
@@ -103,14 +99,13 @@ def train_compute_budget_models(
         epochs=epochs_per_T * max_train_T,
         device=device,
         model_save_dir=adaptive_dir,
-        loss_save_dir=adaptive_loss_dir,
         dt=dt,
         batch_size=batch_size,
         adaptive_method=CURRICULUM_HORIZON,
         max_T=max_train_T,
     )
 
-    return model_root, loss_root, fixed_dir, adaptive_dir
+    return fixed_dir, adaptive_dir
 
 
 def add_budget_metadata(records):
@@ -231,33 +226,57 @@ def save_results(
 
 def compute_budget_comparison(
     dt,
-    max_train_T,
     epochs_per_T,
+    max_train_T=None,
     n_seeds=config.NUM_SEEDS,
     max_eval_T=config.MAX_EVAL_T,
     batch_size=config.BATCH_SIZE,
     device=config.DEVICE,
     save_dir=config.EVAL_DIR,
-    cached=False,
+    cached=None,
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    seeds = list(range(n_seeds))
-    val_Ts = list(range(1, max_eval_T + 1))
 
-    model_root, loss_root, fixed_dir, adaptive_dir = train_compute_budget_models(
-        dt=dt,
-        max_train_T=max_train_T,
-        epochs_per_T=epochs_per_T,
-        n_seeds=n_seeds,
-        device=device,
-        batch_size=batch_size,
-        timestamp=timestamp,
-    )
+    if cached is not None:
+        model_root = Path(cached)
+        if not model_root.exists():
+            raise FileNotFoundError(f"Cached model directory not found: {model_root}")
 
+        fixed_dir = model_root / "fixed"
+        adaptive_dir = model_root / "adaptive"
+        dt = infer_dt_from_models(model_root, dt)
+        available_train_Ts = get_T_values(fixed_dir)
+        if not available_train_Ts:
+            raise ValueError(f"No fixed-horizon models found in {fixed_dir}")
+        if max_train_T is None:
+            max_train_T = max(available_train_Ts)
+        print(f"Using cached models from: {model_root}")
+    else:
+        if max_train_T is None:
+            max_train_T = config.MAX_TRAIN_T
+        fixed_dir, adaptive_dir = train_compute_budget_models(
+            dt=dt,
+            max_train_T=max_train_T,
+            epochs_per_T=epochs_per_T,
+            n_seeds=n_seeds,
+            device=device,
+            batch_size=batch_size,
+            timestamp=timestamp,
+        )
+
+    max_train_T = int(max_train_T)
+    eval_limit = min(int(max_eval_T), max_train_T)
+    val_Ts = list(range(1, eval_limit + 1))
     model_paths = get_model_paths(val_Ts, fixed_dir)
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(adaptive_dir), CURRICULUM_HORIZON
     )
+    if not adaptive_paths:
+        raise ValueError(
+            f"No curriculum-horizon adaptive models found in {adaptive_dir}"
+        )
+
+    print(f"Cross-validating T values: {val_Ts}")
     records = cross_validate_models(
         model_paths=model_paths,
         adaptive_paths=adaptive_paths,
@@ -269,8 +288,15 @@ def compute_budget_comparison(
     for record in records:
         record["dt"] = float(dt)
 
+    seeds = sorted(
+        {
+            int(record["seed"])
+            for record in records
+            if record.get("seed") is not None
+        }
+    )
     paired = build_paired_deltas(records, seeds, val_Ts)
-    summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=max_train_T)
+    summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=eval_limit)
 
     fixed_budget_by_seed = {}
     adaptive_budget_by_seed = {}
@@ -300,7 +326,7 @@ def compute_budget_comparison(
         "created_at": timestamp,
         "dt": float(dt),
         "max_train_T": int(max_train_T),
-        "max_val_T": int(max_eval_T),
+        "max_eval_T": int(max_eval_T),
         "epochs_per_T": int(epochs_per_T),
         "adaptive_epochs": int(epochs_per_T * max_train_T),
         "n_seeds": int(len(seeds)),
@@ -313,18 +339,25 @@ def compute_budget_comparison(
     }
 
     results_path = save_results(records, paired, summary, metadata, save_dir, timestamp)
-    plot_path = plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp)
-    return results_path, plot_path
+    plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
+    plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp)
+    return results_path
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dt", type=float, default=config.DT)
     parser.add_argument(
-        "--max-T",
+        "--max-train-T",
         type=int,
-        default=config.MAX_TRAIN_T,
-        help="Maximum training/search horizon",
+        default=None,
+        help="Maximum training horizon",
+    )
+    parser.add_argument(
+        "--max-eval-T",
+        type=int,
+        default=config.MAX_EVAL_T,
+        help="Maximum validation horizon for the cross-validation",
     )
     parser.add_argument("--epochs-per-T", type=int, default=20)
     parser.add_argument("--n-seeds", type=int, default=config.NUM_SEEDS)
@@ -342,15 +375,16 @@ def main():
 
     print(f"Using device: {device}")
     print(f"dt: {args.dt}")
-    print(f"max_train_T: {args.max_T}")
+    print(f"max_train_T: {args.max_train_T if args.max_train_T is not None else 'auto'}")
+    print(f"max_eval_T: {args.max_eval_T}")
     print(f"epochs_per_T: {args.epochs_per_T}")
     print(f"n_seeds: {args.n_seeds}")
-    print(f"resource metric: {RESOURCE_METRIC}")
+    print(f"resource metric: {RESOURCE_METRIC}\n")
 
     compute_budget_comparison(
         dt=args.dt,
-        max_train_T=args.max_T,
         epochs_per_T=args.epochs_per_T,
+        max_train_T=args.max_train_T,
         n_seeds=args.n_seeds,
         max_eval_T=args.max_eval_T,
         batch_size=args.batch_size,

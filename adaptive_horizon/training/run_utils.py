@@ -53,9 +53,11 @@ def resolve_dirs(dt, append: bool, debug: bool):
 
         model_save_dir = Path(last_run_file.read_text().strip()).resolve()
         timestamp = model_save_dir.name
-        loss_save_dir = config.LOSS_DIR / timestamp
         if debug:
+            loss_save_dir = config.LOSS_DIR / timestamp
             loss_save_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            loss_save_dir = None
         if not model_save_dir.exists():
             raise FileNotFoundError(
                 "Cannot append: model directory referenced by last_run.txt was not found."
@@ -64,8 +66,10 @@ def resolve_dirs(dt, append: bool, debug: bool):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         model_save_dir = config.MODEL_DIR / f"dt_{format_dt(dt)}_{timestamp}"
         model_save_dir.mkdir(parents=True, exist_ok=True)
-        loss_save_dir = config.LOSS_DIR / f"dt_{format_dt(dt)}_{timestamp}"
         if debug:
+            loss_save_dir = config.LOSS_DIR / f"dt_{format_dt(dt)}_{timestamp}"
             loss_save_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            loss_save_dir = None
 
     return timestamp, model_save_dir, loss_save_dir, last_run_file

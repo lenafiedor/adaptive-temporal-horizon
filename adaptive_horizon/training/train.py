@@ -53,7 +53,7 @@ def train(
     adaptive_method=ADAPTIVE_HORIZON,
     dt=config.DT,
     debug=False,
-    save_dir=config.LOSS_DIR,
+    save_dir=None,
     metadata=None,
 ):
     """
@@ -86,6 +86,9 @@ def train(
     train_wall_clock_seconds = 0.0
     training_T_schedule = []
     if debug:
+        if save_dir is None:
+            save_dir = config.LOSS_DIR
+        save_dir.mkdir(parents=True, exist_ok=True)
         debug_dataset = LorenzDataset(
             num_trajectories=config.NUM_TRAJECTORIES,
             steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
@@ -278,8 +281,8 @@ def train_single_model(
     epochs,
     device,
     model_save_dir,
-    loss_save_dir,
-    dt,
+    loss_save_dir=None,
+    dt=config.DT,
     T=None,
     adaptive=False,
     adaptive_method=ADAPTIVE_HORIZON,
@@ -368,7 +371,7 @@ def train_fixed_models(
     epochs,
     device,
     model_save_dir,
-    loss_save_dir,
+    loss_save_dir=None,
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
@@ -376,6 +379,10 @@ def train_fixed_models(
     append=False,
     debug=False,
 ):
+    if debug and loss_save_dir is None:
+        loss_save_dir = config.LOSS_DIR
+        loss_save_dir.mkdir(parents=True, exist_ok=True)
+
     seed_range = range(n_seeds)
     existing_model_seeds = (
         get_existing_fixed_model_seeds(model_save_dir) if append else {}
@@ -446,7 +453,7 @@ def train_adaptive_models(
     epochs,
     device,
     model_save_dir,
-    loss_save_dir,
+    loss_save_dir=None,
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
@@ -458,6 +465,10 @@ def train_adaptive_models(
     append=False,
     debug=False,
 ):
+    if debug and loss_save_dir is None:
+        loss_save_dir = config.LOSS_DIR
+        loss_save_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"\n{'=' * 50}")
     print(f"Training adaptive models ({adaptive_method})")
     print(f"{'=' * 50}")
@@ -657,7 +668,8 @@ def main():
     print("Training Complete")
     print("=" * 50)
     print(f"Models saved to {model_save_dir}")
-    print(f"Losses saved to {loss_save_dir}")
+    if loss_save_dir is not None:
+        print(f"Losses saved to {loss_save_dir}")
     if not args.append:
         last_run_file.write_text(str(model_save_dir))
 
