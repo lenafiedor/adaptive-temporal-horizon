@@ -289,11 +289,7 @@ def compute_budget_comparison(
         record["dt"] = float(dt)
 
     seeds = sorted(
-        {
-            int(record["seed"])
-            for record in records
-            if record.get("seed") is not None
-        }
+        {int(record["seed"]) for record in records if record.get("seed") is not None}
     )
     paired = build_paired_deltas(records, seeds, val_Ts)
     summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=eval_limit)
@@ -375,7 +371,9 @@ def main():
 
     print(f"Using device: {device}")
     print(f"dt: {args.dt}")
-    print(f"max_train_T: {args.max_train_T if args.max_train_T is not None else 'auto'}")
+    print(
+        f"max_train_T: {args.max_train_T if args.max_train_T is not None else 'auto'}"
+    )
     print(f"max_eval_T: {args.max_eval_T}")
     print(f"epochs_per_T: {args.epochs_per_T}")
     print(f"n_seeds: {args.n_seeds}")
