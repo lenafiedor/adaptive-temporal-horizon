@@ -1,20 +1,9 @@
 import torch
 from torch.utils.data import DataLoader
 import argparse
-from datetime import datetime
-from pathlib import Path
-import re
-import numpy as np
 
 import adaptive_horizon.config as config
-from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
-from adaptive_horizon.data.adaptive_dataset import (
-    AdaptiveHorizonLorenzDataset,
-    WeightedLossLorenzDataset,
-    collate_fn_adaptive_horizon,
-    collate_fn_weighted_loss,
-)
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
     adaptive_validation_loss,
@@ -30,350 +19,26 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
     save_model,
 )
-from adaptive_horizon.utils import (
-    adaptive_method_abbreviation,
-    format_dt,
-    time_to_steps,
+from adaptive_horizon.training.methods import (
+    ADAPTIVE_HORIZON,
+    ADAPTIVE_METHOD_CHOICES,
+    CURRICULUM_HORIZON,
+    GRADIENT_SCALING_HORIZON,
+    WEIGHTED_LOSS,
 )
-
-ADAPTIVE_HORIZON = "adaptive-horizon"
-WEIGHTED_LOSS = "weighted-loss"
-CURRICULUM_HORIZON = "curriculum-horizon"
-GRADIENT_SCALING_HORIZON = "gradient-scaling-horizon"
-CURRICULUM_RAMP_FRACTION = 0.7
-
-
-def create_optimizer(optimizer_name, model):
-    optimizer_name = optimizer_name.lower()
-
-    if optimizer_name == "sgd":
-        return torch.optim.SGD(
-            model.parameters(),
-            lr=config.LEARNING_RATE,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-    if optimizer_name == "adam":
-        return torch.optim.Adam(
-            model.parameters(),
-            lr=config.LEARNING_RATE,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-    if optimizer_name == "adamw":
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=config.LEARNING_RATE,
-            weight_decay=config.WEIGHT_DECAY,
-        )
-
-    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
-
-
-def get_train_Ts(max_T: int):
-    if max_T < 1:
-        raise ValueError(f"--max-T must be at least 1, got {max_T}")
-    return list(range(1, max_T + 1))
-
-
-def get_existing_fixed_model_seeds(model_dir: Path):
-    model_seeds = {}
-    for model_path in model_dir.glob("mlp_T*.pt"):
-        match = re.search(r"mlp_T(\d+)_seed(\d+)", model_path.name)
-        if match:
-            train_T = int(match.group(1))
-            seed = int(match.group(2))
-            model_seeds.setdefault(train_T, set()).add(seed)
-    return model_seeds
-
-
-def get_existing_adaptive_model_seeds(
-    model_dir: Path, adaptive_method: str | None = None
-):
-    model_seeds = set()
-    method_short = adaptive_method_abbreviation(adaptive_method)
-    for model_path in model_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed(\d+)", model_path.name)
-        if not match:
-            continue
-
-        method_abbr = match.group(1)
-        if method_abbr != method_short:
-            continue
-
-        model_seeds.add(int(match.group(2)))
-    return model_seeds
-
-
-def scheduled_sampling_probability(epoch: int, epochs: int) -> float:
-    """Linearly decay teacher forcing from 1 to 0 over the training run."""
-    if epochs <= 1:
-        return 0.0
-    return max(0.0, 1.0 - epoch / float(epochs - 1))
-
-
-def curriculum_horizon(
-    epoch: int,
-    epochs: int,
-    T_max: int,
-    ramp_fraction: float = CURRICULUM_RAMP_FRACTION,
-) -> int:
-    """Linearly increase T from 1 to T_max over the ramp portion of training."""
-    if not 0 < ramp_fraction <= 1:
-        raise ValueError(f"ramp_fraction must be in (0, 1], got {ramp_fraction}")
-
-    ramp_epochs = max(1, int(epochs * ramp_fraction))
-    progress = min(1.0, epoch / float(ramp_epochs))
-    return 1 + int((T_max - 1) * progress)
-
-
-def summarize_gradient_scaling(g_values):
-    """Summarize per-batch g(T) values with robust statistics."""
-    summary = {}
-    for T, values in g_values.items():
-        values = np.asarray(values, dtype=np.float64)
-        if values.size == 0:
-            summary[int(T)] = {"median": float("inf"), "p90": float("inf")}
-            continue
-        summary[int(T)] = {
-            "median": float(np.median(values)),
-            "p90": float(np.percentile(values, 90.0)),
-        }
-    return summary
-
-
-def select_gradient_scaling_horizon(
-    current_T: int,
-    T_max: int,
-    g_summary: dict,
-    median_threshold: float = config.GRADIENT_SCALING_MEDIAN_THRESHOLD,
-    p90_threshold: float = config.GRADIENT_SCALING_P90_THRESHOLD,
-) -> tuple[int, int]:
-    """Select next horizon from robust gradient-scaling statistics."""
-    safe_horizons = [
-        T
-        for T in range(1, T_max + 1)
-        if g_summary.get(T, {}).get("median", float("inf")) <= median_threshold
-        and g_summary.get(T, {}).get("p90", float("inf")) <= p90_threshold
-    ]
-    safe_T = max(safe_horizons) if safe_horizons else 1
-
-    if safe_T < current_T:
-        next_T = safe_T
-    elif safe_T > current_T:
-        next_T = current_T + 1
-    else:
-        next_T = current_T
-
-    return max(1, min(T_max, next_T)), safe_T
-
-
-def resolve_dirs(dt, append: bool, debug: bool):
-    last_run_file = config.MODEL_DIR / "last_run.txt"
-
-    if append:
-        if not last_run_file.exists():
-            raise FileNotFoundError(
-                f"Cannot append: {last_run_file} does not exist. Run training without --append first."
-            )
-
-        model_save_dir = Path(last_run_file.read_text().strip()).resolve()
-        timestamp = model_save_dir.name
-        loss_save_dir = config.LOSS_DIR / timestamp
-        if debug:
-            loss_save_dir.mkdir(parents=True, exist_ok=True)
-        if not model_save_dir.exists():
-            raise FileNotFoundError(
-                "Cannot append: model directory referenced by last_run.txt was not found."
-            )
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_save_dir = config.MODEL_DIR / f"dt_{format_dt(dt)}_{timestamp}"
-        model_save_dir.mkdir(parents=True, exist_ok=True)
-        loss_save_dir = config.LOSS_DIR / f"dt_{format_dt(dt)}_{timestamp}"
-        if debug:
-            loss_save_dir.mkdir(parents=True, exist_ok=True)
-
-    return timestamp, model_save_dir, loss_save_dir, last_run_file
-
-
-def create_model_and_loaders(
-    seed,
-    adaptive,
-    device,
-    dt,
-    T=None,
-    adaptive_method=ADAPTIVE_HORIZON,
-    optimizer_name=config.OPTIMIZER,
-    batch_size=config.BATCH_SIZE,
-    history_window=config.HISTORY_WINDOW,
-    ftle_window=config.FTLE_WINDOW,
-    var=config.VARIANCE,
-    debug=False,
-):
-    """
-    Create model, data loaders, optimizer, and config for training.
-
-    Args:
-        seed: Random seed
-        adaptive: Whether to use adaptive temporal horizon
-        device: CPU or GPU
-        dt: Time step for simulation
-        T: Temporal horizon (ignored if adaptive=True)
-        adaptive_method: Adaptive training method
-        optimizer_name: Optimizer name
-        batch_size: Batch size for data loaders
-        history_window: Number of past trajectory states in each model input
-        ftle_window: Forward FTLE window for weighted-loss training
-        var: Variance of the adaptive horizon
-        debug: Whether adaptive datasets should write T values and Lyapunov exponents
-
-    Returns:
-        model, train_loader, val_loader, optimizer, config, metadata
-    """
-    mlp_config = MLPConfig(
-        input_size=config.INPUT_DIM * history_window,
-        output_size=config.INPUT_DIM,
-        layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
-        residual_connections=True,
-        k=1,
-        activation=torch.nn.ReLU(),
-    )
-    model = MLP(mlp_config, random_seed=seed).to(device)
-    burn_in_steps = config.resolve_burn_in_steps(dt)
-    metadata = {
-        "dt": dt,
-        "burn_in_time": config.BURN_IN_TIME,
-        "burn_in_steps": burn_in_steps,
-    }
-
-    if adaptive:
-        if adaptive_method == ADAPTIVE_HORIZON:
-            train_dataset = AdaptiveHorizonLorenzDataset(
-                dt=dt,
-                seed=seed,
-                burn_in=burn_in_steps,
-                var=var,
-                history_window=history_window,
-                debug=debug,
-            )
-            val_dataset = AdaptiveHorizonLorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
-                dt=dt,
-                seed=seed + 1000,
-                burn_in=burn_in_steps,
-                var=var,
-                history_window=history_window,
-                normalization_stats=train_dataset.normalization_stats,
-                debug=debug,
-            )
-            collate_function = collate_fn_adaptive_horizon
-        elif adaptive_method == WEIGHTED_LOSS:
-            train_dataset = WeightedLossLorenzDataset(
-                dt=dt,
-                ftle_window=ftle_window,
-                history_window=history_window,
-                seed=seed,
-                burn_in=burn_in_steps,
-                debug=debug,
-            )
-            val_dataset = WeightedLossLorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
-                dt=dt,
-                ftle_window=ftle_window,
-                history_window=history_window,
-                seed=seed + 1000,
-                burn_in=burn_in_steps,
-                normalization_stats=train_dataset.normalization_stats,
-                debug=debug,
-            )
-            collate_function = collate_fn_weighted_loss
-        elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
-            if adaptive_method == CURRICULUM_HORIZON:
-                T = time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
-            elif T is None:
-                T = config.MAX_TRAIN_T
-            train_dataset = LorenzDataset(
-                T=T,
-                dt=dt,
-                seed=seed,
-                burn_in=burn_in_steps,
-                history_window=history_window,
-            )
-            val_dataset = LorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
-                T=T,
-                dt=dt,
-                seed=seed + 1000,
-                burn_in=burn_in_steps,
-                history_window=history_window,
-                normalization_stats=train_dataset.normalization_stats,
-            )
-            collate_function = collate_fn
-        else:
-            raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
-
-        metadata["adaptive"] = {
-            "method": adaptive_method,
-        }
-        if adaptive_method == WEIGHTED_LOSS:
-            metadata["adaptive"]["T_max"] = train_dataset.T_max
-            metadata["adaptive"]["ftle_window"] = ftle_window
-        elif adaptive_method == CURRICULUM_HORIZON:
-            metadata["adaptive"].update(
-                {
-                    "T_max": T,
-                    "ramp_fraction": CURRICULUM_RAMP_FRACTION,
-                }
-            )
-        elif adaptive_method == GRADIENT_SCALING_HORIZON:
-            metadata["adaptive"].update(
-                {
-                    "T_max": T,
-                    "g_median_threshold": config.GRADIENT_SCALING_MEDIAN_THRESHOLD,
-                    "g_p90_threshold": config.GRADIENT_SCALING_P90_THRESHOLD,
-                }
-            )
-        else:
-            metadata["adaptive"].update(
-                {
-                    "variance": var,
-                    "base_T": train_dataset.base_T,
-                    "min_T": train_dataset.min_T,
-                    "max_T": train_dataset.max_T,
-                }
-            )
-    else:
-        train_dataset = LorenzDataset(
-            T=T,
-            dt=dt,
-            seed=seed,
-            burn_in=burn_in_steps,
-            history_window=history_window,
-        )
-        val_dataset = LorenzDataset(
-            num_trajectories=config.NUM_TRAJECTORIES // 5,
-            T=T,
-            dt=dt,
-            seed=seed + 1000,
-            burn_in=burn_in_steps,
-            history_window=history_window,
-            normalization_stats=train_dataset.normalization_stats,
-        )
-        collate_function = collate_fn
-
-    metadata["history_window"] = history_window
-    metadata["normalization_stats"] = train_dataset.normalization_stats
-    model.history_window = history_window
-    model.normalization_stats = train_dataset.normalization_stats
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_function
-    )
-    optimizer = create_optimizer(optimizer_name, model)
-
-    return model, train_loader, val_loader, optimizer, mlp_config, metadata
+from adaptive_horizon.training.run_utils import (
+    get_existing_adaptive_model_seeds,
+    get_existing_fixed_model_seeds,
+    get_train_Ts,
+    resolve_dirs,
+)
+from adaptive_horizon.training.schedules import (
+    curriculum_horizon,
+    scheduled_sampling_probability,
+    select_gradient_scaling_horizon,
+    summarize_gradient_scaling,
+)
+from adaptive_horizon.training.setup import create_model_and_loaders
 
 
 def train(
@@ -655,9 +320,7 @@ def train_single_model(
             )
         elif adaptive_method == CURRICULUM_HORIZON:
             T = metadata["adaptive"]["T_max"]
-            metadata["adaptive"]["ramp_epochs"] = max(
-                1, int(epochs * CURRICULUM_RAMP_FRACTION)
-            )
+            metadata["adaptive"]["epochs_per_horizon"] = epochs / T
         elif adaptive_method == GRADIENT_SCALING_HORIZON:
             T = metadata["adaptive"]["T_max"]
         else:
@@ -887,12 +550,7 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[
-            ADAPTIVE_HORIZON,
-            WEIGHTED_LOSS,
-            CURRICULUM_HORIZON,
-            GRADIENT_SCALING_HORIZON,
-        ],
+        choices=ADAPTIVE_METHOD_CHOICES,
         default=ADAPTIVE_HORIZON,
         help="Adaptive training method used with --adaptive",
     )

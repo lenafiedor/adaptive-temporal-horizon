@@ -1,0 +1,11 @@
+ADAPTIVE_HORIZON = "adaptive-horizon"
+WEIGHTED_LOSS = "weighted-loss"
+CURRICULUM_HORIZON = "curriculum-horizon"
+GRADIENT_SCALING_HORIZON = "gradient-scaling-horizon"
+
+ADAPTIVE_METHOD_CHOICES = [
+    ADAPTIVE_HORIZON,
+    WEIGHTED_LOSS,
+    CURRICULUM_HORIZON,
+    GRADIENT_SCALING_HORIZON,
+]

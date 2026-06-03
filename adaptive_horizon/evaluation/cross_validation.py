@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 
-from adaptive_horizon.training.train import (
+from adaptive_horizon.training.methods import (
     ADAPTIVE_HORIZON,
     CURRICULUM_HORIZON,
     GRADIENT_SCALING_HORIZON,
