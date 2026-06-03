@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 import argparse
+from time import perf_counter
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
@@ -83,6 +84,10 @@ def train(
     train_losses = []
     val_losses = []
     gradient_history = []
+    train_optimizer_updates = 0
+    train_rollout_model_calls = 0
+    train_wall_clock_seconds = 0.0
+    training_T_schedule = []
     if debug:
         debug_dataset = LorenzDataset(
             num_trajectories=config.NUM_TRAJECTORIES,
@@ -126,6 +131,7 @@ def train(
             gradient_scaling_schedule.append(int(current_T))
         else:
             current_T = T
+        training_T_schedule.append(int(current_T) if current_T is not None else None)
 
         if (
             adaptive
@@ -138,12 +144,14 @@ def train(
             scheduled_sampling_probability(epoch, epochs) if scheduled_sampling else 0.0
         )
         for batch in train_loader:
+            batch_start = perf_counter()
             inputs, targets, *rest = batch
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             if adaptive:
                 if adaptive_method == ADAPTIVE_HORIZON:
                     T_values = rest[0].to(device) if rest else None
+                    batch_T = int(T_values.max().item())
                     loss = adaptive_batch_loss(
                         model,
                         inputs,
@@ -154,6 +162,7 @@ def train(
                     )
                 elif adaptive_method == WEIGHTED_LOSS:
                     lambda_scores = rest[0].to(device) if rest else None
+                    batch_T = int(current_T)
                     loss = lle_weighted_batch_loss(
                         model,
                         inputs,
@@ -164,6 +173,7 @@ def train(
                         teacher_forcing_prob=teacher_forcing_prob,
                     )
                 elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
+                    batch_T = int(current_T)
                     loss = batch_loss(
                         model,
                         inputs,
@@ -175,6 +185,7 @@ def train(
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
             else:
+                batch_T = int(T)
                 loss = batch_loss(
                     model,
                     inputs,
@@ -185,6 +196,9 @@ def train(
                 )
             loss.backward()
             optimizer.step()
+            train_wall_clock_seconds += perf_counter() - batch_start
+            train_optimizer_updates += 1
+            train_rollout_model_calls += batch_T
             epoch_loss += loss.item()
 
         avg_loss = epoch_loss / len(train_loader)
@@ -263,6 +277,13 @@ def train(
         metadata["adaptive"]["T_schedule"] = gradient_scaling_schedule
         metadata["adaptive"]["g_history"] = gradient_scaling_history
 
+    if metadata is not None:
+        metadata["train_num_batches"] = len(train_loader)
+        metadata["train_optimizer_updates"] = int(train_optimizer_updates)
+        metadata["train_rollout_model_calls"] = int(train_rollout_model_calls)
+        metadata["train_wall_clock_seconds"] = float(train_wall_clock_seconds)
+        metadata["T_schedule"] = training_T_schedule
+
     return train_losses, val_losses
 
 
@@ -292,7 +313,7 @@ def train_single_model(
             dt,
             (
                 T
-                if adaptive_method == GRADIENT_SCALING_HORIZON
+                if adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON)
                 else None
                 if adaptive
                 else T
@@ -350,7 +371,7 @@ def train_single_model(
         metadata=metadata,
     )
 
-    save_model(
+    model_path = save_model(
         model,
         mlp_config,
         seed,
@@ -361,7 +382,7 @@ def train_single_model(
         var=var if adaptive_method == ADAPTIVE_HORIZON else None,
         adaptive_method=adaptive_method if adaptive else None,
     )
-    return train_losses, val_losses
+    return train_losses, val_losses, model_path
 
 
 def train_fixed_models(
@@ -419,7 +440,7 @@ def train_fixed_models(
 
         for seed in missing_seeds:
             print(f"\n--- Seed {seed} ---")
-            train_loss, val_loss = train_single_model(
+            train_loss, val_loss, _ = train_single_model(
                 seed,
                 epochs,
                 device,
@@ -490,7 +511,7 @@ def train_adaptive_models(
 
     for seed in missing_seeds:
         print(f"\n--- Adaptive Seed {seed} ---")
-        train_loss, val_loss = train_single_model(
+        train_loss, val_loss, _ = train_single_model(
             seed,
             epochs,
             device,
