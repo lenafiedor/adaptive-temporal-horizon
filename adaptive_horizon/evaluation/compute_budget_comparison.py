@@ -32,22 +32,10 @@ def infer_dt_from_models(model_dir: Path, fallback_dt: float):
 
 def confidence_summary(values):
     values = [float(value) for value in values]
-    n = len(values)
-    if n == 0:
-        return {
-            "n": 0,
-            "mean": None,
-            "std": None,
-            "median": None,
-            "ci95_low": None,
-            "ci95_high": None,
-        }
-
     mean_value = float(mean(values))
-    std_value = float(stdev(values)) if n > 1 else 0.0
-    margin = float(1.96 * std_value / sqrt(n)) if n > 1 else 0.0
+    std_value = float(stdev(values))
+    margin = float(1.96 * std_value / sqrt(len(values)))
     return {
-        "n": n,
         "mean": mean_value,
         "std": std_value,
         "median": float(median(values)),
@@ -111,86 +99,63 @@ def add_budget_metadata(records):
     return records
 
 
-def build_paired_deltas(records, seeds, val_Ts):
-    paired = []
-    for seed in seeds:
-        for val_T in val_Ts:
-            fixed_records = [
-                record
-                for record in records
-                if record["model_type"] == "fixed"
-                and record["seed"] == seed
-                and record["val_T"] == val_T
-            ]
-            adaptive_records = [
-                record
-                for record in records
-                if record["model_type"] == "adaptive"
-                and record.get("adaptive_method") == CURRICULUM_HORIZON
-                and record["seed"] == seed
-                and record["val_T"] == val_T
-            ]
-            if not fixed_records or not adaptive_records:
-                continue
+def calculate_deltas(records, val_Ts, adaptive_method=CURRICULUM_HORIZON):
+    results = []
 
-            best_fixed = min(fixed_records, key=lambda record: record["mse"])
-            adaptive = adaptive_records[0]
-            paired.append(
-                {
-                    "seed": int(seed),
-                    "val_T": int(val_T),
-                    "val_time": float(val_T * records[0]["dt"])
-                    if "dt" in records[0]
-                    else None,
-                    "best_fixed_train_T": int(best_fixed["train_T"]),
-                    "best_fixed_mse": float(best_fixed["mse"]),
-                    "adaptive_mse": float(adaptive["mse"]),
-                    "delta_mse": float(best_fixed["mse"] - adaptive["mse"]),
-                    "fixed_grid_wall_clock_seconds": float(
-                        sum(
-                            record["train_wall_clock_seconds"]
-                            for record in fixed_records
-                        )
-                    ),
-                    "adaptive_wall_clock_seconds": float(
-                        adaptive["train_wall_clock_seconds"]
-                    ),
-                }
-            )
-
-    return paired
-
-
-def summarize_paired_deltas(paired, val_Ts, primary_val_T):
-    by_val_T = {}
     for val_T in val_Ts:
-        values = [record["delta_mse"] for record in paired if record["val_T"] == val_T]
-        by_val_T[str(val_T)] = confidence_summary(values)
+        fixed_records_by_train_T = {}
+        for record in records:
+            if record["model_type"] != "fixed" or record["val_T"] != val_T:
+                continue
+            fixed_records_by_train_T.setdefault(record["train_T"], []).append(record)
 
-    primary_values = [
-        record["delta_mse"] for record in paired if record["val_T"] == primary_val_T
-    ]
-
-    seeds = sorted({record["seed"] for record in paired})
-    mean_over_val_T = []
-    for seed in seeds:
-        seed_values = [
-            record["delta_mse"] for record in paired if record["seed"] == seed
+        adaptive_records = [
+            record
+            for record in records
+            if record["model_type"] == "adaptive"
+            and record.get("adaptive_method") == adaptive_method
+            and record["val_T"] == val_T
         ]
-        if seed_values:
-            mean_over_val_T.append(float(mean(seed_values)))
 
-    return {
-        "by_val_T": by_val_T,
-        "primary_val_T": int(primary_val_T),
-        "primary": confidence_summary(primary_values),
-        "mean_over_val_T": confidence_summary(mean_over_val_T),
-    }
+        fixed_summaries = {
+            train_T: {
+                "mean_mse": float(mean(record["mse"] for record in train_T_records)),
+                "mean_wall_clock_seconds": float(
+                    mean(
+                        record["train_wall_clock_seconds"] for record in train_T_records
+                    )
+                ),
+            }
+            for train_T, train_T_records in fixed_records_by_train_T.items()
+        }
+
+        best_fixed_train_T, best_fixed = min(
+            fixed_summaries.items(),
+            key=lambda item: item[1]["mean_mse"],
+        )
+
+        adaptive_mse = float(mean(record["mse"] for record in adaptive_records))
+        adaptive_wall_clock_seconds = float(
+            mean(record["train_wall_clock_seconds"] for record in adaptive_records)
+        )
+
+        results.append(
+            {
+                "val_T": val_T,
+                "best_fixed_train_T": best_fixed_train_T,
+                "best_fixed_mse": best_fixed["mean_mse"],
+                "adaptive_mse": adaptive_mse,
+                "delta_mse": best_fixed["mean_mse"] - adaptive_mse,
+                "fixed_wall_clock_seconds": best_fixed["mean_wall_clock_seconds"],
+                "adaptive_wall_clock_seconds": adaptive_wall_clock_seconds,
+            }
+        )
+
+    return results
 
 
 def save_results(
     records,
-    paired,
     summary,
     metadata,
     save_dir,
@@ -204,7 +169,6 @@ def save_results(
     payload = {
         "metadata": metadata,
         "evaluation_records": records,
-        "paired_deltas": paired,
         "summary": summary,
     }
 
@@ -274,14 +238,10 @@ def compute_budget_comparison(
         device=device,
     )
     records = add_budget_metadata(records)
-    for record in records:
-        record["dt"] = float(dt)
-
     seeds = sorted(
         {int(record["seed"]) for record in records if record.get("seed") is not None}
     )
-    paired = build_paired_deltas(records, seeds, val_Ts)
-    summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=max_eval_T)
+    deltas = calculate_deltas(records, val_Ts)
 
     metadata = {
         "created_at": timestamp,
@@ -296,9 +256,9 @@ def compute_budget_comparison(
         "adaptive_dir": str(adaptive_dir),
     }
 
-    results_path = save_results(records, paired, summary, metadata, save_dir, timestamp)
+    results_path = save_results(records, deltas, metadata, save_dir, timestamp)
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
-    plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp)
+    # plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp) # TODO: fix this
 
     return results_path
 

@@ -452,17 +452,17 @@ def plot_mse(
     print(f"Cross-validation MSE plot saved to {save_path}")
 
 
-def plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp):
+def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp):
     save_dir.mkdir(parents=True, exist_ok=True)
     x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
     means = np.asarray(
-        [summary["by_val_T"][str(T)]["mean"] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)]["mean"] for T in val_Ts], dtype=np.float64
     )
     lows = np.asarray(
-        [summary["by_val_T"][str(T)]["ci95_low"] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)]["ci95_low"] for T in val_Ts], dtype=np.float64
     )
     highs = np.asarray(
-        [summary["by_val_T"][str(T)]["ci95_high"] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)]["ci95_high"] for T in val_Ts], dtype=np.float64
     )
 
     fig, ax = plt.subplots(figsize=(10, 6))

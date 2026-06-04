@@ -14,21 +14,23 @@ def curriculum_horizon(
     warmup_epochs: int = 20,
     patience: int = 5,
 ) -> tuple[int, int, int]:
-    if epoch < warmup_epochs or current_T >= T_max:
+    if epoch < warmup_epochs:
         return current_T, 0, 0
 
     if val_loss <= loss_threshold:
         success_count += 1
-    elif val_loss > loss_threshold * 5:
+        failure_count = 0
+    elif val_loss >= loss_threshold * 5:
         success_count = 0
         failure_count += 1
     else:
         success_count = 0
+        failure_count = 0
 
-    if success_count >= patience:
-        return min(current_T + 1, T_max), 0, 0
-    elif failure_count >= patience:
-        return max(1, current_T - 1), 0, 0
+    if success_count >= patience and current_T < T_max:
+        return current_T + 1, 0, 0
+    elif failure_count >= patience and current_T > 1:
+        return current_T - 1, 0, 0
 
     return current_T, success_count, failure_count
 
