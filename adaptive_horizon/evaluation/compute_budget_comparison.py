@@ -104,7 +104,8 @@ def add_budget_metadata(records):
     for record in records:
         model_path = record["model_path"]
         if model_path not in budget_cache:
-            budget_cache[model_path] = get_clock_seconds(model_path)
+            seconds, _ = get_clock_seconds(model_path)
+            budget_cache[model_path] = {"train_wall_clock_seconds": seconds}
         record.update(budget_cache[model_path])
 
     return records
@@ -282,30 +283,6 @@ def compute_budget_comparison(
     paired = build_paired_deltas(records, seeds, val_Ts)
     summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=max_eval_T)
 
-    fixed_budget_by_seed = {}
-    adaptive_budget_by_seed = {}
-    for seed in seeds:
-        fixed_budget_by_seed[str(seed)] = int(
-            sum(
-                record["train_rollout_model_calls"]
-                for record in records
-                if record["model_type"] == "fixed"
-                and record["seed"] == seed
-                and record["val_T"] == val_Ts[0]
-            )
-        )
-        adaptive_records = [
-            record
-            for record in records
-            if record["model_type"] == "adaptive"
-            and record.get("adaptive_method") == CURRICULUM_HORIZON
-            and record["seed"] == seed
-            and record["val_T"] == val_Ts[0]
-        ]
-        adaptive_budget_by_seed[str(seed)] = int(
-            adaptive_records[0]["train_rollout_model_calls"] if adaptive_records else 0
-        )
-
     metadata = {
         "created_at": timestamp,
         "dt": dt,
@@ -317,13 +294,12 @@ def compute_budget_comparison(
         "batch_size": batch_size,
         "fixed_dir": str(fixed_dir),
         "adaptive_dir": str(adaptive_dir),
-        "fixed_grid_rollout_model_calls_by_seed": fixed_budget_by_seed,
-        "adaptive_rollout_model_calls_by_seed": adaptive_budget_by_seed,
     }
 
     results_path = save_results(records, paired, summary, metadata, save_dir, timestamp)
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
     plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp)
+
     return results_path
 
 

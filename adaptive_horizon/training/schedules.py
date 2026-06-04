@@ -5,23 +5,38 @@ import adaptive_horizon.config as config
 
 def curriculum_horizon(
     epoch: int,
-    epochs: int,
-    T_max: int,
-) -> int:
-    """Split training epochs as evenly as possible across T=1..T_max."""
-    if epochs < 1:
-        raise ValueError(f"epochs must be at least 1, got {epochs}")
-    if T_max < 1:
-        raise ValueError(f"T_max must be at least 1, got {T_max}")
+    val_loss: float,
+    current_T: int,
+    success_count: int,
+    failure_count: int,
+    T_max: int = config.MAX_TRAIN_T,
+    loss_threshold: float = 0.005,
+    warmup_epochs: int = 20,
+    patience: int = 5,
+) -> tuple[int, int, int]:
+    if epoch < warmup_epochs or current_T >= T_max:
+        return current_T, 0, 0
 
-    return min(T_max, (epoch * T_max) // epochs + 1)
+    if val_loss <= loss_threshold:
+        success_count += 1
+    elif val_loss > loss_threshold * 5:
+        success_count = 0
+        failure_count += 1
+    else:
+        success_count = 0
+
+    if success_count >= patience:
+        return min(current_T + 1, T_max), 0, 0
+    elif failure_count >= patience:
+        return max(1, current_T - 1), 0, 0
+
+    return current_T, success_count, failure_count
 
 
 def summarize_gradient_scaling(g_values):
     """Summarize per-batch g(T) values with robust statistics."""
     summary = {}
     for T, values in g_values.items():
-        values = np.asarray(values, dtype=np.float64)
         if values.size == 0:
             summary[int(T)] = {"median": float("inf"), "p90": float("inf")}
             continue

@@ -81,10 +81,7 @@ def train(
     train_losses = []
     val_losses = []
     gradient_history = []
-    train_optimizer_updates = 0
-    train_rollout_model_calls = 0
     train_wall_clock_seconds = 0.0
-    training_T_schedule = []
     if debug:
         if save_dir is None:
             save_dir = config.LOSS_DIR
@@ -108,7 +105,8 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
-    previous_curriculum_T = None
+    curriculum_T = 1
+    success_count = 0
     gradient_scaling_T = 1
     gradient_scaling_schedule = []
     gradient_scaling_history = []
@@ -124,22 +122,14 @@ def train(
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T = curriculum_horizon(epoch, epochs, T)
-        elif adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
+        if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
             current_T = gradient_scaling_T
             gradient_scaling_schedule.append(int(current_T))
+        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
+            current_T = curriculum_T
         else:
             current_T = T
-        training_T_schedule.append(int(current_T) if current_T is not None else None)
 
-        if (
-            adaptive
-            and adaptive_method == CURRICULUM_HORIZON
-            and current_T != previous_curriculum_T
-        ):
-            print(f"Curriculum horizon: epoch {epoch + 1}/{epochs}, T={current_T}/{T}")
-            previous_curriculum_T = current_T
         for batch in train_loader:
             batch_start = perf_counter()
             inputs, targets, *rest = batch
@@ -148,7 +138,6 @@ def train(
             if adaptive:
                 if adaptive_method == ADAPTIVE_HORIZON:
                     T_values = rest[0].to(device) if rest else None
-                    batch_T = int(T_values.max().item())
                     loss = adaptive_batch_loss(
                         model,
                         inputs,
@@ -157,7 +146,6 @@ def train(
                     )
                 elif adaptive_method == WEIGHTED_LOSS:
                     lambda_scores = rest[0].to(device) if rest else None
-                    batch_T = int(current_T)
                     loss = lle_weighted_batch_loss(
                         model,
                         inputs,
@@ -166,7 +154,6 @@ def train(
                         dt=dt,
                     )
                 elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
-                    batch_T = int(current_T)
                     loss = batch_loss(
                         model,
                         inputs,
@@ -176,7 +163,6 @@ def train(
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
             else:
-                batch_T = int(T)
                 loss = batch_loss(
                     model,
                     inputs,
@@ -186,8 +172,6 @@ def train(
             loss.backward()
             optimizer.step()
             train_wall_clock_seconds += perf_counter() - batch_start
-            train_optimizer_updates += 1
-            train_rollout_model_calls += batch_T
             epoch_loss += loss.item()
 
         avg_loss = epoch_loss / len(train_loader)
@@ -232,6 +216,13 @@ def train(
             )
             model.zero_grad(set_to_none=True)
             gradient_scaling_T = next_T
+        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
+            current_T, success_count = curriculum_horizon(
+                epoch, val_loss, curriculum_T, success_count, T
+            )
+            if current_T != curriculum_T:
+                print(f"\tEpoch {epoch + 1}/{epochs}, increasing T={current_T}/{T}")
+                curriculum_T = current_T
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -268,10 +259,7 @@ def train(
 
     if metadata is not None:
         metadata["train_num_batches"] = len(train_loader)
-        metadata["train_optimizer_updates"] = int(train_optimizer_updates)
-        metadata["train_rollout_model_calls"] = int(train_rollout_model_calls)
         metadata["train_wall_clock_seconds"] = float(train_wall_clock_seconds)
-        metadata["T_schedule"] = training_T_schedule
 
     return train_losses, val_losses
 
@@ -486,11 +474,9 @@ def train_adaptive_models(
 
     if append and existing_seeds:
         print(f"Existing adaptive seeds: {sorted(existing_seeds)}")
-
     if not missing_seeds:
         print("No new adaptive models to train")
         return
-
     if append:
         print(f"Training missing adaptive seeds: {missing_seeds}")
 

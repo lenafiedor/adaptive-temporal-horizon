@@ -91,7 +91,6 @@ def create_model_and_loaders(
     metadata = {
         "dt": dt,
         "burn_in_time": config.BURN_IN_TIME,
-        "burn_in_steps": burn_in_steps,
     }
 
     if adaptive:
@@ -136,10 +135,8 @@ def create_model_and_loaders(
             )
             collate_function = collate_fn_weighted_loss
         elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
-            if adaptive_method == CURRICULUM_HORIZON:
+            if T is None:
                 T = time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
-            elif T is None:
-                T = config.MAX_TRAIN_T
             train_dataset = LorenzDataset(
                 T=T,
                 dt=dt,

@@ -188,6 +188,8 @@ def cross_validate_models(
                     "train_T": T,
                     "val_T": val_T,
                     "mse": mse,
+                    "model_file": model_path.name,
+                    "model_path": str(model_path),
                 }
                 evaluation_records.append(record)
                 model_records.append(record)
@@ -214,6 +216,8 @@ def cross_validate_models(
                     "train_T": None,
                     "val_T": val_T,
                     "mse": mse,
+                    "model_file": model_path.name,
+                    "model_path": str(model_path),
                 }
                 evaluation_records.append(record)
                 model_records.append(record)
