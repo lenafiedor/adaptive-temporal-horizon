@@ -15,6 +15,7 @@ from adaptive_horizon.training.methods import (
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
+from adaptive_horizon.utils import format_dt
 from adaptive_horizon.visualization.plotting import plot_mse
 from adaptive_horizon.evaluation.utils import load_model
 
@@ -183,12 +184,10 @@ def cross_validate_models(
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "fixed",
-                    "train_T": int(T),
-                    "seed": int(seed) if seed is not None else None,
-                    "val_T": int(val_T),
-                    "mse": float(mse),
-                    "model_file": model_path.name,
-                    "model_path": str(model_path),
+                    "seed": seed,
+                    "train_T": T,
+                    "val_T": val_T,
+                    "mse": mse,
                 }
                 evaluation_records.append(record)
                 model_records.append(record)
@@ -211,12 +210,10 @@ def cross_validate_models(
                 record = {
                     "model_type": "adaptive",
                     "adaptive_method": method,
+                    "seed": seed,
                     "train_T": None,
-                    "seed": int(seed) if seed is not None else None,
-                    "val_T": int(val_T),
-                    "mse": float(mse),
-                    "model_file": model_path.name,
-                    "model_path": str(model_path),
+                    "val_T": val_T,
+                    "mse": mse,
                 }
                 evaluation_records.append(record)
                 model_records.append(record)
@@ -281,21 +278,18 @@ def save_cross_validation_results(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = save_dir / (
-        f"mse_results_dt_{str(dt).split('.')[1]}_{timestamp}.json"
-    )
+    results_file = save_dir / (f"mse_results_dt_{format_dt(dt)}_{timestamp}.json")
     payload = {
         "metadata": {
             "created_at": timestamp,
             "dt": float(dt),
             "burn_in_time": config.BURN_IN_TIME,
-            "burn_in_steps": config.resolve_burn_in_steps(dt),
             "model_dir": str(model_dir),
             "fixed_dir": str(fixed_dir or model_dir),
             "T_max": max(T_values),
             "best_train_T": int(best_train_T),
-            "best_fixed_MSE": best_fixed_mse,
-            "mean_adaptive_MSE": mean_adaptive_mse,
+            "best_fixed_MSE": round(best_fixed_mse, 6),
+            "mean_adaptive_MSE": round(mean_adaptive_mse, 6),
         },
         "evaluation_records": evaluation_records,
     }

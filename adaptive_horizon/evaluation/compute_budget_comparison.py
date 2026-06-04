@@ -20,8 +20,6 @@ from adaptive_horizon.training.train import train_adaptive_models, train_fixed_m
 from adaptive_horizon.utils import format_dt
 from adaptive_horizon.visualization.plotting import plot_mse, plot_paired_deltas
 
-RESOURCE_METRIC = "rollout_model_calls"
-
 
 def infer_dt_from_models(model_dir: Path, fallback_dt: float):
     for model_path in sorted(model_dir.rglob("*.pt")):
@@ -55,19 +53,6 @@ def confidence_summary(values):
         "median": float(median(values)),
         "ci95_low": mean_value - margin,
         "ci95_high": mean_value + margin,
-    }
-
-
-def metadata_budget(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    return {
-        "train_num_batches": int(metadata.get("train_num_batches", 0)),
-        "train_optimizer_updates": int(metadata.get("train_optimizer_updates", 0)),
-        "train_rollout_model_calls": int(metadata.get("train_rollout_model_calls", 0)),
-        "train_wall_clock_seconds": float(
-            metadata.get("train_wall_clock_seconds", 0.0)
-        ),
-        "T_schedule": metadata.get("T_schedule", []),
     }
 
 
@@ -108,13 +93,18 @@ def train_compute_budget_models(
     return fixed_dir, adaptive_dir
 
 
+def get_clock_seconds(model_path):
+    _, checkpoint = load_model(model_path)
+    metadata = checkpoint.get("metadata", {})
+    return float(metadata.get("train_wall_clock_seconds", 0.0)), checkpoint
+
+
 def add_budget_metadata(records):
     budget_cache = {}
     for record in records:
         model_path = record["model_path"]
         if model_path not in budget_cache:
-            _, checkpoint = load_model(model_path)
-            budget_cache[model_path] = metadata_budget(checkpoint)
+            budget_cache[model_path] = get_clock_seconds(model_path)
         record.update(budget_cache[model_path])
 
     return records
@@ -155,14 +145,14 @@ def build_paired_deltas(records, seeds, val_Ts):
                     "best_fixed_mse": float(best_fixed["mse"]),
                     "adaptive_mse": float(adaptive["mse"]),
                     "delta_mse": float(best_fixed["mse"] - adaptive["mse"]),
-                    "fixed_grid_rollout_model_calls": int(
+                    "fixed_grid_wall_clock_seconds": float(
                         sum(
-                            record["train_rollout_model_calls"]
+                            record["train_wall_clock_seconds"]
                             for record in fixed_records
                         )
                     ),
-                    "adaptive_rollout_model_calls": int(
-                        adaptive["train_rollout_model_calls"]
+                    "adaptive_wall_clock_seconds": float(
+                        adaptive["train_wall_clock_seconds"]
                     ),
                 }
             )
@@ -220,7 +210,7 @@ def save_results(
     with open(results_path, "w") as f:
         json.dump(payload, f, indent=2)
 
-    print(f"Compute-budget comparison saved to {results_path}")
+    print(f"\nCompute-budget comparison saved to {results_path}")
     return results_path
 
 
@@ -264,9 +254,7 @@ def compute_budget_comparison(
             timestamp=timestamp,
         )
 
-    max_train_T = int(max_train_T)
-    eval_limit = min(int(max_eval_T), max_train_T)
-    val_Ts = list(range(1, eval_limit + 1))
+    val_Ts = list(range(1, max_eval_T + 1))
     model_paths = get_model_paths(val_Ts, fixed_dir)
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(adaptive_dir), CURRICULUM_HORIZON
@@ -292,7 +280,7 @@ def compute_budget_comparison(
         {int(record["seed"]) for record in records if record.get("seed") is not None}
     )
     paired = build_paired_deltas(records, seeds, val_Ts)
-    summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=eval_limit)
+    summary = summarize_paired_deltas(paired, val_Ts, primary_val_T=max_eval_T)
 
     fixed_budget_by_seed = {}
     adaptive_budget_by_seed = {}
@@ -320,14 +308,13 @@ def compute_budget_comparison(
 
     metadata = {
         "created_at": timestamp,
-        "dt": float(dt),
-        "max_train_T": int(max_train_T),
-        "max_eval_T": int(max_eval_T),
-        "epochs_per_T": int(epochs_per_T),
-        "adaptive_epochs": int(epochs_per_T * max_train_T),
-        "n_seeds": int(len(seeds)),
-        "batch_size": int(batch_size),
-        "resource_metric": RESOURCE_METRIC,
+        "dt": dt,
+        "max_train_T": max_train_T,
+        "max_eval_T": max_eval_T,
+        "epochs_per_T": epochs_per_T,
+        "adaptive_epochs": epochs_per_T * max_train_T,
+        "n_seeds": len(seeds),
+        "batch_size": batch_size,
         "fixed_dir": str(fixed_dir),
         "adaptive_dir": str(adaptive_dir),
         "fixed_grid_rollout_model_calls_by_seed": fixed_budget_by_seed,
@@ -377,7 +364,6 @@ def main():
     print(f"max_eval_T: {args.max_eval_T}")
     print(f"epochs_per_T: {args.epochs_per_T}")
     print(f"n_seeds: {args.n_seeds}")
-    print(f"resource metric: {RESOURCE_METRIC}\n")
 
     compute_budget_comparison(
         dt=args.dt,
