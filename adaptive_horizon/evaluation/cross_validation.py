@@ -19,6 +19,7 @@ from adaptive_horizon.evaluation.utils import (
     load_model,
     save_cross_validation_results,
     get_last_run,
+    summarize_cross_validation,
 )
 
 
@@ -260,10 +261,10 @@ def compute_statistics(evaluation_records, T_values):
     mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
 
     print(
-        f"Best train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
+        f"\nBest train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
     )
     if adaptive_stats:
-        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
+        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}\n")
 
     return best_train_T, mean_fixed_mse, mean_adaptive_mse
 
@@ -392,9 +393,11 @@ def cross_validation(
     best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(
         evaluation_records, T_values
     )
+    summary = summarize_cross_validation(evaluation_records, T_values, T_values)
 
     save_cross_validation_results(
         evaluation_records,
+        summary,
         max_T,
         best_T,
         mean_fixed_mse[best_T],

@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import json
 from datetime import datetime
-import Path
+from math import sqrt
+from pathlib import Path
+from statistics import median, stdev
 
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.utils import format_dt
@@ -27,7 +29,7 @@ def load_model(model_path):
     state_dict = checkpoint["model_state_dict"]
 
     cfg = checkpoint["config"]
-    config = MLPConfig(
+    mlp_config = MLPConfig(
         input_size=cfg["input_size"],
         output_size=cfg["output_size"],
         layer_widths=cfg["layer_widths"],
@@ -36,7 +38,7 @@ def load_model(model_path):
         activation=nn.ReLU(),
     )
 
-    model = MLP(config, random_seed=42)
+    model = MLP(mlp_config, random_seed=42)
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -45,6 +47,7 @@ def load_model(model_path):
 
 def save_cross_validation_results(
     evaluation_records,
+    summary,
     max_T,
     best_train_T,
     best_fixed_mse,
@@ -70,6 +73,7 @@ def save_cross_validation_results(
             "best_fixed_MSE": round(best_fixed_mse, 6),
             "mean_adaptive_MSE": round(mean_adaptive_mse, 6),
         },
+        "summary": summary,
         "evaluation_records": evaluation_records,
     }
 
@@ -81,3 +85,73 @@ def save_cross_validation_results(
 
     print(f"Cross-validation results saved to {results_file}")
     return results_file
+
+
+def median_ci90(values):
+    values = [float(value) for value in values]
+    median_value = float(median(values))
+    margin = float(1.645 * stdev(values) / sqrt(len(values)))
+    return {
+        "median_mse": median_value,
+        "ci90_low": median_value - margin,
+        "ci90_high": median_value + margin,
+    }
+
+
+def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
+    summary = {"fixed": [], "adaptive": None}
+
+    for train_T in train_Ts:
+        records_for_train_T = [
+            record
+            for record in evaluation_records
+            if record["model_type"] == "fixed" and record["train_T"] == train_T
+        ]
+        overall = median_ci90(record["mse"] for record in records_for_train_T)
+
+        by_val_T = []
+        for val_T in val_Ts:
+            values = [
+                record["mse"]
+                for record in records_for_train_T
+                if record["val_T"] == val_T
+            ]
+            val_summary = median_ci90(values)
+            by_val_T.append(
+                {
+                    "eval_T": int(val_T),
+                    **val_summary,
+                }
+            )
+
+        summary["fixed"].append(
+            {
+                "train_T": int(train_T),
+                "overall": overall,
+                "by_eval_T": by_val_T,
+            }
+        )
+
+    adaptive_records = [
+        record for record in evaluation_records if record["model_type"] == "adaptive"
+    ]
+    adaptive_overall = median_ci90(record["mse"] for record in adaptive_records)
+    by_val_T = []
+    for val_T in val_Ts:
+        values = [
+            record["mse"] for record in adaptive_records if record["val_T"] == val_T
+        ]
+        val_summary = median_ci90(values)
+        by_val_T.append(
+            {
+                "eval_T": int(val_T),
+                **val_summary,
+            }
+        )
+
+        summary["adaptive"] = {
+            "overall": adaptive_overall,
+            "by_eval_T": by_val_T,
+        }
+
+    return summary

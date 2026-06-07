@@ -14,11 +14,15 @@ from adaptive_horizon.evaluation.cross_validation import (
     get_T_values,
     compute_statistics,
 )
-from adaptive_horizon.evaluation.utils import load_model, save_cross_validation_results
+from adaptive_horizon.evaluation.utils import (
+    load_model,
+    save_cross_validation_results,
+    summarize_cross_validation,
+)
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.visualization.plotting import plot_mse, plot_paired_deltas
+from adaptive_horizon.visualization.plotting import plot_mse
 
 
 def infer_dt_from_models(model_dir: Path, fallback_dt: float):
@@ -53,7 +57,10 @@ def train_compute_budget_models(
     batch_size,
     timestamp,
 ):
-    model_root = config.MODEL_DIR / f"compute_budget_dt_{format_dt(dt)}_{timestamp}"
+    model_root = (
+        config.MODEL_DIR
+        / f"compute_budget_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+    )
     fixed_dir = model_root / "fixed"
     adaptive_dir = model_root / "adaptive"
 
@@ -85,73 +92,6 @@ def get_clock_seconds(model_path):
     _, checkpoint = load_model(model_path)
     metadata = checkpoint.get("metadata", {})
     return float(metadata.get("train_wall_clock_seconds", 0.0)), checkpoint
-
-
-def add_budget_metadata(records):
-    budget_cache = {}
-    for record in records:
-        model_path = record["model_path"]
-        if model_path not in budget_cache:
-            seconds, _ = get_clock_seconds(model_path)
-            budget_cache[model_path] = {"train_wall_clock_seconds": seconds}
-        record.update(budget_cache[model_path])
-
-    return records
-
-
-def calculate_deltas(records, val_Ts, adaptive_method=CURRICULUM_HORIZON):
-    results = []
-
-    for val_T in val_Ts:
-        fixed_records_by_train_T = {}
-        for record in records:
-            if record["model_type"] != "fixed" or record["val_T"] != val_T:
-                continue
-            fixed_records_by_train_T.setdefault(record["train_T"], []).append(record)
-
-        adaptive_records = [
-            record
-            for record in records
-            if record["model_type"] == "adaptive"
-            and record.get("adaptive_method") == adaptive_method
-            and record["val_T"] == val_T
-        ]
-
-        fixed_summaries = {
-            train_T: {
-                "mean_mse": float(mean(record["mse"] for record in train_T_records)),
-                "mean_wall_clock_seconds": float(
-                    mean(
-                        record["train_wall_clock_seconds"] for record in train_T_records
-                    )
-                ),
-            }
-            for train_T, train_T_records in fixed_records_by_train_T.items()
-        }
-
-        best_fixed_train_T, best_fixed = min(
-            fixed_summaries.items(),
-            key=lambda item: item[1]["mean_mse"],
-        )
-
-        adaptive_mse = float(mean(record["mse"] for record in adaptive_records))
-        adaptive_wall_clock_seconds = float(
-            mean(record["train_wall_clock_seconds"] for record in adaptive_records)
-        )
-
-        results.append(
-            {
-                "val_T": val_T,
-                "best_fixed_train_T": best_fixed_train_T,
-                "best_fixed_mse": best_fixed["mean_mse"],
-                "adaptive_mse": adaptive_mse,
-                "delta_mse": best_fixed["mean_mse"] - adaptive_mse,
-                "fixed_wall_clock_seconds": best_fixed["mean_wall_clock_seconds"],
-                "adaptive_wall_clock_seconds": adaptive_wall_clock_seconds,
-            }
-        )
-
-    return results
 
 
 def compute_budget_comparison(
@@ -225,9 +165,11 @@ def compute_budget_comparison(
         device=device,
     )
     best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(records, val_Ts)
+    summary = summarize_cross_validation(records, val_Ts, val_Ts)
 
     results_path = save_cross_validation_results(
         records,
+        summary,
         max_train_T,
         best_T,
         mean_fixed_mse[best_T],
@@ -235,12 +177,9 @@ def compute_budget_comparison(
         dt,
         adaptive_dir,
         fixed_dir,
-        save_dir,
+        save_dir=save_dir,
     )
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
-
-    # summary = calculate_deltas(records, val_Ts)
-    # plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp) # TODO: fix this
 
     return results_path
 
