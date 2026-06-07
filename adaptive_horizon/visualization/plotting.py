@@ -446,7 +446,7 @@ def plot_mse(
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"mse_dt_{str(dt).split('.')[1]}_{timestamp}.png"
+    save_path = save_dir / f"mse_dt_{format_dt(dt)}_{timestamp}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")

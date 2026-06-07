@@ -4,7 +4,6 @@ from math import sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
 import torch
-import json
 
 import adaptive_horizon.config as config
 from adaptive_horizon.evaluation.cross_validation import (
@@ -13,8 +12,9 @@ from adaptive_horizon.evaluation.cross_validation import (
     get_adaptive_paths,
     get_model_paths,
     get_T_values,
+    compute_statistics,
 )
-from adaptive_horizon.evaluation.utils import load_model
+from adaptive_horizon.evaluation.utils import load_model, save_cross_validation_results
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
 from adaptive_horizon.utils import format_dt
@@ -154,31 +154,6 @@ def calculate_deltas(records, val_Ts, adaptive_method=CURRICULUM_HORIZON):
     return results
 
 
-def save_results(
-    records,
-    summary,
-    metadata,
-    save_dir,
-    timestamp,
-):
-    save_dir.mkdir(parents=True, exist_ok=True)
-    results_path = (
-        save_dir
-        / f"compute_budget_results_dt_{format_dt(metadata['dt'])}_{timestamp}.json"
-    )
-    payload = {
-        "metadata": metadata,
-        "evaluation_records": records,
-        "summary": summary,
-    }
-
-    with open(results_path, "w") as f:
-        json.dump(payload, f, indent=2)
-
-    print(f"\nCompute-budget comparison saved to {results_path}")
-    return results_path
-
-
 def compute_budget_comparison(
     dt,
     epochs_per_T,
@@ -249,27 +224,22 @@ def compute_budget_comparison(
         dt=dt,
         device=device,
     )
-    records = add_budget_metadata(records)
-    seeds = sorted(
-        {int(record["seed"]) for record in records if record.get("seed") is not None}
+    best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(records, val_Ts)
+
+    results_path = save_cross_validation_results(
+        records,
+        max_train_T,
+        best_T,
+        mean_fixed_mse[best_T],
+        mean_adaptive_mse,
+        dt,
+        adaptive_dir,
+        fixed_dir,
+        save_dir,
     )
-    summary = calculate_deltas(records, val_Ts)
-
-    metadata = {
-        "created_at": timestamp,
-        "dt": dt,
-        "max_train_T": max_train_T,
-        "max_eval_T": max_eval_T,
-        "epochs_per_T": epochs_per_T,
-        "adaptive_epochs": epochs_per_T * max_train_T,
-        "n_seeds": len(seeds),
-        "batch_size": batch_size,
-        "fixed_dir": str(fixed_dir),
-        "adaptive_dir": str(adaptive_dir),
-    }
-
-    results_path = save_results(records, summary, metadata, save_dir, timestamp)
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
+
+    # summary = calculate_deltas(records, val_Ts)
     # plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp) # TODO: fix this
 
     return results_path
