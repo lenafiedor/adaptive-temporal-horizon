@@ -203,12 +203,23 @@ def compute_budget_comparison(
         available_train_Ts = get_T_values(fixed_dir)
         if not available_train_Ts:
             raise ValueError(f"No fixed-horizon models found in {fixed_dir}")
+
         if max_train_T is None:
             max_train_T = max(available_train_Ts)
+        else:
+            max_train_T = min(max_train_T, max(available_train_Ts))
+
+        if max_eval_T is None:
+            max_eval_T = max_train_T
+        else:
+            max_eval_T = min(max_eval_T, max_train_T)
+
         print(f"Using cached models from: {model_root}")
     else:
         if max_train_T is None:
-            max_train_T = config.MAX_TRAIN_T
+            max_train_T = int(config.MAX_TRAIN_T)
+        if max_eval_T is None:
+            max_eval_T = int(config.MAX_EVAL_T)
         fixed_dir, adaptive_dir = train_compute_budget_models(
             dt=dt,
             max_train_T=max_train_T,
@@ -241,7 +252,7 @@ def compute_budget_comparison(
     seeds = sorted(
         {int(record["seed"]) for record in records if record.get("seed") is not None}
     )
-    deltas = calculate_deltas(records, val_Ts)
+    summary = calculate_deltas(records, val_Ts)
 
     metadata = {
         "created_at": timestamp,
@@ -256,9 +267,9 @@ def compute_budget_comparison(
         "adaptive_dir": str(adaptive_dir),
     }
 
-    results_path = save_results(records, deltas, metadata, save_dir, timestamp)
+    results_path = save_results(records, summary, metadata, save_dir, timestamp)
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
-    # plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp) # TODO: fix this
+    # plot_paired_deltas(summary, val_Ts, dt, save_dir, timestamp) # TODO: fix this
 
     return results_path
 
@@ -275,7 +286,7 @@ def main():
     parser.add_argument(
         "--max-eval-T",
         type=int,
-        default=config.MAX_EVAL_T,
+        default=None,
         help="Maximum validation horizon for the cross-validation",
     )
     parser.add_argument("--epochs-per-T", type=int, default=20)
@@ -297,9 +308,9 @@ def main():
     print(
         f"max_train_T: {args.max_train_T if args.max_train_T is not None else 'auto'}"
     )
-    print(f"max_eval_T: {args.max_eval_T}")
+    print(f"max_eval_T: {args.max_eval_T if args.max_eval_T is not None else 'auto'}")
     print(f"epochs_per_T: {args.epochs_per_T}")
-    print(f"n_seeds: {args.n_seeds}")
+    print(f"n_seeds: {args.n_seeds}\n")
 
     compute_budget_comparison(
         dt=args.dt,

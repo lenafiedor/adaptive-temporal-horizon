@@ -10,9 +10,9 @@ def curriculum_horizon(
     success_count: int,
     failure_count: int,
     T_max: int = config.MAX_TRAIN_T,
-    loss_threshold: float = 0.005,
+    loss_threshold: float = 0.01,
     warmup_epochs: int = 20,
-    patience: int = 5,
+    patience: int = 3,
 ) -> tuple[int, int, int]:
     if epoch < warmup_epochs:
         return current_T, 0, 0

@@ -220,7 +220,9 @@ def train(
                 epoch, val_loss, curriculum_T, success_count, failure_count, T
             )
             if current_T != curriculum_T:
-                print(f"\tEpoch {epoch + 1}/{epochs}, increasing T={current_T}/{T}")
+                print(
+                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {current_T}"
+                )
                 curriculum_T = current_T
 
         if (epoch + 1) % 10 == 0:
