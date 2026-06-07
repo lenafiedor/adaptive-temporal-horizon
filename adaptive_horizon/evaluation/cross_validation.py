@@ -218,57 +218,6 @@ def cross_validate_models(
     return evaluation_records
 
 
-def compute_statistics(evaluation_records, T_values):
-    """
-    Compute mean and std for each (train_T, val_T) combination.
-
-    Returns:
-        mean_fixed_mse: dict of {train_T: mean_mse}
-        mean_adaptive_mse: mean_mse for adaptive models
-    """
-    stats = {T: {} for T in T_values}
-
-    for train_T in T_values:
-        for val_T in T_values:
-            values = np.array(
-                [
-                    record["mse"]
-                    for record in evaluation_records
-                    if record["model_type"] == "fixed"
-                    and record["train_T"] == train_T
-                    and record["val_T"] == val_T
-                ]
-            )
-            stats[train_T][val_T] = (float(np.mean(values)), float(np.std(values)))
-
-    adaptive_stats = {}
-    for val_T in T_values:
-        values = np.array(
-            [
-                record["mse"]
-                for record in evaluation_records
-                if record["model_type"] == "adaptive" and record["val_T"] == val_T
-            ]
-        )
-        if len(values) > 0:
-            adaptive_stats[val_T] = (float(np.mean(values)), float(np.std(values)))
-
-    mean_fixed_mse = {
-        train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
-        for train_T in T_values
-    }
-    best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
-    mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
-
-    print(
-        f"\nBest train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
-    )
-    if adaptive_stats:
-        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}\n")
-
-    return best_train_T, mean_fixed_mse, mean_adaptive_mse
-
-
 def load_cross_validation_results(
     cached: Path = None, save_dir: Path = config.EVAL_DIR
 ):
@@ -390,18 +339,12 @@ def cross_validation(
             fixed_paths, adaptive_paths, T_values, dt, device
         )
 
-    best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(
-        evaluation_records, T_values
-    )
     summary = summarize_cross_validation(evaluation_records, T_values, T_values)
 
     save_cross_validation_results(
         evaluation_records,
         summary,
         max_T,
-        best_T,
-        mean_fixed_mse[best_T],
-        mean_adaptive_mse,
         dt,
         model_dir,
         fixed_dir=f"cached:{results_file}" if cached else fixed_dir,

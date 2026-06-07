@@ -12,7 +12,6 @@ from adaptive_horizon.evaluation.cross_validation import (
     get_adaptive_paths,
     get_model_paths,
     get_T_values,
-    compute_statistics,
 )
 from adaptive_horizon.evaluation.utils import (
     load_model,
@@ -164,20 +163,9 @@ def compute_budget_comparison(
         dt=dt,
         device=device,
     )
-    best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(records, val_Ts)
     summary = summarize_cross_validation(records, val_Ts, val_Ts)
-
     results_path = save_cross_validation_results(
-        records,
-        summary,
-        max_train_T,
-        best_T,
-        mean_fixed_mse[best_T],
-        mean_adaptive_mse,
-        dt,
-        adaptive_dir,
-        fixed_dir,
-        save_dir=save_dir,
+        records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir
     )
     plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
 

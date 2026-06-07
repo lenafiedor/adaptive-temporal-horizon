@@ -5,6 +5,7 @@ from datetime import datetime
 from math import sqrt
 from pathlib import Path
 from statistics import median, stdev
+from typing import Any
 
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.utils import format_dt
@@ -48,10 +49,7 @@ def load_model(model_path):
 def save_cross_validation_results(
     evaluation_records,
     summary,
-    max_T,
-    best_train_T,
-    best_fixed_mse,
-    mean_adaptive_mse,
+    max_train_T,
     dt,
     adaptive_dir,
     fixed_dir=None,
@@ -62,16 +60,16 @@ def save_cross_validation_results(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_file = save_dir / f"mse_results_dt_{format_dt(dt)}_{timestamp}.json"
+    summary_metadata = summarize_metadata(summary)
+
     payload = {
         "metadata": {
             "created_at": timestamp,
             "dt": dt,
             "adaptive_dir": str(adaptive_dir),
             "fixed_dir": str(fixed_dir or adaptive_dir),
-            "max_train_T": max_T,
-            "best_train_T": best_train_T,
-            "best_fixed_MSE": round(best_fixed_mse, 6),
-            "mean_adaptive_MSE": round(mean_adaptive_mse, 6),
+            "max_train_T": max_train_T,
+            **summary_metadata,
         },
         "summary": summary,
         "evaluation_records": evaluation_records,
@@ -98,8 +96,46 @@ def median_ci90(values):
     }
 
 
+def summarize_metadata(summary):
+    fixed_summaries = summary.get("fixed", [])
+    best_fixed = min(
+        fixed_summaries,
+        key=lambda train_summary: train_summary["overall"]["median_mse"],
+        default=None,
+    )
+    metadata = {}
+    if best_fixed is not None:
+        metadata["best_train_T"] = best_fixed["train_T"]
+        metadata["best_fixed_median_MSE"] = round(
+            best_fixed["overall"]["median_mse"], 6
+        )
+
+    adaptive_summary = summary.get("adaptive")
+    if adaptive_summary is not None:
+        metadata["adaptive_median_MSE"] = round(
+            adaptive_summary["overall"]["median_mse"], 6
+        )
+
+    return metadata
+
+
+def summarize_by_eval_T(records, val_Ts):
+    by_val_T = []
+    for val_T in val_Ts:
+        values = [record["mse"] for record in records if record["val_T"] == val_T]
+        val_summary = median_ci90(values)
+        by_val_T.append(
+            {
+                "eval_T": int(val_T),
+                **val_summary,
+            }
+        )
+
+    return by_val_T
+
+
 def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
-    summary = {"fixed": [], "adaptive": None}
+    summary: dict[str, Any] = {"fixed": [], "adaptive": None}
 
     for train_T in train_Ts:
         records_for_train_T = [
@@ -109,26 +145,11 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
         ]
         overall = median_ci90(record["mse"] for record in records_for_train_T)
 
-        by_val_T = []
-        for val_T in val_Ts:
-            values = [
-                record["mse"]
-                for record in records_for_train_T
-                if record["val_T"] == val_T
-            ]
-            val_summary = median_ci90(values)
-            by_val_T.append(
-                {
-                    "eval_T": int(val_T),
-                    **val_summary,
-                }
-            )
-
         summary["fixed"].append(
             {
                 "train_T": int(train_T),
                 "overall": overall,
-                "by_eval_T": by_val_T,
+                "by_eval_T": summarize_by_eval_T(records_for_train_T, val_Ts),
             }
         )
 
@@ -136,22 +157,10 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
         record for record in evaluation_records if record["model_type"] == "adaptive"
     ]
     adaptive_overall = median_ci90(record["mse"] for record in adaptive_records)
-    by_val_T = []
-    for val_T in val_Ts:
-        values = [
-            record["mse"] for record in adaptive_records if record["val_T"] == val_T
-        ]
-        val_summary = median_ci90(values)
-        by_val_T.append(
-            {
-                "eval_T": int(val_T),
-                **val_summary,
-            }
-        )
 
-        summary["adaptive"] = {
-            "overall": adaptive_overall,
-            "by_eval_T": by_val_T,
-        }
+    summary["adaptive"] = {
+        "overall": adaptive_overall,
+        "by_eval_T": summarize_by_eval_T(adaptive_records, val_Ts),
+    }
 
     return summary
