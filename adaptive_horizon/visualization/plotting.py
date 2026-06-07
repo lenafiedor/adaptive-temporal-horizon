@@ -476,10 +476,9 @@ def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp):
         label="Best fixed MSE - adaptive MSE",
     )
     ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
-    ax.set_xlabel("Validation horizon time")
+    ax.set_xlabel("Validation horizon ($/tau /cdot dt$)")
     ax.set_ylabel("Paired MSE delta")
     ax.set_title("Compute-budget horizon search: paired validation deltas")
-    ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
 

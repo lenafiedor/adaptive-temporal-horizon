@@ -219,7 +219,8 @@ def compute_budget_comparison(
         if max_train_T is None:
             max_train_T = int(config.MAX_TRAIN_T)
         if max_eval_T is None:
-            max_eval_T = int(config.MAX_EVAL_T)
+            max_eval_T = min(max_train_T, config.MAX_EVAL_T)
+
         fixed_dir, adaptive_dir = train_compute_budget_models(
             dt=dt,
             max_train_T=max_train_T,
@@ -231,7 +232,7 @@ def compute_budget_comparison(
         )
 
     val_Ts = list(range(1, max_eval_T + 1))
-    model_paths = get_model_paths(val_Ts, fixed_dir)
+    fixed_paths = get_model_paths(val_Ts, fixed_dir)
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(adaptive_dir), CURRICULUM_HORIZON
     )
@@ -242,7 +243,7 @@ def compute_budget_comparison(
 
     print(f"Cross-validating T values: {val_Ts}")
     records = cross_validate_models(
-        model_paths=model_paths,
+        fixed_paths=fixed_paths,
         adaptive_paths=adaptive_paths,
         T_values=val_Ts,
         dt=dt,

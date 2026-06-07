@@ -138,7 +138,7 @@ def eval_loader_cache_key(normalization_stats, history_window):
 
 
 def cross_validate_models(
-    model_paths,
+    fixed_paths,
     adaptive_paths,
     T_values=None,
     dt=config.DT,
@@ -148,7 +148,7 @@ def cross_validate_models(
     Evaluate models across different validation horizons.
 
     Args:
-        model_paths: dict of {train_T: [list of model paths]}
+        fixed_paths: dict of {train_T: [list of model paths]}
         adaptive_paths: list of adaptive model paths
         T_values: list of horizon values
         dt: time step for simulation
@@ -173,7 +173,7 @@ def cross_validate_models(
 
     for T in T_values:
         print(f"\nEvaluating models for T={T}")
-        for model_path in model_paths[T]:
+        for model_path in fixed_paths[T]:
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
@@ -231,11 +231,10 @@ def cross_validate_models(
 def compute_statistics(evaluation_records, T_values):
     """
     Compute mean and std for each (train_T, val_T) combination.
-    If only one model, std is 0.
 
     Returns:
-        stats: dict of {train_T: {val_T: (mean, std)}}
-        adaptive_stats: dict of {val_T: (mean, std)}
+        mean_fixed_mse: dict of {train_T: mean_mse}
+        mean_adaptive_mse: mean_mse for adaptive models
     """
     stats = {T: {} for T in T_values}
 
@@ -264,7 +263,20 @@ def compute_statistics(evaluation_records, T_values):
         if len(values) > 0:
             adaptive_stats[val_T] = (float(np.mean(values)), float(np.std(values)))
 
-    return stats, adaptive_stats
+    mean_fixed_mse = {
+        train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
+        for train_T in T_values
+    }
+    best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
+    mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
+
+    print(
+        f"Best train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
+    )
+    if adaptive_stats:
+        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
+
+    return best_train_T, mean_fixed_mse, mean_adaptive_mse
 
 
 def save_cross_validation_results(
@@ -393,106 +405,55 @@ def cross_validation(
         adaptive_paths = filter_adaptive_paths(
             get_adaptive_paths(model_dir), adaptive_method
         )
-        print(f"Using cached fixed cross-validation results: {results_file}")
-        print(f"Using model directory for adaptive models: {model_dir}")
-        print(f"T values: {T_values}")
 
         adaptive_records = cross_validate_models(
             {T: [] for T in T_values}, adaptive_paths, T_values, dt, device
         )
         evaluation_records = fixed_records + adaptive_records
 
-        stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
-        mean_fixed_mse = {
-            train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
-            for train_T in T_values
-        }
-        best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
-        mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
-
-        print(
-            f"Best cached train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
-        )
-        if adaptive_stats:
-            print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
-
-        save_cross_validation_results(
-            evaluation_records,
-            T_values,
-            best_train_T,
-            mean_fixed_mse[best_train_T],
-            mean_adaptive_mse,
-            dt,
-            model_dir,
-            fixed_dir=f"cached:{results_file}",
-            save_dir=save_dir,
-        )
-        plot_mse(
-            T_values,
-            evaluation_records,
-            save_dir,
-            dt,
-            summary_mode=plot_summary_mode,
-        )
-        return
-
-    if fixed_dir is None:
-        fixed_dir = model_dir
     else:
-        fixed_dir = Path(fixed_dir)
+        if fixed_dir is None:
+            fixed_dir = model_dir
+        else:
+            fixed_dir = Path(fixed_dir)
+        if not fixed_dir.exists():
+            raise FileNotFoundError(f"Fixed model directory not found: {fixed_dir}")
 
-    if not fixed_dir.exists():
-        raise FileNotFoundError(f"Fixed model directory not found: {fixed_dir}")
+        dt = get_dt_from_model_dir(model_dir)
 
-    dt = get_dt_from_model_dir(model_dir)
-
-    print(f"Using model directory for adaptive models: {model_dir}")
-    print(f"Using fixed model directory: {fixed_dir}")
-
-    T_values = get_T_values(fixed_dir)
-    if not T_values:
-        print(f"No fixed models found to evaluate in {fixed_dir}")
-        return
-
-    if max_T is not None:
-        T_values = [T for T in T_values if T <= max_T]
+        T_values = get_T_values(fixed_dir)
         if not T_values:
-            print(f"No models found with T <= {max_T}")
+            print(f"No fixed models found to evaluate in {fixed_dir}")
             return
 
-    model_paths = get_model_paths(T_values, fixed_dir)
-    adaptive_paths = filter_adaptive_paths(
-        get_adaptive_paths(model_dir), adaptive_method
-    )
-    print(f"T values: {T_values}")
+        if max_T is not None:
+            T_values = [T for T in T_values if T <= max_T]
+            if not T_values:
+                print(f"No models found with T <= {max_T}")
+                return
 
-    evaluation_records = cross_validate_models(
-        model_paths, adaptive_paths, T_values, dt, device
-    )
-    stats, adaptive_stats = compute_statistics(evaluation_records, T_values)
+        fixed_paths = get_model_paths(T_values, fixed_dir)
+        adaptive_paths = filter_adaptive_paths(
+            get_adaptive_paths(model_dir), adaptive_method
+        )
 
-    mean_fixed_mse = {
-        train_T: np.mean([stats[train_T][val_T][0] for val_T in T_values])
-        for train_T in T_values
-    }
-    best_train_T = min(mean_fixed_mse, key=mean_fixed_mse.get)
-    mean_adaptive_mse = np.mean([stats[0] for stats in adaptive_stats.values()])
+        evaluation_records = cross_validate_models(
+            fixed_paths, adaptive_paths, T_values, dt, device
+        )
 
-    print(
-        f"Best train_T: {best_train_T} with mean MSE {mean_fixed_mse[best_train_T]:.6f}"
+    best_T, mean_fixed_mse, mean_adaptive_mse = compute_statistics(
+        evaluation_records, T_values
     )
-    if adaptive_stats:
-        print(f"Mean MSE for adaptive models: {mean_adaptive_mse:.6f}")
 
     save_cross_validation_results(
         evaluation_records,
         T_values,
-        best_train_T,
-        mean_fixed_mse[best_train_T],
+        best_T,
+        mean_fixed_mse[best_T],
         mean_adaptive_mse,
         dt,
         model_dir,
-        fixed_dir=fixed_dir,
+        fixed_dir=f"cached:{results_file}" if cached else fixed_dir,
         save_dir=save_dir,
     )
     plot_mse(
