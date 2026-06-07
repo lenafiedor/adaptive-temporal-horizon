@@ -257,7 +257,6 @@ def cross_validation(
     fixed_dir=None,
     max_T=None,
     adaptive_method=None,
-    plot_summary_mode="mean-std",
     cached=None,
     save_dir=config.EVAL_DIR,
     device=config.DEVICE,
@@ -350,13 +349,7 @@ def cross_validation(
         fixed_dir=f"cached:{results_file}" if cached else fixed_dir,
         save_dir=save_dir,
     )
-    plot_mse(
-        T_values,
-        evaluation_records,
-        save_dir,
-        dt,
-        summary_mode=plot_summary_mode,
-    )
+    plot_mse(summary, save_dir, dt)
 
 
 def main():
@@ -396,13 +389,6 @@ def main():
         default=None,
         help="Reuse fixed-model records from cached cross-validation results and evaluate adaptive models from --model-dir",
     )
-    plot_group = parser.add_mutually_exclusive_group()
-    plot_group.add_argument(
-        "--plot",
-        choices=["mean-std", "mean-ci", "median-iqr"],
-        default="mean-ci",
-        help="Plot fixed-horizon mean / median MSE with 95%% confidence intervals / interquartile ranges",
-    )
     args = parser.parse_args()
 
     cross_validation(
@@ -410,7 +396,6 @@ def main():
         fixed_dir=args.fixed_dir,
         max_T=args.max_T,
         adaptive_method=args.adaptive_method,
-        plot_summary_mode=args.plot,
         cached=args.cached,
     )
 

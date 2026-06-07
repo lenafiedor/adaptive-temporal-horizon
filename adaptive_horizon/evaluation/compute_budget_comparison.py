@@ -54,11 +54,10 @@ def train_compute_budget_models(
     n_seeds,
     device,
     batch_size,
-    timestamp,
 ):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_root = (
-        config.MODEL_DIR
-        / f"compute_budget_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+        config.MODEL_DIR / f"budget_based_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
     )
     fixed_dir = model_root / "fixed"
     adaptive_dir = model_root / "adaptive"
@@ -104,8 +103,6 @@ def compute_budget_comparison(
     save_dir=config.EVAL_DIR,
     cached=None,
 ):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     if cached is not None:
         model_root = Path(cached)
         if not model_root.exists():
@@ -142,7 +139,6 @@ def compute_budget_comparison(
             n_seeds=n_seeds,
             device=device,
             batch_size=batch_size,
-            timestamp=timestamp,
         )
 
     val_Ts = list(range(1, max_eval_T + 1))
@@ -167,7 +163,7 @@ def compute_budget_comparison(
     results_path = save_cross_validation_results(
         records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir
     )
-    plot_mse(val_Ts, records, save_dir, dt, summary_mode="mean-ci")
+    plot_mse(summary, save_dir, dt)
 
     return results_path
 

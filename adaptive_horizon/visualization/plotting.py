@@ -4,7 +4,6 @@ import torch
 from datetime import datetime
 from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
-from numpy.typing import NDArray
 
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
@@ -113,7 +112,6 @@ def plot_g_T(
     save_dir=EVAL_DIR,
     train_T=None,
     adaptive=False,
-    summary_mode="median-ci",
     dt=DT,
 ):
     Ts = list(g_values.keys())
@@ -139,7 +137,7 @@ def plot_g_T(
 
         for T in Ts:
             center, lower_error, upper_error, summary_label = summarize_values(
-                g_values[T], summary_mode
+                g_values[T]
             )
             centers.append(center)
             lower_errors.append(lower_error)
@@ -327,113 +325,70 @@ def save_gradient_history(
     return save_path
 
 
-def summarize_values(values, summary_mode):
-    values_array: NDArray[np.float64] = np.asarray(values, dtype=np.float64)
-    if len(values_array) == 0:
-        raise ValueError("Cannot summarize empty values")
-
-    if summary_mode == "mean-std":
-        center = float(values_array.mean())
-        spread = float(values_array.std())
-        return center, spread, spread, "mean +/- std"
-
-    if summary_mode == "mean-ci":
-        center = float(values_array.mean())
-        half_width = 1.96 * (float(values_array.std()) / np.sqrt(len(values_array)))
-        return center, half_width, half_width, "mean +/- 95% CI"
-
-    if summary_mode == "median-iqr":
-        q1, median, q3 = np.percentile(values_array, [25, 50, 75])
-        return float(median), float(median - q1), float(q3 - median), "median with IQR"
-
-    if summary_mode == "median-ci":
-        median = float(np.median(values_array))
-        half_width = 1.96 * (float(np.std(values_array)) / np.sqrt(len(values_array)))
-        return median, half_width, half_width, "median +/- 95% CI"
-
-    raise ValueError(f"Unsupported summary mode: {summary_mode}")
+def summarize_values(values):
+    median = float(np.median(values))
+    half_width = 1.96 * (float(np.std(values)) / np.sqrt(len(values)))
+    return median, half_width, half_width, "median +/- 95% CI"
 
 
-def plot_mse(
-    T_values,
-    evaluation_records,
-    save_dir,
-    dt,
-    summary_mode="mean-std",
-):
+def plot_mse(summary, save_dir, dt):
     """
     Plot MSE summaries for each validation T as separate lines.
 
     Args:
-        T_values: list of T values
-        evaluation_records: list of per-model, per-validation-horizon records
+        summary: output from summarize_cross_validation
         save_dir: directory to save plot
         dt: simulation time step
-        summary_mode: one of mean-std, mean-ci, median-iqr
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    fixed_summaries = summary["fixed"]
+    train_Ts = [train_summary["train_T"] for train_summary in fixed_summaries]
+    eval_summaries = fixed_summaries[0]["by_eval_T"]
+
     fig, ax = plt.subplots(figsize=(12, 8))
     cmap = plt.cm.tab20
-    colors = [cmap(i / len(T_values)) for i in range(len(T_values))]
-    train_times = [train_T * dt for train_T in T_values]
-    summary_label = None
+    colors = [cmap(i / len(eval_summaries)) for i in range(len(eval_summaries))]
+    train_times = [train_T * dt for train_T in train_Ts]
 
-    for i, val_T in enumerate(T_values):
-        centers = []
-        lower_errors = []
-        upper_errors = []
-        val_time = val_T * dt
-
-        for train_T in T_values:
-            values = [
-                record["mse"]
-                for record in evaluation_records
-                if record["train_T"] == train_T and record["val_T"] == val_T
-            ]
-            center, lower_error, upper_error, summary_label = summarize_values(
-                values, summary_mode
-            )
-            centers.append(center)
-            lower_errors.append(lower_error)
-            upper_errors.append(upper_error)
+    for i, val_summary in enumerate(eval_summaries):
+        fixed_by_train_T = [
+            train_summary["by_eval_T"][i] for train_summary in fixed_summaries
+        ]
+        centers = [mse_summary["median_mse"] for mse_summary in fixed_by_train_T]
+        lower_errors = [
+            mse_summary["median_mse"] - mse_summary["ci95_low"]
+            for mse_summary in fixed_by_train_T
+        ]
+        upper_errors = [
+            mse_summary["ci95_high"] - mse_summary["median_mse"]
+            for mse_summary in fixed_by_train_T
+        ]
 
         ax.errorbar(
             train_times,
             centers,
             yerr=np.array([lower_errors, upper_errors]),
             color=colors[i],
-            label=f"$t_L={val_time:.2f}$",
+            label=f"$t_L={val_summary['eval_T'] * dt:.2f}$",
             linewidth=1.5,
             marker=".",
             markersize=6,
             capsize=3,
         )
 
-        adaptive_values = [
-            record["mse"]
-            for record in evaluation_records
-            if record["model_type"] == "adaptive" and record["val_T"] == val_T
-        ]
-        if adaptive_values:
-            adaptive_center, _, _, _ = summarize_values(adaptive_values, summary_mode)
-            ax.axhline(
-                y=adaptive_center,
-                color=colors[i],
-                linestyle="--",
-                linewidth=1.0,
-                alpha=0.7,
-            )
-
-    has_adaptive = any(
-        record["model_type"] == "adaptive" for record in evaluation_records
-    )
+        ax.axhline(
+            y=summary["adaptive"]["by_eval_T"][i]["median_mse"],
+            color=colors[i],
+            linestyle="--",
+            linewidth=1.0,
+            alpha=0.7,
+        )
 
     ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
-    ax.set_ylabel(f"Validation MSE ({summary_label})")
-    suffix = " (dashed = adaptive model)" if has_adaptive else ""
-    ax.set_title("Cross-Validation MSE" + suffix)
+    ax.set_ylabel("Validation MSE (median +/- 95% CI)")
+    ax.set_title("Cross-Validation MSE (dashed = adaptive model)")
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.grid(True, alpha=0.3)

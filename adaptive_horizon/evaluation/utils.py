@@ -85,14 +85,14 @@ def save_cross_validation_results(
     return results_file
 
 
-def median_ci90(values):
+def median_ci95(values):
     values = [float(value) for value in values]
     median_value = float(median(values))
-    margin = float(1.645 * stdev(values) / sqrt(len(values)))
+    margin = float(1.96 * stdev(values) / sqrt(len(values)))
     return {
         "median_mse": median_value,
-        "ci90_low": median_value - margin,
-        "ci90_high": median_value + margin,
+        "ci95_low": median_value - margin,
+        "ci95_high": median_value + margin,
     }
 
 
@@ -123,7 +123,7 @@ def summarize_by_eval_T(records, val_Ts):
     by_val_T = []
     for val_T in val_Ts:
         values = [record["mse"] for record in records if record["val_T"] == val_T]
-        val_summary = median_ci90(values)
+        val_summary = median_ci95(values)
         by_val_T.append(
             {
                 "eval_T": int(val_T),
@@ -143,7 +143,7 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
             for record in evaluation_records
             if record["model_type"] == "fixed" and record["train_T"] == train_T
         ]
-        overall = median_ci90(record["mse"] for record in records_for_train_T)
+        overall = median_ci95(record["mse"] for record in records_for_train_T)
 
         summary["fixed"].append(
             {
@@ -156,7 +156,7 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
     adaptive_records = [
         record for record in evaluation_records if record["model_type"] == "adaptive"
     ]
-    adaptive_overall = median_ci90(record["mse"] for record in adaptive_records)
+    adaptive_overall = median_ci95(record["mse"] for record in adaptive_records)
 
     summary["adaptive"] = {
         "overall": adaptive_overall,
