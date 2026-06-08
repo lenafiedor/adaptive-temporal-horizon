@@ -120,9 +120,9 @@ def eval_loader_cache_key(normalization_stats, history_window):
 def cross_validate_models(
     fixed_paths,
     adaptive_paths,
-    T_values=None,
     dt=config.DT,
     device=config.DEVICE,
+    val_Ts=None,
 ):
     """
     Evaluate models across different validation horizons.
@@ -130,13 +130,14 @@ def cross_validate_models(
     Args:
         fixed_paths: dict of {train_T: [list of model paths]}
         adaptive_paths: list of adaptive model paths
-        T_values: list of horizon values
         dt: time step for simulation
         device: CPU or GPU
+        val_Ts: list of validation horizon values
 
     Returns:
         evaluation_records: list of per-model, per-validation-horizon MSE records.
     """
+    train_Ts = list(fixed_paths.keys())
     eval_loaders = {}
 
     def get_eval_loader(checkpoint):
@@ -145,27 +146,27 @@ def cross_validate_models(
         key = eval_loader_cache_key(normalization_stats, history_window)
         if key not in eval_loaders:
             eval_loaders[key] = make_eval_loader(
-                max(T_values), dt, normalization_stats, history_window
+                max(val_Ts), dt, normalization_stats, history_window
             )
         return eval_loaders[key]
 
     evaluation_records = []
 
-    for T in T_values:
-        print(f"\nEvaluating models for T={T}")
-        for model_path in fixed_paths[T]:
+    for train_T in train_Ts:
+        print(f"\nEvaluating fixed models trained with T={train_T}")
+        for model_path in fixed_paths.get(train_T):
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
             model_records = []
 
-            for val_T in T_values:
+            for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "fixed",
                     "seed": seed,
-                    "train_T": T,
+                    "train_T": train_T,
                     "val_T": val_T,
                     "mse": mse,
                     "model_file": model_path.name,
@@ -187,7 +188,7 @@ def cross_validate_models(
             method = get_adaptive_method(checkpoint)
             model_records = []
 
-            for val_T in T_values:
+            for val_T in val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
@@ -277,24 +278,19 @@ def cross_validation(
                 f"cached dt={dt}, model-dir dt={model_dir_dt}"
             )
 
-        T_values = list(range(1, int(metadata["T_max"]) + 1))
+        train_Ts = list(range(1, int(metadata["T_max"]) + 1))
         if max_T is not None:
-            T_values = [T for T in T_values if T <= max_T]
-            if not T_values:
+            train_Ts = [T for T in train_Ts if T <= max_T]
+            if not train_Ts:
                 print(f"No cached fixed records found with T <= {max_T}")
                 return
 
-        fixed_records = cached_fixed_records(payload, T_values)
-        if not fixed_records:
-            print("No fixed records found in cached cross-validation results")
-            return
-
+        fixed_records = cached_fixed_records(payload, train_Ts)
         adaptive_paths = filter_adaptive_paths(
             get_adaptive_paths(model_dir), adaptive_method
         )
-
         adaptive_records = cross_validate_models(
-            {T: [] for T in T_values}, adaptive_paths, T_values, dt, device
+            {T: [] for T in train_Ts}, adaptive_paths, dt, device, train_Ts
         )
         evaluation_records = fixed_records + adaptive_records
 
@@ -308,27 +304,24 @@ def cross_validation(
 
         dt = get_dt_from_model_dir(model_dir)
 
-        T_values = get_T_values(fixed_dir)
-        if not T_values:
+        train_Ts = get_T_values(fixed_dir)
+        if not train_Ts:
             print(f"No fixed models found to evaluate in {fixed_dir}")
             return
 
         if max_T is not None:
-            T_values = [T for T in T_values if T <= max_T]
-            if not T_values:
-                print(f"No models found with T <= {max_T}")
-                return
+            train_Ts = [T for T in train_Ts if T <= max_T]
 
-        fixed_paths = get_model_paths(T_values, fixed_dir)
+        fixed_paths = get_model_paths(train_Ts, fixed_dir)
         adaptive_paths = filter_adaptive_paths(
             get_adaptive_paths(model_dir), adaptive_method
         )
 
         evaluation_records = cross_validate_models(
-            fixed_paths, adaptive_paths, T_values, dt, device
+            fixed_paths, adaptive_paths, dt, device, train_Ts
         )
 
-    summary = summarize_cross_validation(evaluation_records, T_values, T_values)
+    summary = summarize_cross_validation(evaluation_records, train_Ts, train_Ts)
 
     save_cross_validation_results(
         evaluation_records,

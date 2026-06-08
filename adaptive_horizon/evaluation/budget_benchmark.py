@@ -85,18 +85,18 @@ def compute_budget_comparison(
             max_train_T = max(available_train_Ts)
         else:
             max_train_T = min(max_train_T, max(available_train_Ts))
+        train_Ts = [T for T in available_train_Ts if T <= max_train_T]
 
         if max_eval_T is None:
-            max_eval_T = max_train_T
-        else:
-            max_eval_T = min(max_eval_T, max_train_T)
+            max_eval_T = int(config.MAX_EVAL_T)
 
         print(f"Using cached models from: {model_root}")
     else:
         if max_train_T is None:
             max_train_T = int(config.MAX_TRAIN_T)
         if max_eval_T is None:
-            max_eval_T = min(max_train_T, config.MAX_EVAL_T)
+            max_eval_T = int(config.MAX_EVAL_T)
+        train_Ts = list(range(1, max_train_T + 1))
 
         fixed_dir, adaptive_dir = train_compute_budget_models(
             dt=dt,
@@ -109,7 +109,7 @@ def compute_budget_comparison(
         )
 
     val_Ts = list(range(1, max_eval_T + 1))
-    fixed_paths = get_model_paths(val_Ts, fixed_dir)
+    fixed_paths = get_model_paths(train_Ts, fixed_dir)
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(adaptive_dir), CURRICULUM_HORIZON
     )
@@ -118,15 +118,16 @@ def compute_budget_comparison(
             f"No curriculum-horizon adaptive models found in {adaptive_dir}"
         )
 
-    print(f"Cross-validating T values: {val_Ts}")
+    print(f"\nCross-validating train T values: {train_Ts}")
+    print(f"Cross-validating eval T values: {val_Ts}\n")
     records = cross_validate_models(
         fixed_paths=fixed_paths,
         adaptive_paths=adaptive_paths,
-        T_values=val_Ts,
         dt=dt,
         device=device,
+        val_Ts=val_Ts,
     )
-    summary = summarize_cross_validation(records, val_Ts, val_Ts)
+    summary = summarize_cross_validation(records, train_Ts, val_Ts)
     results_path = save_cross_validation_results(
         records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir
     )
@@ -147,7 +148,7 @@ def main():
     parser.add_argument(
         "--max-eval-T",
         type=int,
-        default=None,
+        default=config.MAX_EVAL_T,
         help="Maximum validation horizon for the cross-validation",
     )
     parser.add_argument("--epochs-per-T", type=int, default=20)
@@ -172,7 +173,7 @@ def main():
     print(
         f"max_train_T: {args.max_train_T if args.max_train_T is not None else 'auto'}"
     )
-    print(f"max_eval_T: {args.max_eval_T if args.max_eval_T is not None else 'auto'}")
+    print(f"max_eval_T: {args.max_eval_T}")
     print(f"epochs_per_T: {args.epochs_per_T}")
     print(f"n_seeds: {args.n_seeds}\n")
 

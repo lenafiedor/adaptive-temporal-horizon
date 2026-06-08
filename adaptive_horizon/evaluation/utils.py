@@ -93,7 +93,7 @@ def save_cross_validation_results(
     with open(save_dir / LAST_RUN_FILE, "w") as f:
         f.write(str(results_file))
 
-    print(f"Cross-validation results saved to {results_file}")
+    print(f"\nCross-validation results saved to {results_file}")
     return results_file
 
 
