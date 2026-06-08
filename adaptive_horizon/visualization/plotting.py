@@ -359,13 +359,13 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         fixed_by_train_T = [
             train_summary["by_eval_T"][i] for train_summary in fixed_summaries
         ]
-        centers = [mse_summary["median_mse"] for mse_summary in fixed_by_train_T]
+        centers = [mse_summary["median"] for mse_summary in fixed_by_train_T]
         lower_errors = [
-            mse_summary["median_mse"] - mse_summary["ci95_low"]
+            mse_summary["median"] - mse_summary["ci95_low"]
             for mse_summary in fixed_by_train_T
         ]
         upper_errors = [
-            mse_summary["ci95_high"] - mse_summary["median_mse"]
+            mse_summary["ci95_high"] - mse_summary["median"]
             for mse_summary in fixed_by_train_T
         ]
 
@@ -382,7 +382,7 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         )
 
         ax.axhline(
-            y=summary["adaptive"]["by_eval_T"][i]["median_mse"],
+            y=summary["adaptive"]["by_eval_T"][i]["median"],
             color=colors[i],
             linestyle="--",
             linewidth=1.0,
@@ -413,7 +413,7 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
     print(f"Cross-validation MSE plot saved to {save_path}")
 
 
-def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp):
+def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp, max_train_T):
     save_dir.mkdir(parents=True, exist_ok=True)
     x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
     means = np.asarray(
@@ -437,13 +437,15 @@ def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp):
         label="Best fixed MSE - adaptive MSE",
     )
     ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
-    ax.set_xlabel("Validation horizon ($/tau /cdot dt$)")
+    ax.set_xlabel(r"Validation horizon ($\tau \cdot dt$)")
     ax.set_ylabel("Paired MSE delta")
-    ax.set_title("Compute-budget horizon search: paired validation deltas")
+    ax.set_title("Budget-based horizon search: validation deltas")
     ax.legend()
     plt.tight_layout()
 
-    plot_path = save_dir / f"compute_budget_deltas_dt_{format_dt(dt)}_{timestamp}.png"
+    plot_path = (
+        save_dir / f"budget_deltas_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    )
     plt.savefig(plot_path, dpi=150)
     plt.close()
     print(f"Paired delta plot saved to {plot_path}")

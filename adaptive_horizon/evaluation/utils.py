@@ -170,20 +170,18 @@ def summarize_metadata(summary):
     fixed_summaries = summary.get("fixed", [])
     best_fixed = min(
         fixed_summaries,
-        key=lambda train_summary: train_summary["overall"]["median_mse"],
+        key=lambda train_summary: train_summary["overall"]["median"],
         default=None,
     )
     metadata = {}
     if best_fixed is not None:
         metadata["best_train_T"] = best_fixed["train_T"]
-        metadata["best_fixed_median_MSE"] = round(
-            best_fixed["overall"]["median_mse"], 6
-        )
+        metadata["best_fixed_median_MSE"] = round(best_fixed["overall"]["median"], 6)
 
     adaptive_summary = summary.get("adaptive")
     if adaptive_summary is not None:
         metadata["adaptive_median_MSE"] = round(
-            adaptive_summary["overall"]["median_mse"], 6
+            adaptive_summary["overall"]["median"], 6
         )
 
     return metadata

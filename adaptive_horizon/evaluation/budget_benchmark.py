@@ -19,7 +19,7 @@ from adaptive_horizon.evaluation.utils import (
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.visualization.plotting import plot_mse
+from adaptive_horizon.visualization.plotting import plot_mse, plot_paired_deltas
 
 
 def train_compute_budget_models(
@@ -164,6 +164,14 @@ def compute_budget_comparison(
         budget_based=True,
     )
     plot_mse(summary, save_dir, dt, max_train_T, budget_based=True)
+    plot_paired_deltas(
+        summary["deltas"],
+        val_Ts,
+        dt,
+        Path(save_dir),
+        datetime.now().strftime("%Y%m%d_%H%M%S"),
+        max_train_T,
+    )
 
     return results_path
 
