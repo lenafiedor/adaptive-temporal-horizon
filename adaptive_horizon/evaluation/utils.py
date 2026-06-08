@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import json
+import re
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
@@ -12,6 +13,17 @@ from adaptive_horizon.utils import format_dt
 import adaptive_horizon.config as config
 
 LAST_RUN_FILE = "last_run.txt"
+
+
+def get_dt_from_model_dir(model_dir: Path):
+    match = re.search(r"dt_(\d+)_.+$", model_dir.name)
+    if not match:
+        raise ValueError(
+            "Could not infer dt from model directory name. "
+            f"Expected format 'dt_{{dt}}_{{timestamp}}', got: {model_dir.name}"
+        )
+    digits = match.group(1)
+    return float(digits) / (10 ** len(digits))
 
 
 def get_last_run(save_dir):

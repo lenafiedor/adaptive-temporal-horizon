@@ -1,8 +1,6 @@
 import argparse
 from datetime import datetime
-from math import sqrt
 from pathlib import Path
-from statistics import mean, median, stdev
 import torch
 
 import adaptive_horizon.config as config
@@ -14,9 +12,9 @@ from adaptive_horizon.evaluation.cross_validation import (
     get_T_values,
 )
 from adaptive_horizon.evaluation.utils import (
-    load_model,
     save_cross_validation_results,
     summarize_cross_validation,
+    get_dt_from_model_dir,
 )
 from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 from adaptive_horizon.training.train import train_adaptive_models, train_fixed_models
@@ -24,36 +22,8 @@ from adaptive_horizon.utils import format_dt
 from adaptive_horizon.visualization.plotting import plot_mse
 
 
-def infer_dt_from_models(model_dir: Path, fallback_dt: float):
-    for model_path in sorted(model_dir.rglob("*.pt")):
-        _, checkpoint = load_model(model_path)
-        metadata = checkpoint.get("metadata", {})
-        if "dt" in metadata:
-            return float(metadata["dt"])
-    return float(fallback_dt)
-
-
-def confidence_summary(values):
-    values = [float(value) for value in values]
-    mean_value = float(mean(values))
-    std_value = float(stdev(values))
-    margin = float(1.96 * std_value / sqrt(len(values)))
-    return {
-        "mean": mean_value,
-        "std": std_value,
-        "median": float(median(values)),
-        "ci95_low": mean_value - margin,
-        "ci95_high": mean_value + margin,
-    }
-
-
 def train_compute_budget_models(
-    dt,
-    max_train_T,
-    epochs_per_T,
-    n_seeds,
-    device,
-    batch_size,
+    dt, max_train_T, epochs_per_T, n_seeds, device, batch_size, adaptive_only=False
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_root = (
@@ -62,15 +32,16 @@ def train_compute_budget_models(
     fixed_dir = model_root / "fixed"
     adaptive_dir = model_root / "adaptive"
 
-    train_fixed_models(
-        train_Ts=list(range(1, max_train_T + 1)),
-        n_seeds=n_seeds,
-        epochs=epochs_per_T,
-        device=device,
-        model_save_dir=fixed_dir,
-        dt=dt,
-        batch_size=batch_size,
-    )
+    if not adaptive_only:
+        train_fixed_models(
+            train_Ts=list(range(1, max_train_T + 1)),
+            n_seeds=n_seeds,
+            epochs=epochs_per_T,
+            device=device,
+            model_save_dir=fixed_dir,
+            dt=dt,
+            batch_size=batch_size,
+        )
 
     train_adaptive_models(
         n_seeds=n_seeds,
@@ -86,12 +57,6 @@ def train_compute_budget_models(
     return fixed_dir, adaptive_dir
 
 
-def get_clock_seconds(model_path):
-    _, checkpoint = load_model(model_path)
-    metadata = checkpoint.get("metadata", {})
-    return float(metadata.get("train_wall_clock_seconds", 0.0)), checkpoint
-
-
 def compute_budget_comparison(
     dt,
     epochs_per_T,
@@ -102,6 +67,7 @@ def compute_budget_comparison(
     device=config.DEVICE,
     save_dir=config.EVAL_DIR,
     cached=None,
+    adaptive_only=False,
 ):
     if cached is not None:
         model_root = Path(cached)
@@ -110,7 +76,7 @@ def compute_budget_comparison(
 
         fixed_dir = model_root / "fixed"
         adaptive_dir = model_root / "adaptive"
-        dt = infer_dt_from_models(model_root, dt)
+        dt = get_dt_from_model_dir(model_root)
         available_train_Ts = get_T_values(fixed_dir)
         if not available_train_Ts:
             raise ValueError(f"No fixed-horizon models found in {fixed_dir}")
@@ -139,6 +105,7 @@ def compute_budget_comparison(
             n_seeds=n_seeds,
             device=device,
             batch_size=batch_size,
+            adaptive_only=adaptive_only,
         )
 
     val_Ts = list(range(1, max_eval_T + 1))
@@ -193,6 +160,9 @@ def main():
         default=None,
         help="Skip training and cross-validate an existing model directory",
     )
+    parser.add_argument(
+        "--adaptive-only", action="store_true", help="Train adaptive models only"
+    )
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
@@ -216,6 +186,7 @@ def main():
         device=device,
         save_dir=args.save_dir,
         cached=args.cached,
+        adaptive_only=args.adaptive_only,
     )
 
 

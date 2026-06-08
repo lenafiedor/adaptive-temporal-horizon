@@ -20,18 +20,8 @@ from adaptive_horizon.evaluation.utils import (
     save_cross_validation_results,
     get_last_run,
     summarize_cross_validation,
+    get_dt_from_model_dir,
 )
-
-
-def get_dt_from_model_dir(model_dir: Path):
-    match = re.search(r"dt_(\d+)_.+$", model_dir.name)
-    if not match:
-        raise ValueError(
-            "Could not infer dt from model directory name. "
-            f"Expected format 'dt_{{dt}}_{{timestamp}}', got: {model_dir.name}"
-        )
-    digits = match.group(1)
-    return float(digits) / (10 ** len(digits))
 
 
 def get_T_values(model_dir: Path):

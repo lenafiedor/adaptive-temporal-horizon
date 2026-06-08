@@ -106,7 +106,7 @@ def train(
         debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
     curriculum_T, gradient_scaling_T = 1, 1
-    success_count, failure_count = 0, 0
+    success_count = 0
     gradient_scaling_schedule = []
     gradient_scaling_history = []
     if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
@@ -216,8 +216,8 @@ def train(
             model.zero_grad(set_to_none=True)
             gradient_scaling_T = next_T
         elif adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T, success_count, failure_count = curriculum_horizon(
-                epoch, val_loss, curriculum_T, success_count, failure_count, T
+            current_T, success_count = curriculum_horizon(
+                epoch, epochs, val_loss, curriculum_T, success_count, T
             )
             if current_T != curriculum_T:
                 print(

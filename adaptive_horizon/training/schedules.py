@@ -5,34 +5,28 @@ import adaptive_horizon.config as config
 
 def curriculum_horizon(
     epoch: int,
+    num_epochs: int,
     val_loss: float,
     current_T: int,
     success_count: int,
-    failure_count: int,
     T_max: int = config.MAX_TRAIN_T,
     loss_threshold: float = 0.01,
-    warmup_epochs: int = 20,
-    patience: int = 3,
-) -> tuple[int, int, int]:
-    if epoch < warmup_epochs:
-        return current_T, 0, 0
+    patience: int = 4,
+) -> tuple[int, int]:
+    if epoch < int(num_epochs / 10):
+        return current_T, 0
 
     if val_loss <= loss_threshold:
         success_count += 1
-        failure_count = 0
     elif val_loss >= loss_threshold * 5:
         success_count = 0
-        failure_count += 1
     else:
         success_count = 0
-        failure_count = 0
 
     if success_count >= patience and current_T < T_max:
-        return current_T + 1, 0, 0
-    elif failure_count >= patience and current_T > 1:
-        return current_T - 1, 0, 0
+        return current_T + 1, 0
 
-    return current_T, success_count, failure_count
+    return current_T, success_count
 
 
 def summarize_gradient_scaling(g_values):
