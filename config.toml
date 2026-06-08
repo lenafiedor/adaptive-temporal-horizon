@@ -28,10 +28,6 @@ weight_floor = 0.05
 anchor_alpha = 0.25
 ftle_window = 5
 
-[gradient-scaling]
-gradient_scaling_median_threshold = 10.0
-gradient_scaling_p90_threshold = 50.0
-
 [curriculum-horizon]
 curriculum_loss_threshold = 0.01
 curriculum_update_frequency = 10

@@ -4,12 +4,9 @@ ADAPTIVE_METHODS = {
     "adaptive-horizon": "ah",
     "weighted-loss": "wl",
     "curriculum-horizon": "ch",
-    "gradient-scaling-horizon": "gs",
 }
 
-ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON = (
-    ADAPTIVE_METHODS.keys()
-)
+ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON = ADAPTIVE_METHODS.keys()
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
 

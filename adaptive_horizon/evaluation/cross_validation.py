@@ -5,12 +5,7 @@ import re
 import numpy as np
 from pathlib import Path
 
-from adaptive_horizon.training.methods import (
-    ADAPTIVE_HORIZON,
-    CURRICULUM_HORIZON,
-    GRADIENT_SCALING_HORIZON,
-    WEIGHTED_LOSS,
-)
+from adaptive_horizon.training.methods import ADAPTIVE_METHOD_CHOICES
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -405,12 +400,7 @@ def main():
     )
     parser.add_argument(
         "--adaptive-method",
-        choices=[
-            ADAPTIVE_HORIZON,
-            WEIGHTED_LOSS,
-            CURRICULUM_HORIZON,
-            GRADIENT_SCALING_HORIZON,
-        ],
+        choices=ADAPTIVE_METHOD_CHOICES,
         default=None,
         help="Evaluate only adaptive models trained with the selected method",
     )

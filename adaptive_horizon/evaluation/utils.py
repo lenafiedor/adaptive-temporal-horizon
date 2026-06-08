@@ -107,8 +107,8 @@ def calculate_stats(values):
     median_value = float(median(values))
     margin = float(1.96 * stdev(values) / sqrt(len(values)))
     return {
-        "mean_mse": float(mean(values)),
-        "median_mse": median_value,
+        "mean": float(mean(values)),
+        "median": median_value,
         "ci95_low": median_value - margin,
         "ci95_high": median_value + margin,
     }

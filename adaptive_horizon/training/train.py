@@ -24,7 +24,6 @@ from adaptive_horizon.training.methods import (
     ADAPTIVE_HORIZON,
     ADAPTIVE_METHOD_CHOICES,
     CURRICULUM_HORIZON,
-    GRADIENT_SCALING_HORIZON,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.run_utils import (
@@ -33,11 +32,7 @@ from adaptive_horizon.training.run_utils import (
     get_train_Ts,
     resolve_dirs,
 )
-from adaptive_horizon.training.schedules import (
-    curriculum_horizon,
-    select_gradient_scaling_horizon,
-    summarize_gradient_scaling,
-)
+from adaptive_horizon.training.schedules import curriculum_horizon
 from adaptive_horizon.training.setup import create_model_and_loaders
 
 
@@ -105,22 +100,12 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
-    curriculum_T, gradient_scaling_T = 1, 1
-    if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
-        probe_loader = DataLoader(
-            train_loader.dataset,
-            batch_size=train_loader.batch_size,
-            shuffle=False,
-            collate_fn=train_loader.collate_fn,
-        )
-        probe_T_vals = list(range(1, T + 1))
+    curriculum_T = 1
 
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
-            current_T = gradient_scaling_T
-        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
+        if adaptive and adaptive_method == CURRICULUM_HORIZON:
             current_T = curriculum_T
         else:
             current_T = T
@@ -148,7 +133,7 @@ def train(
                         lambda_scores,
                         dt=dt,
                     )
-                elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
+                elif adaptive_method == CURRICULUM_HORIZON:
                     loss = batch_loss(
                         model,
                         inputs,
@@ -180,30 +165,14 @@ def train(
             val_loss = lle_weighted_validation_loss(
                 model, val_loader, dt=dt, device=device
             )
-        elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
+        elif adaptive_method == CURRICULUM_HORIZON:
             val_loss = validation_loss(model, val_loader, current_T, device)
         else:
             raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
         val_losses.append(val_loss)
 
-        if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
-            gradients = compute_g_T(
-                model,
-                probe_loader,
-                probe_T_vals,
-                device=device,
-                per_batch=True,
-            )
-            g_summary = summarize_gradient_scaling(gradients)
-            next_T, safe_T = select_gradient_scaling_horizon(
-                current_T=current_T,
-                T_max=T,
-                g_summary=g_summary,
-            )
-            model.zero_grad(set_to_none=True)
-            gradient_scaling_T = next_T
-        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
-            next_T, mean_val_loss = curriculum_horizon(
+        if adaptive and adaptive_method == CURRICULUM_HORIZON:
+            next_T, _mean_val_loss = curriculum_horizon(
                 epoch,
                 val_losses,
                 curriculum_T,
@@ -211,7 +180,7 @@ def train(
             )
             if next_T != curriculum_T:
                 print(
-                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {current_T}"
+                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {next_T}"
                 )
                 curriculum_T = next_T
 
@@ -220,10 +189,7 @@ def train(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            if adaptive and adaptive_method in (
-                CURRICULUM_HORIZON,
-                GRADIENT_SCALING_HORIZON,
-            ):
+            if adaptive and adaptive_method in (CURRICULUM_HORIZON,):
                 message += f", T={current_T}/{T}"
             print(message)
             if debug:
@@ -273,13 +239,7 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            (
-                T
-                if adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON)
-                else None
-                if adaptive
-                else T
-            ),
+            T if adaptive_method == CURRICULUM_HORIZON else None if adaptive else T,
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -292,7 +252,6 @@ def train_single_model(
     if adaptive:
         if adaptive_method in (
             CURRICULUM_HORIZON,
-            GRADIENT_SCALING_HORIZON,
             WEIGHTED_LOSS,
         ):
             T = metadata["adaptive"]["T_max"]
@@ -465,11 +424,7 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=(
-                max_T
-                if adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON)
-                else None
-            ),
+            T=max_T if adaptive_method == CURRICULUM_HORIZON else None,
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -587,7 +542,7 @@ def main():
             dt=args.dt,
             T=(
                 args.max_T
-                if args.adaptive and args.adaptive_method == GRADIENT_SCALING_HORIZON
+                if args.adaptive and args.adaptive_method == CURRICULUM_HORIZON
                 else None
                 if args.adaptive
                 else args.T

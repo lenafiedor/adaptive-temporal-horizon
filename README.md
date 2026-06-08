@@ -56,20 +56,20 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 
 **Args:**
 
-| Name                | Description                                                           | Values                                                                                      | Default value        |
-|---------------------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------|
-| `--epochs` `-e`     | Number of training epochs                                             | int                                                                                         | `config.EPOCHS`      |
-| `--single`          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                               | false                |
-| `-T`                | Training horizon for fixed `--single` mode                            | int                                                                                         | 1                    |
-| `--fixed`, `-f`     | Train only fixed-horizon models                                       | true \| false                                                                               | false                |
-| `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                                                                               | false                |
-| `--adaptive-method` | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` \| `gradient-scaling-horizon` | `adaptive-horizon`   |
-| `--max-T`           | Maximum horizon used in aggregate training                            | int                                                                                         | `config.MAX_TRAIN_T` |
-| `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                                                         | `config.NUM_SEEDS`   |
-| `--dt`              | Time step for the Lorenz simulation                                   | float                                                                                       | `config.DT`          |
-| `--batch-size`      | Batch size for training and validation loaders                        | int                                                                                         | `config.BATCH_SIZE`  |
-| `--append`          | Append missing models to the run referenced by `models/last_run.txt`  | true \| false                                                                               | false                |
-| `--debug`           | Save extra loss and gradient diagnostics                              | true \| false                                                                               | false                |
+| Name                | Description                                                           | Values                                                        | Default value        |
+|---------------------|-----------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
+| `--epochs` `-e`     | Number of training epochs                                             | int                                                           | `config.EPOCHS`      |
+| `--single`          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                 | false                |
+| `-T`                | Training horizon for fixed `--single` mode                            | int                                                           | 1                    |
+| `--fixed`, `-f`     | Train only fixed-horizon models                                       | true \| false                                                 | false                |
+| `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                                                 | false                |
+| `--adaptive-method` | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | `adaptive-horizon`   |
+| `--max-T`           | Maximum horizon used in aggregate training                            | int                                                           | `config.MAX_TRAIN_T` |
+| `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
+| `--dt`              | Time step for the Lorenz simulation                                   | float                                                         | `config.DT`          |
+| `--batch-size`      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
+| `--append`          | Append missing models to the run referenced by `models/last_run.txt`  | true \| false                                                 | false                |
+| `--debug`           | Save extra loss and gradient diagnostics                              | true \| false                                                 | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
@@ -117,13 +117,13 @@ poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_d
 
 **Args:**
 
-| Name                | Description                                                                                                  | Values                                                                                      | Default value                   |
-|---------------------|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|---------------------------------|
-| `--model-dir`       | Directory containing adaptive models, and fixed models unless `--fixed-dir` is set                           | str                                                                                         | Read from `models/last_run.txt` |
-| `--fixed-dir`       | Directory containing fixed-horizon models                                                                    | str                                                                                         | `--model-dir`                   |
-| `--max-T`           | Maximum horizon to evaluate                                                                                  | int                                                                                         | Max fixed T found               |
-| `--adaptive-method` | Evaluate only adaptive models trained with this method                                                       | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` \| `gradient-scaling-horizon` | None                            |
-| `--cached`          | Reuse fixed-model records from a saved cross-validation JSON and evaluate adaptive models from `--model-dir` | str                                                                                         | None                            |
+| Name                | Description                                                                                                  | Values                                                        | Default value                   |
+|---------------------|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
+| `--model-dir`       | Directory containing adaptive models, and fixed models unless `--fixed-dir` is set                           | str                                                           | Read from `models/last_run.txt` |
+| `--fixed-dir`       | Directory containing fixed-horizon models                                                                    | str                                                           | `--model-dir`                   |
+| `--max-T`           | Maximum horizon to evaluate                                                                                  | int                                                           | Max fixed T found               |
+| `--adaptive-method` | Evaluate only adaptive models trained with this method                                                       | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
+| `--cached`          | Reuse fixed-model records from a saved cross-validation JSON and evaluate adaptive models from `--model-dir` | str                                                           | None                            |
 
 Notes:
 - Cross-validation infers `dt` from the model directory name.

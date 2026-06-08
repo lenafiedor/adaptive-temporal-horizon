@@ -40,13 +40,6 @@ WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
 ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
 FTLE_WINDOW = _config["weighted-loss"]["ftle_window"]
 
-GRADIENT_SCALING_MEDIAN_THRESHOLD = _config["gradient-scaling"][
-    "gradient_scaling_median_threshold"
-]
-GRADIENT_SCALING_P90_THRESHOLD = _config["gradient-scaling"][
-    "gradient_scaling_p90_threshold"
-]
-
 CURRICULUM_LOSS_THRESHOLD = _config["curriculum-horizon"]["curriculum_loss_threshold"]
 CURRICULUM_UPDATE_FREQUENCY = _config["curriculum-horizon"][
     "curriculum_update_frequency"

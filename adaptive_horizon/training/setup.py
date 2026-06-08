@@ -13,7 +13,6 @@ from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     ADAPTIVE_HORIZON,
     CURRICULUM_HORIZON,
-    GRADIENT_SCALING_HORIZON,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.utils import time_to_steps
@@ -134,7 +133,7 @@ def create_model_and_loaders(
                 debug=debug,
             )
             collate_function = collate_fn_weighted_loss
-        elif adaptive_method in (CURRICULUM_HORIZON, GRADIENT_SCALING_HORIZON):
+        elif adaptive_method == CURRICULUM_HORIZON:
             if T is None:
                 T = time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
             train_dataset = LorenzDataset(
@@ -167,14 +166,6 @@ def create_model_and_loaders(
             metadata["adaptive"].update(
                 {
                     "T_max": T,
-                }
-            )
-        elif adaptive_method == GRADIENT_SCALING_HORIZON:
-            metadata["adaptive"].update(
-                {
-                    "T_max": T,
-                    "g_median_threshold": config.GRADIENT_SCALING_MEDIAN_THRESHOLD,
-                    "g_p90_threshold": config.GRADIENT_SCALING_P90_THRESHOLD,
                 }
             )
         else:
