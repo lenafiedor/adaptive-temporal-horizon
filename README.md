@@ -41,8 +41,7 @@ poetry run ruff format
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
 
-Train MLPs to learn Lorenz attractor dynamics.
-The script trains fixed-horizon MLPs for `T=1..max_T` and can also train adaptive-horizon models.
+Train MLPs to learn Lorenz attractor dynamics. By default, the command trains both fixed-horizon models for `T=1..max_T` and adaptive models.
 
 ```bash
 poetry run train-mlp                            # Train MLPs with both fixed and adaptive training horizon
@@ -57,107 +56,108 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 
 **Args:**
 
-| Name                | Description                                                           | Values                                | Default value      |
-|---------------------|-----------------------------------------------------------------------|---------------------------------------|--------------------|
-| `--epochs` `-e`     | Number of epochs to train the model                                   | int                                   | 100                |
-| `--single`          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                         | false              |
-| `-T`                | Training horizon for fixed `--single` mode                            | int                                   | 1                  |
-| `--fixed`, `-f`     | Train only fixed-horizon models                                       | true \| false                         | false              |
-| `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                         | false              |
-| `--adaptive-method` | Adaptive training method used with `--adaptive`                       | `adaptive-horizon` \| `weighted-loss` | `adaptive-horizon` |
-| `--max-T`           | Train fixed-horizon models for all `T` from 1 to this value           | int                                   | 10                 |
-| `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                   | 10                 |
-| `--dt`              | Time step for the Lorenz attractor simulation                         | float                                 | 0.08               |
-| `--batch-size`      | Batch size for training and validation loaders                        | int                                   | 64                 |
-| `--optimizer`       | Optimizer to use                                                      | `sgd` \| `adam` \| `adamw`            | adam               |
-| `--append`          | Append outputs to the run stored in `last_run.txt`                    | true \| false                         | false              |
-| `--history-window`  | Number of past trajectory points to use as input                      | int                                   | 5                  |
-| `--ftle-window`     | Forward FTLE window for adaptive lambda scores                        | int                                   | 5                  |
-| `--variance`        | Variance for the T values in adaptive horizon model                   | int                                   | 2                  |
-| `--debug`           | Debug losses and T values to files                                    | true \| false                         | false              |
-
-Additional parameters for `weighted-loss` adaptive method stored in `config.toml`:
-
-| Name            | Description                                                           | Values                                | Default value |
-|-----------------|-----------------------------------------------------------------------|---------------------------------------|---------------|
-| `RHO`           | Predictability budget threshold for adaptive weights                  | float                                 | 1.0           |
-| `TEMPERATURE`   | Sigmoid temperature for adaptive weights                              | float                                 | 0.25          |
-| `WEIGHT_FLOOR`  | Minimum unnormalized adaptive rollout weight                          | float                                 | 0.05          |
-| `ANCHOR_ALPHA`  | One-step anchor fraction in the adaptive loss                         | float                                 | 0.25          |
-
-
-The trained models are saved in the `experiments/lorenz/models/dt_<dt>_<timestamp>` directory by default.
-There should be 110 models by default (10 seeds x (10 horizons + adaptive)) after running the aggregate training script.
+| Name                | Description                                                           | Values                                                                                      | Default value        |
+|---------------------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|----------------------|
+| `--epochs` `-e`     | Number of training epochs                                             | int                                                                                         | `config.EPOCHS`      |
+| `--single`          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                               | false                |
+| `-T`                | Training horizon for fixed `--single` mode                            | int                                                                                         | 1                    |
+| `--fixed`, `-f`     | Train only fixed-horizon models                                       | true \| false                                                                               | false                |
+| `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                                                                               | false                |
+| `--adaptive-method` | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` \| `gradient-scaling-horizon` | `adaptive-horizon`   |
+| `--max-T`           | Maximum horizon used in aggregate training                            | int                                                                                         | `config.MAX_TRAIN_T` |
+| `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                                                         | `config.NUM_SEEDS`   |
+| `--dt`              | Time step for the Lorenz simulation                                   | float                                                                                       | `config.DT`          |
+| `--batch-size`      | Batch size for training and validation loaders                        | int                                                                                         | `config.BATCH_SIZE`  |
+| `--append`          | Append missing models to the run referenced by `models/last_run.txt`  | true \| false                                                                               | false                |
+| `--debug`           | Save extra loss and gradient diagnostics                              | true \| false                                                                               | false                |
 
 Notes:
-- `--max-T` only affects fixed-horizon training in aggregate mode. It is ignored when using `--single`.
-- `-T` only affects fixed-horizon in `--single` mode.
-- `--adaptive-method` is only relevant for adaptive training.
-- `--append` reuses the full model path stored in `experiments/lorenz/models/last_run.txt`.
-- In `--append` mode, training checks seeds `0..n_seeds-1` and only trains the missing ones for each fixed `T` and for adaptive models.
+- `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
+- `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
+- `-T` only affects fixed-horizon `--single` training.
+- In `--append` mode, training checks seeds `0..n_seeds-1` and only trains missing models.
+- To permanently change default variables, edit `config.toml`.
 
-To permanently change the default variables, edit `config.toml` directly.
+### Gradient Scaling
 
-### MLP Evaluation
-
-#### Model-specific gradient scaling
-
-Let's evaluate equation (3) from the [Temporal horizons in forecasting: an accuracy-learnability trade-off](https://arxiv.org/abs/2506.03889) paper on the learned model.
-
-This script will evaluate the model on a range of evaluation horizons by computing the following function:
+Evaluate the gradient scaling ratio from the temporal-horizon paper:
 
 $$
 g(T) = \frac{\left\| \nabla_{\theta} \mathcal{L}_x(\theta, T) \right\|}{\left\| \nabla_{\theta} \mathcal{L}_x(\theta, 1) \right\|}
 $$
 
-Which represents the gradient scaling with respect to $T$.
-
 ```bash
 poetry run gradient-scaling --model path/to/trained/model.pt
 poetry run gradient-scaling --model path/to/trained/model.pt --max-eval-T 100 --dt 0.04
+poetry run gradient-scaling --model path/to/trained/model.pt --per-batch
 ```
 
 **Args:**
 
-| Name                | Description                                           | Values                                | Default value   |
-|---------------------|-------------------------------------------------------|---------------------------------------|-----------------|
-| `--model` `-m`      | Path to the trained model                             | str                                   | None (required) |
-| `--max-eval-T`      | Maximum evaluation horizon to consider for evaluation | int                                   | 120             |
-| `--dt`              | Time step for the Lorenz attractor simulation         | float                                 | 0.08            |
+| Name             | Description                                  | Values          | Default value        |
+|------------------|----------------------------------------------|-----------------|----------------------|
+| `--model`, `-m`  | Path to the trained model                    | str             | required             |
+| `--max-eval-T`   | Maximum evaluation horizon                   | int             | `config.MAX_EVAL_T`  |
+| `--dt`           | Time step for the Lorenz simulation          | float           | `config.DT`          |
+| `--per-batch`    | Compute per-batch gradient scaling ratios    | true \| false   | false                |
 
-#### Cross-validation on all trained models
+Plots use median plus 95% CI for repeated values.
 
-This script will evaluate all trained models from the last test run (timestamp saved at `experiments/lorenz/models/last_run.txt`) on a set of evaluation horizons.
+### Cross-Validation
 
-T values for evaluation are dynamically set to the same as found trained models, but you can also specify a maximum value of the training horizon to consider for evaluation.
+Evaluate fixed and adaptive models across validation horizons. The command saves a JSON file containing metadata, a median/95% CI summary, and raw `evaluation_records`.
 
 ```bash
 poetry run cross-validation
-poetry run cross-validation --adaptive-method weighted-loss --plot median-iqr
-poetry run cross-validation --cached
-poetry run cross-validation --cached path/to/mse/results/file.json --plot median-iqr
+poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607_120000
+poetry run cross-validation --fixed-dir path/to/fixed/models --model-dir path/to/adaptive/models
+poetry run cross-validation --adaptive-method curriculum-horizon --max-T 6
+poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
 ```
 
 **Args:**
 
-| Name                | Description                                              | Values                                  | Default value                      |
-|---------------------|----------------------------------------------------------|-----------------------------------------|------------------------------------|
-| `--model-dir`       | Path to the directory containing trained models          | str                                     | Read from `last_run.txt`           |
-| `--max-T`           | Maximum training horizon to consider for evaluation      | int                                     | Max T found in the model directory |
-| `--adaptive-method` | Evaluate only adaptive models trained with this method   | `adaptive-horizon` \| `weighted-loss`   | None (both used)                   |
-| `--cached`          | Reuse cached cross-validation JSON for fixed T values    | `None` \| `filename.json`               | None                               |
-| `--plot`            | Plot summary statistic and interval style for the figure | `mean-std` \| `mean-ci` \| `median-iqr` | `mean-ci`                          |
+| Name                | Description                                                                                                  | Values                                                                                      | Default value                   |
+|---------------------|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|---------------------------------|
+| `--model-dir`       | Directory containing adaptive models, and fixed models unless `--fixed-dir` is set                           | str                                                                                         | Read from `models/last_run.txt` |
+| `--fixed-dir`       | Directory containing fixed-horizon models                                                                    | str                                                                                         | `--model-dir`                   |
+| `--max-T`           | Maximum horizon to evaluate                                                                                  | int                                                                                         | Max fixed T found               |
+| `--adaptive-method` | Evaluate only adaptive models trained with this method                                                       | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` \| `gradient-scaling-horizon` | None                            |
+| `--cached`          | Reuse fixed-model records from a saved cross-validation JSON and evaluate adaptive models from `--model-dir` | str                                                                                         | None                            |
 
 Notes:
-- `cross-validation` infers `dt` from the model directory name rather than taking it as a CLI argument.
-- Running `cross-validation` saves raw per-model `evaluation_records` to JSON, so plots can be regenerated later without re-evaluating models.
-- `poetry run cross-validation --cached` uses the most recently saved cross-validation JSON from `experiments/lorenz/evaluation/last_run.txt`.
-- `poetry run cross-validation --cached filename.json` loads that JSON either from the provided path.
-- In cached mode, the command only regenerates the plot; it does not rerun evaluation, and `--model-dir`, `--max-T`, and `--adaptive-method` are ignored.
+- Cross-validation infers `dt` from the model directory name.
+- `--cached` requires a JSON path.
 
-### Computing Lyapunov Exponents
+### Budget Training
 
-To analyze Lyapunov exponents, run the following command:
+Train fixed models and curriculum-horizon adaptive models under the same epoch budget, then cross-validate them.
+
+```bash
+poetry run budget-train
+poetry run budget-train --max-train-T 8 --epochs-per-T 20 --n-seeds 10
+poetry run budget-train --cached path/to/model/dir
+poetry run budget-train --max-eval-T 6
+```
+
+**Args:**
+
+| Name             | Description                                                      | Values | Default value       |
+|------------------|------------------------------------------------------------------|--------|---------------------|
+| `--dt`           | Time step for the Lorenz simulation                              | float  | `config.DT`         |
+| `--max-train-T`  | Maximum training horizon                                         | int    | auto                |
+| `--max-eval-T`   | Maximum validation horizon                                       | int    | auto                |
+| `--epochs-per-T` | Epochs for each fixed horizon                                    | int    | 20                  |
+| `--n-seeds`      | Number of seeds                                                  | int    | `config.NUM_SEEDS`  |
+| `--batch-size`   | Batch size for training and validation loaders                   | int    | `config.BATCH_SIZE` |
+| `--save-dir`     | Directory for evaluation JSON and plots                          | str    | `config.EVAL_DIR`   |
+| `--cached`       | Skip training and cross-validate existing budget model directory | str    | None                |
+
+Notes:
+- Without `--cached`, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_train_T` epochs.
+- With `--cached`, `dt`, available train horizons, and default eval horizon are inferred from the cached model directory.
+
+### Lyapunov Exponents
 
 ```bash
 poetry run compute-lyapunov
@@ -166,9 +166,30 @@ poetry run compute-lyapunov --mode local --plot
 
 **Args:**
 
-| Name             | Description                                                     | Values          | Default value |
-|------------------|-----------------------------------------------------------------|-----------------|---------------|
-| `--mode`         | Specifies whether to compute global or local Lyapunov exponents | global \| local | global        |
-| `--plot`, `-p`   | If set, generates a plot of the Lorenz attractor dynamics       | true \| false   | false         |
-| `--dt`           | Time step for the Lorenz attractor simulation                   | float           | 0.08          |
-| `--steps`        | Number of steps for the Lorenz trajectory                       | int             | 1000          |
+| Name           | Description                         | Values              | Default value |
+|----------------|-------------------------------------|---------------------|---------------|
+| `--mode`, `-m` | Lyapunov computation mode           | `global` \| `local` | `global`      |
+| `--plot`, `-p` | Plot the Lorenz trajectory          | true \| false       | false         |
+| `--dt`         | Time step for the Lorenz simulation | float               | 0.01          |
+| `--steps`      | Trajectory length                   | int                 | 10000         |
+
+### Gradient Heatmap
+
+Compute and plot local gradient-scaling values along a diagnostic Lorenz trajectory.
+
+```bash
+poetry run gradient-heatmap --model path/to/trained/model.pt
+poetry run gradient-heatmap --model path/to/trained/model.pt --T-val 8 --microbatch-size 4 --regenerate
+```
+
+**Args:**
+
+| Name                | Description                                 | Values        | Default value                 |
+|---------------------|---------------------------------------------|---------------|-------------------------------|
+| `--model`, `-m`     | Path to the trained model                   | str           | required                      |
+| `--T-val`           | Evaluation horizon                          | int           | `config.MAX_EVAL_T`           |
+| `--dt`              | Time step for the Lorenz simulation         | float         | `config.DT`                   |
+| `--steps`           | Post-burn-in diagnostic trajectory length   | int           | `config.STEPS_PER_TRAJECTORY` |
+| `--seed`            | Diagnostic trajectory seed                  | int           | `config.EVAL_SEED`            |
+| `--microbatch-size` | Samples per local gradient-scaling estimate | int           | 1                             |
+| `--regenerate`      | Regenerate the cached diagnostic trajectory | true \| false | false                         |
