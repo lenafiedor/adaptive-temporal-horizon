@@ -167,7 +167,6 @@ def create_model_and_loaders(
             metadata["adaptive"].update(
                 {
                     "T_max": T,
-                    "schedule": "linear",
                 }
             )
         elif adaptive_method == GRADIENT_SCALING_HORIZON:

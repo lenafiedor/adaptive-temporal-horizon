@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
-from statistics import median, stdev
+from statistics import mean, median, stdev
 from typing import Any
 
 from adaptive_horizon.model.mlp import MLP, MLPConfig
@@ -102,15 +102,68 @@ def save_cross_validation_results(
     return results_file
 
 
-def median_ci95(values):
+def calculate_stats(values):
     values = [float(value) for value in values]
     median_value = float(median(values))
     margin = float(1.96 * stdev(values) / sqrt(len(values)))
     return {
+        "mean_mse": float(mean(values)),
         "median_mse": median_value,
         "ci95_low": median_value - margin,
         "ci95_high": median_value + margin,
     }
+
+
+def summarize_paired_deltas(
+    evaluation_records, train_Ts, val_Ts, num_seeds=config.NUM_SEEDS
+):
+    seeds = range(num_seeds)
+    mse_by_key = {
+        (
+            record["model_type"],
+            record.get("train_T"),
+            record["val_T"],
+            int(record["seed"]),
+        ): float(record["mse"])
+        for record in evaluation_records
+        if record.get("seed") is not None
+    }
+    by_val_T = {}
+
+    for val_T in val_Ts:
+        fixed_candidates = [
+            (
+                int(train_T),
+                [
+                    mse_by_key[("fixed", int(train_T), val_T, seed)]
+                    for seed in seeds
+                    if ("fixed", int(train_T), val_T, seed) in mse_by_key
+                ],
+            )
+            for train_T in train_Ts
+        ]
+        fixed_candidates = [
+            (train_T, values) for train_T, values in fixed_candidates if values
+        ]
+        best_train_T, _ = min(
+            fixed_candidates,
+            key=lambda candidate: median(candidate[1]),
+        )
+        deltas = [
+            mse_by_key[("fixed", best_train_T, val_T, seed)]
+            - mse_by_key[("adaptive", None, val_T, seed)]
+            for seed in seeds
+            if ("fixed", best_train_T, val_T, seed) in mse_by_key
+            and ("adaptive", None, val_T, seed) in mse_by_key
+        ]
+
+        by_val_T[str(int(val_T))] = {
+            "best_train_T": best_train_T,
+            "n_pairs": len(deltas),
+            **calculate_stats(deltas),
+        }
+
+    return {"by_val_T": by_val_T}
 
 
 def summarize_metadata(summary):
@@ -140,18 +193,19 @@ def summarize_by_eval_T(records, val_Ts):
     by_val_T = []
     for val_T in val_Ts:
         values = [record["mse"] for record in records if record["val_T"] == val_T]
-        val_summary = median_ci95(values)
         by_val_T.append(
             {
                 "eval_T": int(val_T),
-                **val_summary,
+                **calculate_stats(values),
             }
         )
 
     return by_val_T
 
 
-def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
+def summarize_cross_validation(
+    evaluation_records, train_Ts, val_Ts, num_seeds=config.NUM_SEEDS
+):
     summary: dict[str, Any] = {"fixed": [], "adaptive": None}
 
     for train_T in train_Ts:
@@ -160,7 +214,7 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
             for record in evaluation_records
             if record["model_type"] == "fixed" and record["train_T"] == train_T
         ]
-        overall = median_ci95(record["mse"] for record in records_for_train_T)
+        overall = calculate_stats(record["mse"] for record in records_for_train_T)
 
         summary["fixed"].append(
             {
@@ -173,11 +227,14 @@ def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
     adaptive_records = [
         record for record in evaluation_records if record["model_type"] == "adaptive"
     ]
-    adaptive_overall = median_ci95(record["mse"] for record in adaptive_records)
+    adaptive_overall = calculate_stats(record["mse"] for record in adaptive_records)
 
     summary["adaptive"] = {
         "overall": adaptive_overall,
         "by_eval_T": summarize_by_eval_T(adaptive_records, val_Ts),
     }
+    summary["deltas"] = summarize_paired_deltas(
+        evaluation_records, train_Ts, val_Ts, num_seeds
+    )
 
     return summary

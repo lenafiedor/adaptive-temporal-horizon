@@ -152,7 +152,7 @@ def compute_budget_comparison(
         device=device,
         val_Ts=val_Ts,
     )
-    summary = summarize_cross_validation(records, train_Ts, val_Ts)
+    summary = summarize_cross_validation(records, train_Ts, val_Ts, n_seeds)
     results_path = save_cross_validation_results(
         records,
         summary,

@@ -33,15 +33,24 @@ DT = _config["training"]["dt"]
 BURN_IN_TIME = _config["training"]["burn_in_time"]
 VARIANCE = _config["training"]["variance"]
 DEFAULT_ADAPTIVE_HORIZON = _config["training"]["default_adaptive_horizon"]
-RHO = _config["training"]["rho"]
-TEMPERATURE = _config["training"]["temperature"]
-WEIGHT_FLOOR = _config["training"]["weight_floor"]
-ANCHOR_ALPHA = _config["training"]["anchor_alpha"]
-FTLE_WINDOW = _config["training"]["ftle_window"]
-GRADIENT_SCALING_MEDIAN_THRESHOLD = _config["training"][
+
+RHO = _config["weighted-loss"]["rho"]
+TEMPERATURE = _config["weighted-loss"]["temperature"]
+WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
+ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
+FTLE_WINDOW = _config["weighted-loss"]["ftle_window"]
+
+GRADIENT_SCALING_MEDIAN_THRESHOLD = _config["gradient-scaling"][
     "gradient_scaling_median_threshold"
 ]
-GRADIENT_SCALING_P90_THRESHOLD = _config["training"]["gradient_scaling_p90_threshold"]
+GRADIENT_SCALING_P90_THRESHOLD = _config["gradient-scaling"][
+    "gradient_scaling_p90_threshold"
+]
+
+CURRICULUM_LOSS_THRESHOLD = _config["curriculum-horizon"]["curriculum_loss_threshold"]
+CURRICULUM_UPDATE_FREQUENCY = _config["curriculum-horizon"][
+    "curriculum_update_frequency"
+]
 
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]

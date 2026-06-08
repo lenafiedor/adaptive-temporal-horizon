@@ -106,7 +106,6 @@ def train(
         debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
 
     curriculum_T, gradient_scaling_T = 1, 1
-    success_count = 0
     if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
         probe_loader = DataLoader(
             train_loader.dataset,
@@ -204,14 +203,17 @@ def train(
             model.zero_grad(set_to_none=True)
             gradient_scaling_T = next_T
         elif adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T, success_count = curriculum_horizon(
-                epoch, epochs, val_loss, curriculum_T, success_count, T
+            next_T, mean_val_loss = curriculum_horizon(
+                epoch,
+                val_losses,
+                curriculum_T,
+                T,
             )
-            if current_T != curriculum_T:
+            if next_T != curriculum_T:
                 print(
                     f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {current_T}"
                 )
-                curriculum_T = current_T
+                curriculum_T = next_T
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -288,21 +290,11 @@ def train_single_model(
         )
     )
     if adaptive:
-        if adaptive_method == WEIGHTED_LOSS:
-            T = metadata["adaptive"]["T_max"]
-            metadata["adaptive"].update(
-                {
-                    "ftle_window": ftle_window,
-                    "rho": config.RHO,
-                    "temperature": config.TEMPERATURE,
-                    "weight_floor": config.WEIGHT_FLOOR,
-                    "anchor_alpha": config.ANCHOR_ALPHA,
-                }
-            )
-        elif adaptive_method == CURRICULUM_HORIZON:
-            T = metadata["adaptive"]["T_max"]
-            metadata["adaptive"]["epochs_per_horizon"] = epochs / T
-        elif adaptive_method == GRADIENT_SCALING_HORIZON:
+        if adaptive_method in (
+            CURRICULUM_HORIZON,
+            GRADIENT_SCALING_HORIZON,
+            WEIGHTED_LOSS,
+        ):
             T = metadata["adaptive"]["T_max"]
         else:
             T = None
