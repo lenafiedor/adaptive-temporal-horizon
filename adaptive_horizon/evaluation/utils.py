@@ -159,7 +159,6 @@ def summarize_paired_deltas(
 
         by_val_T[str(int(val_T))] = {
             "best_train_T": best_train_T,
-            "n_pairs": len(deltas),
             **calculate_stats(deltas),
         }
 
