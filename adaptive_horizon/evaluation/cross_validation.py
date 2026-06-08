@@ -157,8 +157,10 @@ def cross_validate_models(
     evaluation_records = []
 
     for train_T in train_Ts:
-        print(f"\nEvaluating fixed models trained with T={train_T}")
-        for model_path in fixed_paths.get(train_T):
+        model_paths = fixed_paths.get(train_T, [])
+        if model_paths:
+            print(f"\nEvaluating fixed models trained with T={train_T}")
+        for model_path in model_paths:
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)

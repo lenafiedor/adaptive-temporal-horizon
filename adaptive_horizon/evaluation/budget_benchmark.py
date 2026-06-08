@@ -67,14 +67,21 @@ def compute_budget_comparison(
     device=config.DEVICE,
     save_dir=config.EVAL_DIR,
     cached=None,
+    fixed=None,
     adaptive_only=False,
 ):
+    fixed = Path(fixed) if fixed is not None else None
+    if adaptive_only and fixed is None and cached is None:
+        raise ValueError("Adaptive-only budget evaluation requires --fixed or --cached")
+
     if cached is not None:
         model_root = Path(cached)
         if not model_root.exists():
             raise FileNotFoundError(f"Cached model directory not found: {model_root}")
 
-        fixed_dir = model_root / "fixed"
+        fixed_dir = fixed or model_root / "fixed"
+        if not fixed_dir.exists():
+            raise FileNotFoundError(f"Fixed model directory not found: {fixed_dir}")
         adaptive_dir = model_root / "adaptive"
         dt = get_dt_from_model_dir(model_root)
         available_train_Ts = get_T_values(fixed_dir)
@@ -96,7 +103,17 @@ def compute_budget_comparison(
             max_train_T = int(config.MAX_TRAIN_T)
         if max_eval_T is None:
             max_eval_T = int(config.MAX_EVAL_T)
-        train_Ts = list(range(1, max_train_T + 1))
+
+        if fixed is not None:
+            if not fixed.exists():
+                raise FileNotFoundError(f"Fixed model directory not found: {fixed}")
+            available_train_Ts = get_T_values(fixed)
+            if not available_train_Ts:
+                raise ValueError(f"No fixed-horizon models found in {fixed}")
+            max_train_T = min(max_train_T, max(available_train_Ts))
+            train_Ts = [T for T in available_train_Ts if T <= max_train_T]
+        else:
+            train_Ts = list(range(1, max_train_T + 1))
 
         fixed_dir, adaptive_dir = train_compute_budget_models(
             dt=dt,
@@ -105,11 +122,19 @@ def compute_budget_comparison(
             n_seeds=n_seeds,
             device=device,
             batch_size=batch_size,
-            adaptive_only=adaptive_only,
+            adaptive_only=adaptive_only or fixed is not None,
         )
+        if fixed is not None:
+            fixed_dir = fixed
 
     val_Ts = list(range(1, max_eval_T + 1))
     fixed_paths = get_model_paths(train_Ts, fixed_dir)
+    missing_train_Ts = [T for T, paths in fixed_paths.items() if not paths]
+    if missing_train_Ts:
+        raise ValueError(
+            f"No fixed-horizon models found for train T values {missing_train_Ts} "
+            f"in {fixed_dir}"
+        )
     adaptive_paths = filter_adaptive_paths(
         get_adaptive_paths(adaptive_dir), CURRICULUM_HORIZON
     )
@@ -129,7 +154,14 @@ def compute_budget_comparison(
     )
     summary = summarize_cross_validation(records, train_Ts, val_Ts)
     results_path = save_cross_validation_results(
-        records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir, budget_based=True
+        records,
+        summary,
+        max_train_T,
+        dt,
+        adaptive_dir,
+        fixed_dir,
+        save_dir=save_dir,
+        budget_based=True,
     )
     plot_mse(summary, save_dir, dt, max_train_T, budget_based=True)
 
@@ -162,7 +194,17 @@ def main():
         help="Skip training and cross-validate an existing model directory",
     )
     parser.add_argument(
-        "--adaptive-only", action="store_true", help="Train adaptive models only"
+        "--fixed",
+        type=Path,
+        default=None,
+        help="Directory containing existing fixed-horizon models for evaluation",
+    )
+    parser.add_argument(
+        "--adaptive-only",
+        "--adaptive",
+        action="store_true",
+        dest="adaptive_only",
+        help="Train adaptive models only",
     )
     args = parser.parse_args()
 
@@ -187,6 +229,7 @@ def main():
         device=device,
         save_dir=args.save_dir,
         cached=args.cached,
+        fixed=args.fixed,
         adaptive_only=args.adaptive_only,
     )
 
