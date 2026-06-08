@@ -107,8 +107,6 @@ def train(
 
     curriculum_T, gradient_scaling_T = 1, 1
     success_count = 0
-    gradient_scaling_schedule = []
-    gradient_scaling_history = []
     if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
         probe_loader = DataLoader(
             train_loader.dataset,
@@ -123,7 +121,6 @@ def train(
         epoch_loss = 0.0
         if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON:
             current_T = gradient_scaling_T
-            gradient_scaling_schedule.append(int(current_T))
         elif adaptive and adaptive_method == CURRICULUM_HORIZON:
             current_T = curriculum_T
         else:
@@ -204,15 +201,6 @@ def train(
                 T_max=T,
                 g_summary=g_summary,
             )
-            gradient_scaling_history.append(
-                {
-                    "epoch": epoch + 1,
-                    "current_T": int(current_T),
-                    "safe_T": int(safe_T),
-                    "next_T": int(next_T),
-                    "g_summary": g_summary,
-                }
-            )
             model.zero_grad(set_to_none=True)
             gradient_scaling_T = next_T
         elif adaptive and adaptive_method == CURRICULUM_HORIZON:
@@ -254,12 +242,7 @@ def train(
             gradient_history, save_dir=save_dir, train_T=T, dt=dt, adaptive=adaptive
         )
 
-    if adaptive and adaptive_method == GRADIENT_SCALING_HORIZON and metadata:
-        metadata["adaptive"]["T_schedule"] = gradient_scaling_schedule
-        metadata["adaptive"]["g_history"] = gradient_scaling_history
-
     if metadata is not None:
-        metadata["train_num_batches"] = len(train_loader)
         metadata["train_wall_clock_seconds"] = float(train_wall_clock_seconds)
 
     return train_losses, val_losses

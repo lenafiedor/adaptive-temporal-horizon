@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
+from adaptive_horizon import config
 from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
 from adaptive_horizon.utils import format_dt
@@ -66,7 +67,7 @@ def save_losses(
 
 def save_model(
     model,
-    config,
+    cfg,
     seed,
     save_dir=MODEL_DIR,
     T=None,
@@ -92,11 +93,11 @@ def save_model(
         "train_T": T,
         "seed": seed,
         "config": {
-            "input_size": config.input_size,
-            "output_size": config.output_size,
-            "layer_widths": config.layer_widths,
-            "residual_connections": config.residual_connections,
-            "k": config.k,
+            "input_size": cfg.input_size,
+            "output_size": cfg.output_size,
+            "layer_widths": cfg.layer_widths,
+            "residual_connections": cfg.residual_connections,
+            "k": cfg.k,
         },
     }
     if metadata is not None:
@@ -331,7 +332,7 @@ def summarize_values(values):
     return median, half_width, half_width, "median +/- 95% CI"
 
 
-def plot_mse(summary, save_dir, dt):
+def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based=False):
     """
     Plot MSE summaries for each validation T as separate lines.
 
@@ -339,6 +340,8 @@ def plot_mse(summary, save_dir, dt):
         summary: output from summarize_cross_validation
         save_dir: directory to save plot
         dt: simulation time step
+        max_train_T: maximum training time horizon
+        budget_based: whether the model training is budget-based
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -401,7 +404,8 @@ def plot_mse(summary, save_dir, dt):
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = save_dir / f"mse_dt_{format_dt(dt)}_{timestamp}.png"
+    prefix = "budget_" if budget_based else ""
+    save_path = save_dir / f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")

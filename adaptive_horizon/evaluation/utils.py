@@ -66,12 +66,14 @@ def save_cross_validation_results(
     adaptive_dir,
     fixed_dir=None,
     save_dir=config.EVAL_DIR,
+    budget_based=False,
 ):
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = save_dir / f"mse_results_dt_{format_dt(dt)}_{timestamp}.json"
+    prefix = "budget_" if budget_based else ""
+    results_file = save_dir / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.json"
     summary_metadata = summarize_metadata(summary)
 
     payload = {

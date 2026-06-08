@@ -129,9 +129,9 @@ def compute_budget_comparison(
     )
     summary = summarize_cross_validation(records, train_Ts, val_Ts)
     results_path = save_cross_validation_results(
-        records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir
+        records, summary, max_train_T, dt, adaptive_dir, fixed_dir, save_dir=save_dir, budget_based=True
     )
-    plot_mse(summary, save_dir, dt)
+    plot_mse(summary, save_dir, dt, max_train_T, budget_based=True)
 
     return results_path
 
