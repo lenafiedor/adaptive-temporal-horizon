@@ -73,7 +73,10 @@ def save_cross_validation_results(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    results_file = save_dir / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.json"
+    results_file = (
+        save_dir
+        / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.json"
+    )
     summary_metadata = summarize_metadata(summary)
 
     payload = {

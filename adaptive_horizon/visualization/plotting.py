@@ -405,7 +405,9 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    save_path = save_dir / f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    save_path = (
+        save_dir / f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    )
     plt.savefig(save_path, dpi=150)
     plt.close()
     print(f"Cross-validation MSE plot saved to {save_path}")
