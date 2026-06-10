@@ -6,8 +6,7 @@ from pathlib import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from adaptive_horizon import config
-from adaptive_horizon.config import MODEL_DIR, LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
-from adaptive_horizon.training.methods import adaptive_method_abbreviation
+from adaptive_horizon.config import LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
 from adaptive_horizon.utils import format_dt
 
 COLOR_TRAIN = "#8B87B0"
@@ -63,49 +62,6 @@ def save_losses(
         f.write("train_loss,val_loss\n")
         f.write(f"{train_losses[-1].item()},{val_losses[-1].item()}")
     print(f"Loss values saved to {loss_path}.txt")
-
-
-def save_model(
-    model,
-    cfg,
-    seed,
-    save_dir=MODEL_DIR,
-    T=None,
-    adaptive=False,
-    metadata=None,
-    var: int | None = None,
-    adaptive_method: str | None = None,
-):
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if adaptive:
-        method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
-        var_suffix = f"var{var}_" if var is not None else ""
-        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}{timestamp}.pt"
-    else:
-        filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
-
-    model_path = save_dir / filename
-
-    save_dict = {
-        "model_state_dict": model.state_dict(),
-        "train_T": T,
-        "seed": seed,
-        "config": {
-            "input_size": cfg.input_size,
-            "output_size": cfg.output_size,
-            "layer_widths": cfg.layer_widths,
-            "residual_connections": cfg.residual_connections,
-            "k": cfg.k,
-        },
-    }
-    if metadata is not None:
-        save_dict["metadata"] = metadata
-
-    torch.save(save_dict, model_path)
-    print(f"Model saved to {model_path}")
-    return model_path
 
 
 def plot_g_T(
@@ -164,7 +120,7 @@ def plot_g_T(
     print(f"Gradient scaling plot saved to {plot_path}")
 
 
-def save_gradients_histogram(
+def plot_gradients_histogram(
     gradients: dict[int, list[float]],
     save_dir=LOSS_DIR,
     epoch=None,
@@ -244,7 +200,7 @@ def gradient_history_quantiles(sorted_history, T):
     return p05, p25, median, p75, p95, p99
 
 
-def save_gradient_history(
+def plot_gradient_history(
     gradient_history: list[tuple[int, dict[int, list[float]]]],
     save_dir=LOSS_DIR,
     train_T=None,
@@ -332,7 +288,14 @@ def summarize_values(values):
     return median, half_width, half_width, "median +/- 95% CI"
 
 
-def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based=False):
+def plot_mse(
+    summary,
+    save_dir,
+    dt,
+    max_train_T=config.MAX_TRAIN_T,
+    budget_based=False,
+    param="median",
+):
     """
     Plot MSE summaries for each validation T as separate lines.
 
@@ -342,6 +305,7 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         dt: simulation time step
         max_train_T: maximum training time horizon
         budget_based: whether the model training is budget-based
+        param: median or mean
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -359,13 +323,13 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         fixed_by_train_T = [
             train_summary["by_eval_T"][i] for train_summary in fixed_summaries
         ]
-        centers = [mse_summary["median"] for mse_summary in fixed_by_train_T]
+        centers = [mse_summary[param] for mse_summary in fixed_by_train_T]
         lower_errors = [
-            mse_summary["median"] - mse_summary["ci95_low"]
+            mse_summary[param] - mse_summary[f"{param}_ci95_low"]
             for mse_summary in fixed_by_train_T
         ]
         upper_errors = [
-            mse_summary["ci95_high"] - mse_summary["median"]
+            mse_summary[f"{param}_ci95_high"] - mse_summary[param]
             for mse_summary in fixed_by_train_T
         ]
 
@@ -382,7 +346,7 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         )
 
         ax.axhline(
-            y=summary["adaptive"]["by_eval_T"][i]["median"],
+            y=summary["adaptive"]["by_eval_T"][i][param],
             color=colors[i],
             linestyle="--",
             linewidth=1.0,
@@ -390,11 +354,10 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
         )
 
     ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
-    ax.set_ylabel("Validation MSE (median +/- 95% CI)")
+    ax.set_ylabel(f"Validation MSE ({param} +/- 95% CI)")
     ax.set_title("Cross-Validation MSE (dashed = adaptive model)")
     ax.set_yscale("log")
     ax.set_xticks(train_times)
-    ax.grid(True, alpha=0.3)
     ax.legend(
         title="Validation Horizon",
         loc="center left",
@@ -405,32 +368,196 @@ def plot_mse(summary, save_dir, dt, max_train_T=config.MAX_TRAIN_T, budget_based
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    save_path = (
-        save_dir / f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    save_figure(fig, filename, save_dir)
+
+
+def plot_mse_seed_subplots(
+    evaluation_records,
+    summary,
+    save_dir,
+    dt,
+    max_train_T=config.MAX_TRAIN_T,
+    budget_based=False,
+    param="median",
+):
+    """
+    Plot one subplot per validation horizon with per-seed dots and summary CIs.
+
+    Fixed models are shown at their training-horizon columns. The adaptive model is
+    shown as a horizontal line because it has no single fixed training T.
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fixed_summaries = summary["fixed"]
+    train_Ts = [train_summary["train_T"] for train_summary in fixed_summaries]
+    eval_summaries = fixed_summaries[0]["by_eval_T"]
+    num_plots = len(eval_summaries)
+    ncols = 2 if num_plots > 1 else 1
+    nrows = int(np.ceil(num_plots / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(6.5 * ncols, 3.6 * nrows),
+        squeeze=False,
+        sharex=True,
     )
-    plt.savefig(save_path, dpi=150)
-    plt.close()
-    print(f"Cross-validation MSE plot saved to {save_path}")
+    flat_axes = axes.ravel()
+
+    x_positions = np.arange(len(train_Ts), dtype=np.float64)
+    x_labels = [f"{train_T * dt:.2f}" for train_T in train_Ts]
+
+    for i, val_summary in enumerate(eval_summaries):
+        ax = flat_axes[i]
+        val_T = int(val_summary["eval_T"])
+
+        fixed_centers = []
+        fixed_lows = []
+        fixed_highs = []
+        positive_values = []
+        for train_index, train_summary in enumerate(fixed_summaries):
+            train_T = int(train_summary["train_T"])
+            seed_values = [
+                float(record["mse"])
+                for record in evaluation_records
+                if record["model_type"] == "fixed"
+                and int(record["train_T"]) == train_T
+                and int(record["val_T"]) == val_T
+            ]
+            if seed_values:
+                offsets = np.linspace(-0.16, 0.16, len(seed_values))
+                label = "fixed seeds" if i == 0 and train_index == 0 else "_nolegend_"
+                ax.scatter(
+                    np.full(len(seed_values), x_positions[train_index]) + offsets,
+                    seed_values,
+                    color=COLOR_TRAIN,
+                    alpha=0.45,
+                    s=18,
+                    linewidths=0,
+                    label=label,
+                    zorder=2,
+                )
+                positive_values.extend(value for value in seed_values if value > 0)
+
+            mse_summary = train_summary["by_eval_T"][i]
+            center = mse_summary[param]
+            fixed_centers.append(center)
+            fixed_lows.append(mse_summary[f"{param}_ci95_low"])
+            fixed_highs.append(mse_summary[f"{param}_ci95_high"])
+            if center > 0:
+                positive_values.append(center)
+
+        adaptive_summary = summary["adaptive"]["by_eval_T"][i]
+        adaptive_center = adaptive_summary[param]
+        adaptive_low = adaptive_summary[f"{param}_ci95_low"]
+        adaptive_high = adaptive_summary[f"{param}_ci95_high"]
+        if adaptive_center > 0:
+            positive_values.append(adaptive_center)
+
+        plot_floor = min(positive_values) * 0.5 if positive_values else 1e-12
+        fixed_lows = [max(low, plot_floor) for low in fixed_lows]
+        fixed_highs = [max(high, plot_floor) for high in fixed_highs]
+        adaptive_low = max(adaptive_low, plot_floor)
+        adaptive_high = max(adaptive_high, plot_floor)
+
+        ax.fill_between(
+            x_positions,
+            fixed_lows,
+            fixed_highs,
+            color=COLOR_TRAIN,
+            alpha=0.18,
+            linewidth=0,
+            label=f"fixed {param} 95% CI" if i == 0 else "_nolegend_",
+            zorder=1,
+        )
+        ax.plot(
+            x_positions,
+            fixed_centers,
+            color=COLOR_TRAIN,
+            marker="o",
+            linewidth=1.5,
+            markersize=4,
+            label=f"fixed {param}" if i == 0 else "_nolegend_",
+            zorder=3,
+        )
+
+        ax.fill_between(
+            x_positions,
+            [adaptive_low] * len(x_positions),
+            [adaptive_high] * len(x_positions),
+            color=COLOR_EVAL,
+            alpha=0.22,
+            linewidth=0,
+            label=f"adaptive {param} 95% CI" if i == 0 else "_nolegend_",
+            zorder=1,
+        )
+        ax.axhline(
+            adaptive_center,
+            color=COLOR_EVAL,
+            linestyle="--",
+            linewidth=1.5,
+            label=f"adaptive {param}" if i == 0 else "_nolegend_",
+            zorder=3,
+        )
+
+        delta_summary = (
+            summary.get("deltas", {}).get("by_val_T", {}).get(str(val_T), {})
+        )
+        paired_count = delta_summary.get("paired_seed_count")
+        title = rf"$T_val={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
+        ax.set_title(title)
+        ax.set_yscale("log")
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(x_labels, rotation=35, ha="right")
+
+    for ax in flat_axes[num_plots:]:
+        ax.set_visible(False)
+
+    for ax in axes[-1, :]:
+        ax.set_xlabel(r"Training horizon ($\tau \cdot dt$)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel(f"Validation MSE ({param} +/- 95% CI)")
+
+    handles, labels = flat_axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=4, frameon=False)
+    fig.suptitle("Cross-validation MSE by validation horizon")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    prefix = "budget_" if budget_based else ""
+    filename = f"{prefix}mse_seed_subplots_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
+    save_figure(fig, filename, save_dir)
 
 
-def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp, max_train_T):
+def plot_paired_deltas(
+    deltas,
+    val_Ts,
+    dt,
+    save_dir,
+    max_train_T,
+    budget_based=False,
+    param="median",
+):
     save_dir.mkdir(parents=True, exist_ok=True)
     x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
-    means = np.asarray(
-        [deltas["by_val_T"][str(T)]["mean"] for T in val_Ts], dtype=np.float64
+    centers = np.asarray(
+        [deltas["by_val_T"][str(T)][param] for T in val_Ts], dtype=np.float64
     )
     lows = np.asarray(
-        [deltas["by_val_T"][str(T)]["ci95_low"] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)][f"{param}_ci95_low"] for T in val_Ts],
+        dtype=np.float64,
     )
     highs = np.asarray(
-        [deltas["by_val_T"][str(T)]["ci95_high"] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)][f"{param}_ci95_high"] for T in val_Ts],
+        dtype=np.float64,
     )
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.axhline(0.0, color="#333333", linewidth=1.0, linestyle="--", alpha=0.7)
     ax.plot(
         x,
-        means,
+        centers,
         color=COLOR_TRAIN,
         linewidth=2.0,
         marker="o",
@@ -438,18 +565,17 @@ def plot_paired_deltas(deltas, val_Ts, dt, save_dir, timestamp, max_train_T):
     )
     ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
     ax.set_xlabel(r"Validation horizon ($\tau \cdot dt$)")
-    ax.set_ylabel("Paired MSE delta")
-    ax.set_title("Budget-based horizon search: validation deltas")
+    ax.set_ylabel(f"Paired MSE deltas ({param})")
+    ax.set_title("Horizon search: validation deltas")
     ax.legend()
     plt.tight_layout()
 
-    plot_path = (
-        save_dir / f"budget_deltas_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    prefix = "budget_" if budget_based else ""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = (
+        f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
     )
-    plt.savefig(plot_path, dpi=150)
-    plt.close()
-    print(f"Paired delta plot saved to {plot_path}")
-    return plot_path
+    save_figure(fig, filename, save_dir)
 
 
 def plot_lyapunov_exponents(exponents):

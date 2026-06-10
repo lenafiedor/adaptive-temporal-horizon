@@ -52,6 +52,7 @@ poetry run train-mlp --fixed                    # Train only with fixed T
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
 poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
 poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
+poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
 ```
 
 **Args:**
@@ -65,6 +66,8 @@ poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T va
 | `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                                                 | false                |
 | `--adaptive-method` | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | `adaptive-horizon`   |
 | `--max-T`           | Maximum horizon used in aggregate training                            | int                                                           | `config.MAX_TRAIN_T` |
+| `--budget-based`    | Train fixed and curriculum-horizon adaptive models under one budget   | true \| false                                                 | false                |
+| `--epochs-per-T`    | Budget mode epochs for each fixed horizon                             | int                                                           | 20                   |
 | `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
 | `--dt`              | Time step for the Lorenz simulation                                   | float                                                         | `config.DT`          |
 | `--batch-size`      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
@@ -76,6 +79,7 @@ Notes:
 - `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
 - `-T` only affects fixed-horizon `--single` training.
 - In `--append` mode, training checks seeds `0..n_seeds-1` and only trains missing models.
+- In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
 - To permanently change default variables, edit `config.toml`.
 
 ### Gradient Scaling
@@ -110,52 +114,40 @@ Evaluate fixed and adaptive models across validation horizons. The command saves
 ```bash
 poetry run cross-validation
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607_120000
-poetry run cross-validation --fixed-dir path/to/fixed/models --model-dir path/to/adaptive/models
-poetry run cross-validation --adaptive-method curriculum-horizon --max-T 6
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_T10_20260610_120000
+poetry run cross-validation --adaptive-method curriculum-horizon --max-train-T 6
 poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
 ```
 
 **Args:**
 
-| Name                | Description                                                                                                  | Values                                                        | Default value                   |
-|---------------------|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
-| `--model-dir`       | Directory containing adaptive models, and fixed models unless `--fixed-dir` is set                           | str                                                           | Read from `models/last_run.txt` |
-| `--fixed-dir`       | Directory containing fixed-horizon models                                                                    | str                                                           | `--model-dir`                   |
-| `--max-T`           | Maximum horizon to evaluate                                                                                  | int                                                           | Max fixed T found               |
-| `--adaptive-method` | Evaluate only adaptive models trained with this method                                                       | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
-| `--cached`          | Reuse fixed-model records from a saved cross-validation JSON and evaluate adaptive models from `--model-dir` | str                                                           | None                            |
+| Name                | Description                                                            | Values                                                        | Default value                   |
+|---------------------|------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
+| `--model-dir`       | Run directory containing `fixed/` and `adaptive/` model subdirectories | str                                                           | Read from `models/last_run.txt` |
+| `--max-train-T`     | Maximum fixed training horizon to include                              | int                                                           | Max fixed T found               |
+| `--max-eval-T`      | Maximum validation horizon to evaluate                                 | int                                                           | `config.MAX_EVAL_T`             |
+| `--adaptive-method` | Evaluate only adaptive models trained with this method                 | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
+| `--cached`          | Reuse a saved cross-validation JSON                                    | str                                                           | None                            |
+| `--plot-param`      | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
 
 Notes:
 - Cross-validation infers `dt` from the model directory name.
 - `--cached` requires a JSON path.
+- Cross-validation expects every model run directory to contain `fixed/` and `adaptive/` subdirectories.
+- Cross-validation always writes the JSON report, MSE plot, MSE seed-subplot plot, and paired-delta plot when fixed and adaptive records are present.
 
 ### Budget Training
 
-Train fixed models and curriculum-horizon adaptive models under the same epoch budget, then cross-validate them.
+Budget training is now part of `train-mlp`; cross-validation stays in `cross-validation`.
 
 ```bash
-poetry run budget-train
-poetry run budget-train --max-train-T 8 --epochs-per-T 20 --n-seeds 10
-poetry run budget-train --cached path/to/model/dir
-poetry run budget-train --max-eval-T 6
+poetry run train-mlp --budget-based --max-T 8 --epochs-per-T 20 --n-seeds 10
+poetry run cross-validation --adaptive-method curriculum-horizon
 ```
 
-**Args:**
-
-| Name             | Description                                                      | Values | Default value       |
-|------------------|------------------------------------------------------------------|--------|---------------------|
-| `--dt`           | Time step for the Lorenz simulation                              | float  | `config.DT`         |
-| `--max-train-T`  | Maximum training horizon                                         | int    | auto                |
-| `--max-eval-T`   | Maximum validation horizon                                       | int    | auto                |
-| `--epochs-per-T` | Epochs for each fixed horizon                                    | int    | 20                  |
-| `--n-seeds`      | Number of seeds                                                  | int    | `config.NUM_SEEDS`  |
-| `--batch-size`   | Batch size for training and validation loaders                   | int    | `config.BATCH_SIZE` |
-| `--save-dir`     | Directory for evaluation JSON and plots                          | str    | `config.EVAL_DIR`   |
-| `--cached`       | Skip training and cross-validate existing budget model directory | str    | None                |
-
 Notes:
-- Without `--cached`, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_train_T` epochs.
-- With `--cached`, `dt`, available train horizons, and default eval horizon are inferred from the cached model directory.
+- Budget runs are saved under `models/budget_based_dt_*_T*/fixed` and `models/budget_based_dt_*_T*/adaptive`.
+- `models/last_run.txt` points at the budget run root, so `cross-validation` can be run without `--model-dir` immediately after budget training.
 
 ### Lyapunov Exponents
 

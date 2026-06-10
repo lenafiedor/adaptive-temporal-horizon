@@ -16,14 +16,11 @@ LAST_RUN_FILE = "last_run.txt"
 
 
 def get_dt_from_model_dir(model_dir: Path):
-    match = re.search(r"dt_(\d+)_.+$", model_dir.name)
-    if not match:
-        raise ValueError(
-            "Could not infer dt from model directory name. "
-            f"Expected format 'dt_{{dt}}_{{timestamp}}', got: {model_dir.name}"
-        )
-    digits = match.group(1)
-    return float(digits) / (10 ** len(digits))
+    for path in (model_dir, *model_dir.parents):
+        match = re.search(r"dt_(\d+)_.+$", path.name)
+        if match:
+            digits = match.group(1)
+            return float(digits) / (10 ** len(digits))
 
 
 def get_last_run(save_dir):
@@ -104,13 +101,16 @@ def save_cross_validation_results(
 
 def calculate_stats(values):
     values = [float(value) for value in values]
+    mean_value = float(mean(values))
     median_value = float(median(values))
-    margin = float(1.96 * stdev(values) / sqrt(len(values)))
+    margin = float(1.96 * stdev(values) / sqrt(len(values))) if len(values) > 1 else 0.0
     return {
-        "mean": float(mean(values)),
+        "mean": mean_value,
+        "mean_ci95_low": mean_value - margin,
+        "mean_ci95_high": mean_value + margin,
         "median": median_value,
-        "ci95_low": median_value - margin,
-        "ci95_high": median_value + margin,
+        "median_ci95_low": median_value - margin,
+        "median_ci95_high": median_value + margin,
     }
 
 
@@ -129,6 +129,7 @@ def summarize_paired_deltas(
         if record.get("seed") is not None
     }
     by_val_T = {}
+    all_deltas = []
 
     for val_T in val_Ts:
         fixed_candidates = [
@@ -156,13 +157,34 @@ def summarize_paired_deltas(
             if ("fixed", best_train_T, val_T, seed) in mse_by_key
             and ("adaptive", None, val_T, seed) in mse_by_key
         ]
+        adaptive_wins = sum(delta > 0 for delta in deltas)
+        fixed_wins = sum(delta < 0 for delta in deltas)
+        ties = len(deltas) - adaptive_wins - fixed_wins
+        all_deltas.extend(deltas)
 
         by_val_T[str(int(val_T))] = {
             "best_train_T": best_train_T,
+            "paired_seed_count": len(deltas),
+            "adaptive_wins": adaptive_wins,
+            "fixed_wins": fixed_wins,
+            "ties": ties,
+            "adaptive_win_rate": adaptive_wins / len(deltas),
             **calculate_stats(deltas),
         }
 
-    return {"by_val_T": by_val_T}
+    overall_adaptive_wins = sum(delta > 0 for delta in all_deltas)
+    overall_fixed_wins = sum(delta < 0 for delta in all_deltas)
+    overall_ties = len(all_deltas) - overall_adaptive_wins - overall_fixed_wins
+    return {
+        "overall": {
+            "paired_comparison_count": len(all_deltas),
+            "adaptive_wins": overall_adaptive_wins,
+            "fixed_wins": overall_fixed_wins,
+            "ties": overall_ties,
+            "adaptive_win_rate": (overall_adaptive_wins / len(all_deltas)),
+        },
+        "by_val_T": by_val_T,
+    }
 
 
 def summarize_metadata(summary):
