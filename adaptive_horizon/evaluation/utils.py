@@ -164,7 +164,7 @@ def summarize_paired_deltas(
 
         by_val_T[str(int(val_T))] = {
             "best_train_T": best_train_T,
-            "paired_seed_count": len(deltas),
+            "n_pairs": len(deltas),
             "adaptive_wins": adaptive_wins,
             "fixed_wins": fixed_wins,
             "ties": ties,
@@ -177,11 +177,11 @@ def summarize_paired_deltas(
     overall_ties = len(all_deltas) - overall_adaptive_wins - overall_fixed_wins
     return {
         "overall": {
-            "paired_comparison_count": len(all_deltas),
+            "n_pairs": len(all_deltas),
             "adaptive_wins": overall_adaptive_wins,
             "fixed_wins": overall_fixed_wins,
             "ties": overall_ties,
-            "adaptive_win_rate": (overall_adaptive_wins / len(all_deltas)),
+            "adaptive_win_rate": overall_adaptive_wins / len(all_deltas),
         },
         "by_val_T": by_val_T,
     }

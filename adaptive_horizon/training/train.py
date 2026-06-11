@@ -98,7 +98,7 @@ def train(
             shuffle=False,
             collate_fn=collate_fn,
         )
-        debug_T_vals = [2, 4, 6, 8, 10, 15, 20]
+        debug_T_vals = [2, 4, 6, 8, 10]
 
     curriculum_T = 1
 
@@ -276,6 +276,14 @@ def train_single_model(
         var=var if adaptive_method == ADAPTIVE_HORIZON else None,
         adaptive_method=adaptive_method if adaptive else None,
     )
+    if debug:
+        save_losses(
+            torch.tensor(train_losses, dtype=torch.float32),
+            torch.tensor(val_losses, dtype=torch.float32),
+            loss_save_dir,
+            adaptive=True,
+        )
+
     return train_losses, val_losses, model_path
 
 
@@ -434,7 +442,6 @@ def train_adaptive_models(
             torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
             save_dir=loss_save_dir,
             adaptive=True,
-            var=var if adaptive_method == ADAPTIVE_HORIZON else None,
         )
 
 
@@ -525,7 +532,7 @@ def main():
     print(f"Optimizer: {config.OPTIMIZER}")
 
     model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file = resolve_dirs(
-        args.dt, args.append, args.debug, args.budget_based
+        args.dt, args.append, args.max_T, args.debug, args.budget_based
     )
 
     if args.single:

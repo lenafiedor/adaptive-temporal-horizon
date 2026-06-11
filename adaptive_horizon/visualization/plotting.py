@@ -29,15 +29,13 @@ def save_losses(
     save_dir: Path = LOSS_DIR,
     T: int = None,
     adaptive: bool = False,
-    var: int | None = None,
 ):
     """Save training history"""
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
-        suffix = f"var{var}_" if var is not None else ""
-        filename = f"adaptive_loss_{suffix}{timestamp}"
+        filename = f"adaptive_loss_{timestamp}"
     else:
         filename = f"loss_T{T}_{timestamp}"
 
@@ -142,9 +140,6 @@ def plot_gradients_histogram(
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-
-    if not gradients:
-        raise ValueError("Cannot plot histograms for empty gradients")
 
     gradient_items = sorted(gradients.items())
     num_plots = len(gradient_items)
@@ -526,7 +521,7 @@ def plot_mse_seed_subplots(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_seed_subplots_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
+    filename = f"{prefix}mse_subplots_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
 
 

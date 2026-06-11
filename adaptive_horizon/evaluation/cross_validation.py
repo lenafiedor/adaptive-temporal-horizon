@@ -5,7 +5,6 @@ import re
 import numpy as np
 from pathlib import Path
 
-from adaptive_horizon.training.methods import ADAPTIVE_METHOD_CHOICES
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
@@ -234,6 +233,10 @@ def cross_validation(
     device=config.DEVICE,
     plot_param="median",
 ):
+    save_dir = Path(save_dir)
+    model_dir = Path(model_dir) if model_dir is not None else None
+    cached = Path(cached) if cached is not None else None
+
     if cached:
         payload = load_cross_validation_results(cached)
         dt = float(payload["metadata"]["dt"])
@@ -343,12 +346,6 @@ def main():
         help="Maximum validation horizon for cross-validation",
     )
     parser.add_argument(
-        "--adaptive-method",
-        choices=ADAPTIVE_METHOD_CHOICES,
-        default=None,
-        help="Evaluate only adaptive models trained with the selected method",
-    )
-    parser.add_argument(
         "--cached",
         type=str,
         default=None,
@@ -366,7 +363,6 @@ def main():
         model_dir=args.model_dir,
         max_train_T=args.max_train_T,
         max_eval_T=args.max_eval_T,
-        adaptive_method=args.adaptive_method,
         cached=args.cached,
         plot_param=args.plot_param,
     )

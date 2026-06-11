@@ -61,7 +61,7 @@ def resolve_dirs(dt, append: bool, max_train_T: int, debug: bool, budget_based: 
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         prefix = "budget_" if budget_based else ""
-        filename = f"{prefix}_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+        filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
         model_root = config.MODEL_DIR / filename
         model_root.mkdir(parents=True, exist_ok=True)
 
