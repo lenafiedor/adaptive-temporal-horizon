@@ -87,7 +87,6 @@ def save_model(
     T=None,
     adaptive=False,
     metadata=None,
-    var: int | None = None,
     adaptive_method: str | None = None,
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -95,8 +94,7 @@ def save_model(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if adaptive:
         method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
-        var_suffix = f"var{var}_" if var is not None else ""
-        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{var_suffix}{timestamp}.pt"
+        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{timestamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
 

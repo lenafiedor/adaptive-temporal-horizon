@@ -40,16 +40,14 @@ def save_losses(
         filename = f"loss_T{T}_{timestamp}"
 
     loss_path = save_dir / filename
-    plot_title = f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
 
     fig, ax1 = plt.subplots(figsize=(10, 6))
     ax1.plot(train_losses, label="Train Loss", color=COLOR_TRAIN, linewidth=2)
     ax1.plot(val_losses, label="Val Loss", color=COLOR_EVAL, linewidth=2)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title(plot_title)
+    ax1.set_title(f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss")
     ax1.legend()
-    ax1.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(f"{loss_path}.png", dpi=150)
@@ -57,8 +55,8 @@ def save_losses(
     print(f"\nLoss plot saved to {loss_path}.png")
 
     with open(f"{loss_path}.txt", "w") as f:
-        f.write("train_loss,val_loss\n")
-        f.write(f"{train_losses[-1].item()},{val_losses[-1].item()}")
+        f.write("mean_train_loss,mean_val_loss\n")
+        f.write(f"{train_losses.mean().item()},{val_losses.mean().item()}")
     print(f"Loss values saved to {loss_path}.txt")
 
 

@@ -106,7 +106,12 @@ def train(
         model.train()
         epoch_loss = 0.0
         if adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T = curriculum_T
+            current_T = curriculum_horizon(epoch, epochs, T)
+            if current_T != curriculum_T:
+                print(
+                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {current_T}"
+                )
+                curriculum_T = current_T
         else:
             current_T = T
 
@@ -167,22 +172,7 @@ def train(
             )
         elif adaptive_method == CURRICULUM_HORIZON:
             val_loss = validation_loss(model, val_loader, current_T, device)
-        else:
-            raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
         val_losses.append(val_loss)
-
-        if adaptive and adaptive_method == CURRICULUM_HORIZON:
-            next_T, _mean_val_loss = curriculum_horizon(
-                epoch,
-                val_losses,
-                curriculum_T,
-                T,
-            )
-            if next_T != curriculum_T:
-                print(
-                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {next_T}"
-                )
-                curriculum_T = next_T
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -273,7 +263,6 @@ def train_single_model(
         T=T,
         adaptive=adaptive,
         metadata=metadata,
-        var=var if adaptive_method == ADAPTIVE_HORIZON else None,
         adaptive_method=adaptive_method if adaptive else None,
     )
     if debug:
@@ -281,7 +270,7 @@ def train_single_model(
             torch.tensor(train_losses, dtype=torch.float32),
             torch.tensor(val_losses, dtype=torch.float32),
             loss_save_dir,
-            adaptive=True,
+            adaptive=adaptive,
         )
 
     return train_losses, val_losses, model_path
