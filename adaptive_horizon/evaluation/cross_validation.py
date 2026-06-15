@@ -10,7 +10,7 @@ from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
-    plot_mse_seed_subplots,
+    plot_mse_subplots,
     plot_paired_deltas,
 )
 from adaptive_horizon.evaluation.utils import (
@@ -294,18 +294,19 @@ def cross_validation(
 
     effective_max_train_T = max_train_T if max_train_T is not None else max(train_Ts)
     summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
-    save_cross_validation_results(
-        evaluation_records,
-        summary,
-        effective_max_train_T,
-        dt,
-        adaptive_dir,
-        fixed_dir,
-        save_dir,
-        budget_based,
-    )
+    if not cached:
+        save_cross_validation_results(
+            evaluation_records,
+            summary,
+            effective_max_train_T,
+            dt,
+            adaptive_dir,
+            fixed_dir,
+            save_dir,
+            budget_based,
+        )
     plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, plot_param)
-    plot_mse_seed_subplots(
+    plot_mse_subplots(
         evaluation_records,
         summary,
         save_dir,
@@ -349,7 +350,7 @@ def main():
         "--cached",
         type=str,
         default=None,
-        help="Reuse fixed-model records from cached cross-validation results and evaluate adaptive models from --model-dir",
+        help="Reuse records from cached cross-validation results",
     )
     parser.add_argument(
         "--plot-param",

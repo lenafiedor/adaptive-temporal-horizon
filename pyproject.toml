@@ -19,6 +19,7 @@ cross-validation = "adaptive_horizon.evaluation.cross_validation:main"
 compute-lyapunov = "adaptive_horizon.analysis.compute_lyapunov:main"
 gradient-heatmap = "adaptive_horizon.analysis.compute_gradient_heatmap:main"
 inspect-model = "adaptive_horizon.analysis.inspect_model:main"
+budget-compute-comparison = "adaptive_horizon.visualization.plot_budget_resources:main"
 
 [build-system]
 requires = ["poetry-core"]

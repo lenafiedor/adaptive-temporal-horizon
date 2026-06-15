@@ -46,7 +46,9 @@ def save_losses(
     ax1.plot(val_losses, label="Val Loss", color=COLOR_EVAL, linewidth=2)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.set_title(f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss")
+    ax1.set_title(
+        f"Training Loss (T={T})" if not adaptive else "Adaptive Training Loss"
+    )
     ax1.legend()
 
     plt.tight_layout()
@@ -361,11 +363,11 @@ def plot_mse(
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.png"
+    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
 
 
-def plot_mse_seed_subplots(
+def plot_mse_subplots(
     evaluation_records,
     summary,
     save_dir,
@@ -497,8 +499,8 @@ def plot_mse_seed_subplots(
         delta_summary = (
             summary.get("deltas", {}).get("by_val_T", {}).get(str(val_T), {})
         )
-        paired_count = delta_summary.get("paired_seed_count")
-        title = rf"$T_val={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
+        paired_count = delta_summary.get("n_pairs")
+        title = rf"$T_{{val}}={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
         ax.set_title(title)
         ax.set_yscale("log")
         ax.set_xticks(x_positions)
