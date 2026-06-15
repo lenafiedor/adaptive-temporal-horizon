@@ -87,28 +87,38 @@ def create_model_and_loaders(
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
     burn_in_steps = config.resolve_burn_in_steps(dt)
+    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, history_window)
     metadata = {
         "dt": dt,
         "burn_in_time": config.BURN_IN_TIME,
+        "trajectory": {
+            "steps": config.TRAJECTORY_STEPS,
+            "seed": config.TRAJECTORY_SEED,
+            "train_fraction": config.TRAIN_FRACTION,
+            "split_gap": split_gap,
+        },
     }
 
     if adaptive:
         if adaptive_method == ADAPTIVE_HORIZON:
             train_dataset = AdaptiveHorizonLorenzDataset(
                 dt=dt,
-                seed=seed,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
                 var=var,
                 history_window=history_window,
+                split="train",
+                split_gap=split_gap,
                 debug=debug,
             )
             val_dataset = AdaptiveHorizonLorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
-                seed=config.EVAL_SEED,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
                 var=var,
                 history_window=history_window,
+                split="val",
+                split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
             )
@@ -118,17 +128,20 @@ def create_model_and_loaders(
                 dt=dt,
                 ftle_window=ftle_window,
                 history_window=history_window,
-                seed=seed,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
+                split="train",
+                split_gap=split_gap,
                 debug=debug,
             )
             val_dataset = WeightedLossLorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
                 dt=dt,
                 ftle_window=ftle_window,
                 history_window=history_window,
-                seed=config.EVAL_SEED,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
+                split="val",
+                split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
             )
@@ -139,17 +152,20 @@ def create_model_and_loaders(
             train_dataset = LorenzDataset(
                 T=T,
                 dt=dt,
-                seed=seed,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
                 history_window=history_window,
+                split="train",
+                split_gap=split_gap,
             )
             val_dataset = LorenzDataset(
-                num_trajectories=config.NUM_TRAJECTORIES // 5,
                 T=T,
                 dt=dt,
-                seed=config.EVAL_SEED,
+                seed=config.TRAJECTORY_SEED,
                 burn_in=burn_in_steps,
                 history_window=history_window,
+                split="val",
+                split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
             )
             collate_function = collate_fn
@@ -181,23 +197,35 @@ def create_model_and_loaders(
         train_dataset = LorenzDataset(
             T=T,
             dt=dt,
-            seed=seed,
+            seed=config.TRAJECTORY_SEED,
             burn_in=burn_in_steps,
             history_window=history_window,
+            split="train",
+            split_gap=split_gap,
         )
         val_dataset = LorenzDataset(
-            num_trajectories=config.NUM_TRAJECTORIES // 5,
             T=T,
             dt=dt,
-            seed=config.EVAL_SEED,
+            seed=config.TRAJECTORY_SEED,
             burn_in=burn_in_steps,
             history_window=history_window,
+            split="val",
+            split_gap=split_gap,
             normalization_stats=train_dataset.normalization_stats,
         )
         collate_function = collate_fn
 
     metadata["history_window"] = history_window
     metadata["normalization_stats"] = train_dataset.normalization_stats
+    metadata["trajectory"].update(
+        {
+            "path": str(train_dataset.trajectory_path),
+            "train_split_bounds": tuple(
+                int(value) for value in train_dataset.split_bounds
+            ),
+            "val_split_bounds": tuple(int(value) for value in val_dataset.split_bounds),
+        }
+    )
     model.history_window = history_window
     model.normalization_stats = train_dataset.normalization_stats
 

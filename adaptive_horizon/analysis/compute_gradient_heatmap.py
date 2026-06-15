@@ -5,70 +5,22 @@ import torch
 from datetime import datetime
 
 import adaptive_horizon.config as config
-from adaptive_horizon.data.utils import sample_lorenz_initial_state
-from adaptive_horizon.dynamics.lorenz import simulate_lorenz
+from adaptive_horizon.data.utils import (
+    default_lorenz_trajectory_path,
+    get_lorenz_trajectory,
+)
 from adaptive_horizon.evaluation.cross_validation import (
     get_history_window,
-    get_normalization_stats,
 )
-from adaptive_horizon.evaluation.utils import load_model
+from adaptive_horizon.evaluation.utils import (
+    get_checkpoint_normalization_stats,
+    load_model,
+)
 from adaptive_horizon.training.loss import rollout_predictions, batch_loss
-from adaptive_horizon.utils import format_dt
 from adaptive_horizon.visualization.plotting import (
     plot_g_T_heatmap,
     plot_prediction_overlay,
 )
-
-
-def trajectory_path(dt: float, seed: int):
-    return config.DATA_DIR / f"lorenz_trajectory_dt{format_dt(dt)}_seed{seed}.npz"
-
-
-def create_trajectory(
-    dt: float,
-    steps: int,
-    seed: int,
-    history_window: int,
-    regenerate: bool = False,
-):
-    path = trajectory_path(dt, seed)
-    burn_in = config.resolve_burn_in_steps(dt)
-
-    if path.exists() and not regenerate:
-        data = np.load(path)
-        trajectory = data["trajectory"]
-        saved_steps = int(data["steps"])
-        saved_history_window = int(data["history_window"])
-        if saved_steps >= steps and saved_history_window == history_window:
-            print(f"Loaded diagnostic trajectory from {path}")
-            return trajectory[: steps + 1], path
-        print("Cached diagnostic trajectory metadata does not match; regenerating")
-
-    rng = np.random.default_rng(seed)
-    initial_state = sample_lorenz_initial_state(rng)
-    trajectory = np.asarray(
-        simulate_lorenz(
-            initial_state=initial_state,
-            dt=dt,
-            steps=steps,
-            burn_in=burn_in,
-        ),
-        dtype=np.float64,
-    )
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        path,
-        trajectory=trajectory,
-        initial_state=initial_state,
-        dt=dt,
-        steps=steps,
-        seed=seed,
-        burn_in=burn_in,
-        history_window=history_window,
-    )
-    print(f"Saved diagnostic trajectory to {path}")
-    return trajectory, path
 
 
 def normalize_trajectory(trajectory, normalization_stats):
@@ -181,15 +133,25 @@ def compute_gradient_heatmap(args):
     model, checkpoint = load_model(args.model)
     model = model.to(device)
     history_window = get_history_window(checkpoint)
-    normalization_stats = get_normalization_stats(checkpoint)
+    normalization_stats = get_checkpoint_normalization_stats(checkpoint)
 
-    trajectory, diagnostic_path = create_trajectory(
+    burn_in = config.resolve_burn_in_steps(args.dt)
+    trajectory_path = default_lorenz_trajectory_path(
+        config.DATA_DIR,
         dt=args.dt,
         steps=args.steps,
         seed=args.seed,
-        history_window=history_window,
-        regenerate=args.regenerate,
     )
+    trajectory = get_lorenz_trajectory(
+        dt=args.dt,
+        steps=args.steps,
+        burn_in=burn_in,
+        seed=args.seed,
+        path=trajectory_path,
+        regenerate=args.regenerate,
+    ).numpy()
+    print(f"Using diagnostic trajectory from {trajectory_path}")
+
     trajectory_normalized, mean, std = normalize_trajectory(
         trajectory, normalization_stats
     )
@@ -255,11 +217,14 @@ def main():
     parser.add_argument(
         "--steps",
         type=int,
-        default=config.STEPS_PER_TRAJECTORY,
+        default=config.TRAJECTORY_STEPS,
         help="Post-burn-in diagnostic trajectory length",
     )
     parser.add_argument(
-        "--seed", type=int, default=config.EVAL_SEED, help="Diagnostic trajectory seed"
+        "--seed",
+        type=int,
+        default=config.TRAJECTORY_SEED,
+        help="Diagnostic trajectory seed",
     )
     parser.add_argument(
         "--microbatch-size",

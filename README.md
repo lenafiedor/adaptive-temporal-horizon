@@ -181,7 +181,7 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --T-val 8 --microba
 | `--model`, `-m`     | Path to the trained model                   | str           | required                      |
 | `--T-val`           | Evaluation horizon                          | int           | `config.MAX_EVAL_T`           |
 | `--dt`              | Time step for the Lorenz simulation         | float         | `config.DT`                   |
-| `--steps`           | Post-burn-in diagnostic trajectory length   | int           | `config.STEPS_PER_TRAJECTORY` |
+| `--steps`           | Post-burn-in diagnostic trajectory length   | int           | `config.TRAJECTORY_STEPS`     |
 | `--seed`            | Diagnostic trajectory seed                  | int           | `config.EVAL_SEED`            |
 | `--microbatch-size` | Samples per local gradient-scaling estimate | int           | 1                             |
 | `--regenerate`      | Regenerate the cached diagnostic trajectory | true \| false | false                         |

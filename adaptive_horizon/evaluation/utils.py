@@ -55,6 +55,11 @@ def load_model(model_path):
     return model, checkpoint
 
 
+def get_checkpoint_normalization_stats(checkpoint):
+    metadata = checkpoint.get("metadata", {})
+    return metadata.get("normalization_stats")
+
+
 def save_cross_validation_results(
     evaluation_records,
     summary,

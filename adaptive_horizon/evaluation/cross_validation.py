@@ -19,6 +19,7 @@ from adaptive_horizon.evaluation.utils import (
     get_last_run,
     summarize_cross_validation,
     get_dt_from_model_dir,
+    get_checkpoint_normalization_stats,
 )
 
 
@@ -68,11 +69,6 @@ def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
     return filtered_paths
 
 
-def get_normalization_stats(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    return metadata.get("normalization_stats")
-
-
 def get_history_window(checkpoint):
     metadata = checkpoint.get("metadata", {})
     if "history_window" in metadata:
@@ -88,15 +84,22 @@ def get_history_window(checkpoint):
 
 def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=None):
     burn_in_steps = config.resolve_burn_in_steps(dt)
+    history_window = history_window or config.HISTORY_WINDOW
+    split_gap = max(
+        config.MAX_TRAIN_T,
+        config.MAX_EVAL_T,
+        history_window,
+        max_val_T,
+    )
     eval_dataset = LorenzDataset(
-        num_trajectories=config.NUM_TRAJECTORIES,
-        steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
         T=max_val_T,
         dt=dt,
         normalize=True,
-        seed=config.EVAL_SEED,
+        seed=config.TRAJECTORY_SEED,
         burn_in=burn_in_steps,
-        history_window=history_window or config.HISTORY_WINDOW,
+        history_window=history_window,
+        split="val",
+        split_gap=split_gap,
         normalization_stats=normalization_stats,
     )
     return DataLoader(
@@ -143,7 +146,7 @@ def cross_validate_models(
     eval_loaders = {}
 
     def get_eval_loader(checkpoint):
-        normalization_stats = get_normalization_stats(checkpoint)
+        normalization_stats = get_checkpoint_normalization_stats(checkpoint)
         history_window = get_history_window(checkpoint)
         key = eval_loader_cache_key(normalization_stats, history_window)
         if key not in eval_loaders:

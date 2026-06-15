@@ -1,70 +1,76 @@
 import torch
 from torch.utils.data import Dataset
-import numpy as np
 from typing import Optional
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.utils import (
     apply_normalization,
-    normalization_stats as get_normalization_stats,
-    sample_lorenz_initial_state,
+    default_lorenz_trajectory_path,
+    get_lorenz_trajectory,
+    NormalizationStats,
+    split_trajectory,
 )
-from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 
 
-class LorenzDataset(Dataset):
-    """PyTorch Dataset for Lorenz attractor trajectories with temporal horizon support."""
+class LorenzDataset(NormalizationStats, Dataset):
+    """Lorenz dataset sliced from one shared long trajectory."""
 
     def __init__(
         self,
-        num_trajectories: int = config.NUM_TRAJECTORIES,
-        steps_per_trajectory: int = config.STEPS_PER_TRAJECTORY,
         T: int = 1,
         dt: float = config.DT,
         normalize: bool = True,
-        seed: Optional[int] = None,
+        seed: Optional[int] = config.TRAJECTORY_SEED,
         burn_in: Optional[int] = None,
         history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
+        split: str = "train",
+        trajectory_steps: int = config.TRAJECTORY_STEPS,
+        train_fraction: float = config.TRAIN_FRACTION,
+        split_gap: int = 0,
+        trajectory_path: Optional[str] = None,
     ):
         """
         Args:
-            num_trajectories: Number of trajectories to generate
-            steps_per_trajectory: Length of each trajectory
             T: Temporal horizon (number of prediction steps)
             dt: Time step for simulation
             normalize: Whether to normalize the data
-            seed: Random seed for reproducibility
+            seed: Random seed for the shared Lorenz trajectory
             burn_in: Number of initial steps to discard
             history_window: Number of past trajectory states included in each input
             normalization_stats: Optional mean/std values from a training dataset
+            split: Trajectory split to use ("train" or "val")
+            trajectory_steps: Length of the cached post-burn-in trajectory
+            train_fraction: Fraction assigned to the training split
+            split_gap: Guard gap between train and validation splits
+            trajectory_path: Optional path for the cached trajectory file
         """
         self.T = T
         self.normalize = normalize
         self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
         self.history_window = int(history_window)
+        self.split = split
+        self.trajectory_path = trajectory_path or default_lorenz_trajectory_path(
+            config.DATA_DIR, dt, trajectory_steps, seed
+        )
 
-        if seed is not None:
-            np.random.seed(seed)
-
-        trajectories = []
-        for _ in range(num_trajectories):
-            traj = simulate_lorenz(
-                initial_state=sample_lorenz_initial_state(),
-                dt=dt,
-                steps=steps_per_trajectory,
-                burn_in=self.burn_in,
-            )
-            trajectories.append(traj)
-
-        self.trajectories = torch.tensor(np.array(trajectories), dtype=torch.float32)
+        full_trajectory = get_lorenz_trajectory(
+            dt=dt,
+            steps=trajectory_steps,
+            burn_in=self.burn_in,
+            seed=seed,
+            path=self.trajectory_path,
+        )
+        trajectory, self.split_bounds = split_trajectory(
+            full_trajectory,
+            split=split,
+            train_fraction=train_fraction,
+            gap=split_gap,
+        )
+        self.trajectories = trajectory.unsqueeze(0)
         apply_normalization(self, normalization_stats)
 
         self.samples = self._create_samples()
-
-    @property
-    def normalization_stats(self):
-        return get_normalization_stats(self)
 
     def _create_samples(self):
         """Create (input, targets) pairs for all valid starting points."""

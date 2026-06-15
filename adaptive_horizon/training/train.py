@@ -81,15 +81,21 @@ def train(
         if save_dir is None:
             save_dir = config.LOSS_DIR
         save_dir.mkdir(parents=True, exist_ok=True)
+        history_window = getattr(model, "history_window", config.HISTORY_WINDOW)
+        split_gap = max(
+            config.MAX_TRAIN_T,
+            config.MAX_EVAL_T,
+            history_window,
+        )
         debug_dataset = LorenzDataset(
-            num_trajectories=config.NUM_TRAJECTORIES,
-            steps_per_trajectory=config.STEPS_PER_TRAJECTORY,
             T=config.MAX_EVAL_T,
             dt=dt,
             normalize=True,
-            seed=config.EVAL_SEED,
+            seed=config.TRAJECTORY_SEED,
             burn_in=config.resolve_burn_in_steps(dt),
-            history_window=getattr(model, "history_window", config.HISTORY_WINDOW),
+            history_window=history_window,
+            split="val",
+            split_gap=split_gap,
             normalization_stats=getattr(model, "normalization_stats", None),
         )
         debug_loader = DataLoader(
