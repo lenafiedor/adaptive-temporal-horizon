@@ -289,7 +289,7 @@ def plot_mse(
     dt,
     max_train_T=config.MAX_TRAIN_T,
     budget_based=False,
-    param="median",
+    metric="median",
 ):
     """
     Plot MSE summaries for each validation T as separate lines.
@@ -300,7 +300,7 @@ def plot_mse(
         dt: simulation time step
         max_train_T: maximum training time horizon
         budget_based: whether the model training is budget-based
-        param: median or mean
+        metric: median or mean
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -318,13 +318,13 @@ def plot_mse(
         fixed_by_train_T = [
             train_summary["by_eval_T"][i] for train_summary in fixed_summaries
         ]
-        centers = [mse_summary[param] for mse_summary in fixed_by_train_T]
+        centers = [mse_summary[metric] for mse_summary in fixed_by_train_T]
         lower_errors = [
-            mse_summary[param] - mse_summary[f"{param}_ci95_low"]
+            mse_summary[metric] - mse_summary[f"{metric}_ci95_low"]
             for mse_summary in fixed_by_train_T
         ]
         upper_errors = [
-            mse_summary[f"{param}_ci95_high"] - mse_summary[param]
+            mse_summary[f"{metric}_ci95_high"] - mse_summary[metric]
             for mse_summary in fixed_by_train_T
         ]
 
@@ -341,7 +341,7 @@ def plot_mse(
         )
 
         ax.axhline(
-            y=summary["adaptive"]["by_eval_T"][i][param],
+            y=summary["adaptive"]["by_eval_T"][i][metric],
             color=colors[i],
             linestyle="--",
             linewidth=1.0,
@@ -349,7 +349,7 @@ def plot_mse(
         )
 
     ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
-    ax.set_ylabel(f"Validation MSE ({param} +/- 95% CI)")
+    ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
     ax.set_title("Cross-Validation MSE (dashed = adaptive model)")
     ax.set_yscale("log")
     ax.set_xticks(train_times)
@@ -363,7 +363,7 @@ def plot_mse(
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
+    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
 
 
@@ -374,7 +374,7 @@ def plot_mse_subplots(
     dt,
     max_train_T=config.MAX_TRAIN_T,
     budget_based=False,
-    param="median",
+    metric="median",
 ):
     """
     Plot one subplot per validation horizon with per-seed dots and summary CIs.
@@ -436,17 +436,17 @@ def plot_mse_subplots(
                 positive_values.extend(value for value in seed_values if value > 0)
 
             mse_summary = train_summary["by_eval_T"][i]
-            center = mse_summary[param]
+            center = mse_summary[metric]
             fixed_centers.append(center)
-            fixed_lows.append(mse_summary[f"{param}_ci95_low"])
-            fixed_highs.append(mse_summary[f"{param}_ci95_high"])
+            fixed_lows.append(mse_summary[f"{metric}_ci95_low"])
+            fixed_highs.append(mse_summary[f"{metric}_ci95_high"])
             if center > 0:
                 positive_values.append(center)
 
         adaptive_summary = summary["adaptive"]["by_eval_T"][i]
-        adaptive_center = adaptive_summary[param]
-        adaptive_low = adaptive_summary[f"{param}_ci95_low"]
-        adaptive_high = adaptive_summary[f"{param}_ci95_high"]
+        adaptive_center = adaptive_summary[metric]
+        adaptive_low = adaptive_summary[f"{metric}_ci95_low"]
+        adaptive_high = adaptive_summary[f"{metric}_ci95_high"]
         if adaptive_center > 0:
             positive_values.append(adaptive_center)
 
@@ -463,7 +463,7 @@ def plot_mse_subplots(
             color=COLOR_TRAIN,
             alpha=0.18,
             linewidth=0,
-            label=f"fixed {param} 95% CI" if i == 0 else "_nolegend_",
+            label=f"fixed {metric} 95% CI" if i == 0 else "_nolegend_",
             zorder=1,
         )
         ax.plot(
@@ -473,7 +473,7 @@ def plot_mse_subplots(
             marker="o",
             linewidth=1.5,
             markersize=4,
-            label=f"fixed {param}" if i == 0 else "_nolegend_",
+            label=f"fixed {metric}" if i == 0 else "_nolegend_",
             zorder=3,
         )
 
@@ -484,7 +484,7 @@ def plot_mse_subplots(
             color=COLOR_EVAL,
             alpha=0.22,
             linewidth=0,
-            label=f"adaptive {param} 95% CI" if i == 0 else "_nolegend_",
+            label=f"adaptive {metric} 95% CI" if i == 0 else "_nolegend_",
             zorder=1,
         )
         ax.axhline(
@@ -492,7 +492,7 @@ def plot_mse_subplots(
             color=COLOR_EVAL,
             linestyle="--",
             linewidth=1.5,
-            label=f"adaptive {param}" if i == 0 else "_nolegend_",
+            label=f"adaptive {metric}" if i == 0 else "_nolegend_",
             zorder=3,
         )
 
@@ -512,7 +512,7 @@ def plot_mse_subplots(
     for ax in axes[-1, :]:
         ax.set_xlabel(r"Training horizon ($\tau \cdot dt$)")
     for ax in axes[:, 0]:
-        ax.set_ylabel(f"Validation MSE ({param} +/- 95% CI)")
+        ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
 
     handles, labels = flat_axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=4, frameon=False)
@@ -521,7 +521,7 @@ def plot_mse_subplots(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_subplots_dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
+    filename = f"{prefix}mse_subplots_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
 
 
@@ -532,19 +532,19 @@ def plot_paired_deltas(
     save_dir,
     max_train_T,
     budget_based=False,
-    param="median",
+    metric="median",
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
     x = np.asarray([T * dt for T in val_Ts], dtype=np.float64)
     centers = np.asarray(
-        [deltas["by_val_T"][str(T)][param] for T in val_Ts], dtype=np.float64
+        [deltas["by_val_T"][str(T)][metric] for T in val_Ts], dtype=np.float64
     )
     lows = np.asarray(
-        [deltas["by_val_T"][str(T)][f"{param}_ci95_low"] for T in val_Ts],
+        [deltas["by_val_T"][str(T)][f"{metric}_ci95_low"] for T in val_Ts],
         dtype=np.float64,
     )
     highs = np.asarray(
-        [deltas["by_val_T"][str(T)][f"{param}_ci95_high"] for T in val_Ts],
+        [deltas["by_val_T"][str(T)][f"{metric}_ci95_high"] for T in val_Ts],
         dtype=np.float64,
     )
 
@@ -560,7 +560,7 @@ def plot_paired_deltas(
     )
     ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
     ax.set_xlabel(r"Validation horizon ($\tau \cdot dt$)")
-    ax.set_ylabel(f"Paired MSE deltas ({param})")
+    ax.set_ylabel(f"Paired MSE deltas ({metric})")
     ax.set_title("Horizon search: validation deltas")
     ax.legend()
     plt.tight_layout()
@@ -568,7 +568,7 @@ def plot_paired_deltas(
     prefix = "budget_" if budget_based else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = (
-        f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{param}_{timestamp}.png"
+        f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     )
     save_figure(fig, filename, save_dir)
 

@@ -229,15 +229,17 @@ def load_cross_validation_results(cached: Path):
 
 def cross_validation(
     model_dir=None,
+    fixed_dir=None,
     max_train_T=None,
     max_eval_T=config.MAX_EVAL_T,
     cached=None,
     save_dir=config.EVAL_DIR,
     device=config.DEVICE,
-    plot_param="median",
+    metric="median",
 ):
     save_dir = Path(save_dir)
     model_dir = Path(model_dir) if model_dir is not None else None
+    fixed_dir = Path(fixed_dir) if fixed_dir is not None else None
     cached = Path(cached) if cached is not None else None
 
     if cached:
@@ -270,9 +272,8 @@ def cross_validation(
         evaluation_records = fixed_records + adaptive_records
 
     else:
-        if not model_dir:
-            model_dir = get_last_run(config.MODEL_DIR)
-        fixed_dir = model_dir / "fixed"
+        model_dir = model_dir or get_last_run(config.MODEL_DIR)
+        fixed_dir = fixed_dir or model_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
         budget_based = model_dir.name.startswith("budget")
@@ -308,7 +309,7 @@ def cross_validation(
             save_dir,
             budget_based,
         )
-    plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, plot_param)
+    plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, metric)
     plot_mse_subplots(
         evaluation_records,
         summary,
@@ -316,7 +317,7 @@ def cross_validation(
         dt,
         effective_max_train_T,
         budget_based,
-        plot_param,
+        metric,
     )
     plot_paired_deltas(
         summary["deltas"],
@@ -325,7 +326,7 @@ def cross_validation(
         save_dir,
         effective_max_train_T,
         budget_based,
-        plot_param,
+        metric,
     )
 
 
@@ -336,6 +337,12 @@ def main():
         type=str,
         default=None,
         help="Run directory containing fixed/ and adaptive/ subdirectories (default: reads from models/last_run.txt)",
+    )
+    parser.add_argument(
+        "--fixed-dir",
+        type=str,
+        default=None,
+        help="Fixed model directory (default: reads from model_dir)",
     )
     parser.add_argument(
         "--max-train-T",
@@ -356,7 +363,7 @@ def main():
         help="Reuse records from cached cross-validation results",
     )
     parser.add_argument(
-        "--plot-param",
+        "--metric",
         choices=("mean", "median"),
         default="median",
         help="Statistic to plot with 95%% CI intervals",
@@ -365,10 +372,11 @@ def main():
 
     cross_validation(
         model_dir=args.model_dir,
+        fixed_dir=args.fixed_dir,
         max_train_T=args.max_train_T,
         max_eval_T=args.max_eval_T,
         cached=args.cached,
-        plot_param=args.plot_param,
+        metric=args.metric,
     )
 
 

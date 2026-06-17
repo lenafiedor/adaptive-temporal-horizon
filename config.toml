@@ -32,6 +32,10 @@ ftle_window = 5
 [curriculum-horizon]
 curriculum_loss_threshold = 0.01
 curriculum_update_frequency = 10
+early_stopping = true
+early_stop_patience = 10
+early_stop_min_delta = 0.0001
+early_stop_min_T = 5
 
 [model]
 input_dim = 3

@@ -36,6 +36,14 @@ from adaptive_horizon.training.schedules import curriculum_horizon
 from adaptive_horizon.training.setup import create_model_and_loaders
 
 
+def padded_mean_loss(losses_by_seed):
+    max_len = max(len(losses) for losses in losses_by_seed)
+    padded = torch.full((len(losses_by_seed), max_len), float("nan"))
+    for idx, losses in enumerate(losses_by_seed):
+        padded[idx, : len(losses)] = torch.tensor(losses, dtype=torch.float32)
+    return torch.nanmean(padded, dim=0)
+
+
 def train(
     model,
     train_loader,
@@ -50,6 +58,7 @@ def train(
     debug=False,
     save_dir=None,
     metadata=None,
+    early_stopping=False,
 ):
     """
     Train model with fixed temporal horizon T.
@@ -68,6 +77,7 @@ def train(
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
+        early_stopping: Whether to enable early stopping based on validation loss
 
     Returns:
         losses: List of training_results losses
@@ -77,6 +87,21 @@ def train(
     val_losses = []
     gradient_history = []
     train_wall_clock_seconds = 0.0
+
+    if early_stopping:
+        early_stop_best_loss = None
+        early_stop_wait = 0
+        stopped_early = False
+        early_stop_min_T = min(T, config.CURRICULUM_EARLY_STOP_MIN_T)
+        if metadata is not None:
+            metadata["early_stopping"] = {
+                "enabled": True,
+                "metric": "validation_loss",
+                "patience": config.CURRICULUM_EARLY_STOP_PATIENCE,
+                "min_delta": config.CURRICULUM_EARLY_STOP_MIN_DELTA,
+                "min_T": early_stop_min_T,
+            }
+
     if debug:
         if save_dir is None:
             save_dir = config.LOSS_DIR
@@ -180,6 +205,25 @@ def train(
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
+        if early_stopping and current_T >= early_stop_min_T:
+            improvement = (
+                early_stop_best_loss is None
+                or val_loss
+                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+            )
+            if improvement:
+                early_stop_best_loss = float(val_loss)
+                early_stop_wait = 0
+            else:
+                early_stop_wait += 1
+
+            if early_stop_wait >= config.CURRICULUM_EARLY_STOP_PATIENCE:
+                stopped_early = True
+                print(
+                    f"\tEarly stopping curriculum at  epoch {epoch + 1}, T={current_T}"
+                )
+                break
+
         if (epoch + 1) % 10 == 0:
             message = (
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
@@ -199,6 +243,14 @@ def train(
 
     if metadata is not None:
         metadata["train_wall_clock_seconds"] = float(train_wall_clock_seconds)
+        if early_stopping:
+            metadata["early_stopping"].update(
+                {
+                    "stopped_early": stopped_early,
+                    "best_val_loss": early_stop_best_loss,
+                    "epochs_ran": len(train_losses),
+                }
+            )
 
     return train_losses, val_losses
 
@@ -219,6 +271,7 @@ def train_single_model(
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     debug=False,
+    early_stopping=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -259,6 +312,7 @@ def train_single_model(
         debug=debug,
         save_dir=loss_save_dir,
         metadata=metadata,
+        early_stopping=early_stopping,
     )
 
     model_path = save_model(
@@ -276,6 +330,7 @@ def train_single_model(
             torch.tensor(train_losses, dtype=torch.float32),
             torch.tensor(val_losses, dtype=torch.float32),
             loss_save_dir,
+            T=T,
             adaptive=adaptive,
         )
 
@@ -381,6 +436,7 @@ def train_adaptive_models(
     var=config.VARIANCE,
     append=False,
     debug=False,
+    early_stopping=False,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.LOSS_DIR
@@ -427,14 +483,15 @@ def train_adaptive_models(
             ftle_window=ftle_window,
             var=var,
             debug=debug,
+            early_stopping=early_stopping,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
     if debug:
         save_losses(
-            torch.tensor(train_losses, dtype=torch.float32).mean(dim=0),
-            torch.tensor(val_losses, dtype=torch.float32).mean(dim=0),
+            padded_mean_loss(train_losses),
+            padded_mean_loss(val_losses),
             save_dir=loss_save_dir,
             adaptive=True,
         )
@@ -501,6 +558,11 @@ def main():
         type=int,
         default=config.BATCH_SIZE,
         help="Batch size for training and validation loaders",
+    )
+    parser.add_argument(
+        "--early-stopping",
+        action="store_true",
+        help="Early stop adaptive training when the validation loss does not improve for a certain number of epochs",
     )
     parser.add_argument(
         "--append",
@@ -585,6 +647,7 @@ def main():
                 max_T=args.max_T,
                 append=args.append,
                 debug=args.debug,
+                early_stopping=args.early_stopping,
             )
 
     print("\n" + "=" * 50)

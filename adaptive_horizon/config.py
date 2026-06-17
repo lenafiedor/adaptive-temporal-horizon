@@ -45,6 +45,10 @@ CURRICULUM_LOSS_THRESHOLD = _config["curriculum-horizon"]["curriculum_loss_thres
 CURRICULUM_UPDATE_FREQUENCY = _config["curriculum-horizon"][
     "curriculum_update_frequency"
 ]
+CURRICULUM_EARLY_STOPPING = _config["curriculum-horizon"]["early_stopping"]
+CURRICULUM_EARLY_STOP_PATIENCE = _config["curriculum-horizon"]["early_stop_patience"]
+CURRICULUM_EARLY_STOP_MIN_DELTA = _config["curriculum-horizon"]["early_stop_min_delta"]
+CURRICULUM_EARLY_STOP_MIN_T = _config["curriculum-horizon"]["early_stop_min_T"]
 
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
