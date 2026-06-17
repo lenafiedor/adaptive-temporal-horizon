@@ -15,54 +15,43 @@ from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
 class BudgetComparison:
     max_train_T: int
     adaptive_mse: float
-    best_fixed_mse: float
+    fixed_mse: float
     best_train_T: int | None
     source_path: Path
 
 
-def load_result(path: Path, metric: str):
+def load_result(path: Path, metric: str, eval_scope: str):
     with path.open("r") as f:
         result = json.load(f)
-
     metadata = result.get("metadata", {})
-    summary = result.get("summary", {})
-    max_train_T = int(metadata["max_train_T"])
+    best_train_T = metadata.get("best_train_T")
 
-    adaptive_summary = summary.get("adaptive", {}).get("overall", {})
-    adaptive_mse = adaptive_summary.get(metric)
-    if adaptive_mse is None:
+    if eval_scope == "T1":
+        summary = result.get("summary", {})
+        fixed_result = next(
+            item for item in summary["fixed"] if item["train_T"] == best_train_T
+        )
+        fixed_mse = fixed_result["by_eval_T"][0][metric]
+        adaptive_mse = summary["adaptive"]["by_eval_T"][0][metric]
+    else:
+        fixed_mse = metadata.get(f"best_fixed_{metric}_MSE")
         adaptive_mse = metadata.get(f"adaptive_{metric}_MSE")
 
-    fixed_runs = summary.get("fixed", [])
-    fixed_candidates = [
-        (int(run["train_T"]), float(run["overall"][metric]))
-        for run in fixed_runs
-        if metric in run.get("overall", {})
-    ]
-    if fixed_candidates:
-        best_train_T, best_fixed_mse = min(fixed_candidates, key=lambda item: item[1])
-    else:
-        best_train_T = metadata.get("best_train_T")
-        best_fixed_mse = metadata.get(f"best_fixed_{metric}_MSE")
-
-    if adaptive_mse is None or best_fixed_mse is None:
-        raise ValueError(f"{path} does not contain {metric} MSE comparison values")
-
     return BudgetComparison(
-        max_train_T=max_train_T,
-        adaptive_mse=float(adaptive_mse),
-        best_fixed_mse=float(best_fixed_mse),
-        best_train_T=int(best_train_T),
+        max_train_T=metadata["max_train_T"],
+        adaptive_mse=adaptive_mse,
+        fixed_mse=fixed_mse,
+        best_train_T=best_train_T,
         source_path=path,
     )
 
 
-def load_comparisons(results_dir, metric):
+def load_comparisons(results_dir, metric, eval_scope):
     paths = sorted(Path(results_dir).glob("budget_mse_results_*.json"))
     if not paths:
         raise FileNotFoundError(f"No result files matched in {Path(results_dir)}")
 
-    comparisons = [load_result(path, metric) for path in paths]
+    comparisons = [load_result(path, metric, eval_scope) for path in paths]
     return sorted(comparisons, key=lambda item: item.max_train_T)
 
 
@@ -74,7 +63,7 @@ def save_csv(comparisons, output_path: Path):
             [
                 "max_train_T",
                 "adaptive_mse",
-                "best_fixed_mse",
+                "fixed_mse",
                 "best_train_T",
                 "source_file",
             ]
@@ -84,7 +73,7 @@ def save_csv(comparisons, output_path: Path):
                 [
                     comparison.max_train_T,
                     comparison.adaptive_mse,
-                    comparison.best_fixed_mse,
+                    comparison.fixed_mse,
                     comparison.best_train_T,
                     comparison.source_path,
                 ]
@@ -92,10 +81,10 @@ def save_csv(comparisons, output_path: Path):
     return csv_path
 
 
-def plot_comparisons(comparisons, metric, output_path):
+def plot_comparisons(comparisons, metric, eval_scope, output_path):
     x_values = [comparison.max_train_T for comparison in comparisons]
     adaptive_values = [comparison.adaptive_mse for comparison in comparisons]
-    fixed_values = [comparison.best_fixed_mse for comparison in comparisons]
+    fixed_values = [comparison.fixed_mse for comparison in comparisons]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(
@@ -117,8 +106,12 @@ def plot_comparisons(comparisons, metric, output_path):
 
     ax.set_xlabel("Training budget (max train T)")
     ax.set_xticks(x_values)
-    ax.set_ylabel(f"Overall {metric} MSE")
-    ax.set_title("Budget-Based Compute Comparison")
+    if eval_scope == "T1":
+        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$")
+        ax.set_title(r"Budget-Based Comparison at $T_{{val}}=1$")
+    else:
+        ax.set_ylabel(f"Overall {metric} MSE")
+        ax.set_title("Budget-Based Comparison")
     ax.grid(True, alpha=0.25)
     ax.legend()
 
@@ -127,7 +120,7 @@ def plot_comparisons(comparisons, metric, output_path):
     plt.close(fig)
 
 
-def default_output_path(results_dir, metric, comparisons):
+def default_output_path(results_dir, metric, eval_scope, comparisons):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dt_values = {
         json.loads(comparison.source_path.read_text()).get("metadata", {}).get("dt")
@@ -138,8 +131,9 @@ def default_output_path(results_dir, metric, comparisons):
         dt = next(iter(dt_values))
         if dt is not None:
             dt_part = f"_dt_{format_dt(dt)}"
-    return (
-        Path(results_dir) / f"budget_based_comparison{dt_part}_{metric}_{timestamp}.png"
+    scope_part = "_T1" if eval_scope == "T1" else ""
+    return Path(results_dir) / (
+        f"budget_based_comparison{dt_part}_{metric}{scope_part}_{timestamp}.png"
     )
 
 
@@ -155,15 +149,17 @@ def main():
     )
     parser.add_argument(
         "--metric",
+        type=str,
         choices=("mean", "median"),
         default="median",
         help="Overall MSE summary statistic to compare",
     )
     parser.add_argument(
-        "--epochs-per-T",
-        type=int,
-        default=20,
-        help="Epochs per horizon used to compute cumulative_epochs",
+        "--eval-scope",
+        type=str,
+        choices=("overall", "T1"),
+        default="overall",
+        help="Use all evaluation results or only those for T=1",
     )
     parser.add_argument(
         "--output",
@@ -173,15 +169,16 @@ def main():
     )
     args = parser.parse_args()
 
-    comparisons = load_comparisons(args.results_dir, args.metric)
+    comparisons = load_comparisons(args.results_dir, args.metric, args.eval_scope)
     output_path = args.output or default_output_path(
-        args.results_dir, args.metric, comparisons
+        args.results_dir, args.metric, args.eval_scope, comparisons
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     plot_comparisons(
         comparisons,
         args.metric,
+        args.eval_scope,
         output_path,
     )
     csv_path = save_csv(comparisons, output_path)

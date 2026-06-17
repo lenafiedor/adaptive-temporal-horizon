@@ -71,6 +71,7 @@ poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models un
 | `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
 | `--dt`              | Time step for the Lorenz simulation                                   | float                                                         | `config.DT`          |
 | `--batch-size`      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
+| `--early-stopping`  | Enable early stopping when validation loss does not improve           | true \| false                                                 | false                |
 | `--append`          | Append missing models to the run referenced by `models/last_run.txt`  | true \| false                                                 | false                |
 | `--debug`           | Save extra loss and gradient diagnostics                              | true \| false                                                 | false                |
 
@@ -124,16 +125,17 @@ poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_d
 | Name                | Description                                                            | Values                                                        | Default value                   |
 |---------------------|------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
 | `--model-dir`       | Run directory containing `fixed/` and `adaptive/` model subdirectories | str                                                           | Read from `models/last_run.txt` |
+| `--fixed-dir`       | Directory with fixed models                                            | str                                                           | Read from `--model-dir`         |
 | `--max-train-T`     | Maximum fixed training horizon to include                              | int                                                           | Max fixed T found               |
 | `--max-eval-T`      | Maximum validation horizon to evaluate                                 | int                                                           | `config.MAX_EVAL_T`             |
 | `--adaptive-method` | Evaluate only adaptive models trained with this method                 | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
 | `--cached`          | Reuse a saved cross-validation JSON                                    | str                                                           | None                            |
-| `--plot-param`      | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
+| `--metric`          | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
 
 Notes:
 - Cross-validation infers `dt` from the model directory name.
 - `--cached` requires a JSON path.
-- Cross-validation expects every model run directory to contain `fixed/` and `adaptive/` subdirectories.
+- Cross-validation expects model directory to contain `fixed/` and `adaptive/` subdirectories (unless `--fixed-dir` is specified).
 - Cross-validation always writes the JSON report, MSE plot, MSE seed-subplot plot, and paired-delta plot when fixed and adaptive records are present.
 
 ### Budget Training
@@ -148,6 +150,29 @@ poetry run cross-validation --adaptive-method curriculum-horizon
 Notes:
 - Budget runs are saved under `models/budget_based_dt_*_T*/fixed` and `models/budget_based_dt_*_T*/adaptive`.
 - `models/last_run.txt` points at the budget run root, so `cross-validation` can be run without `--model-dir` immediately after budget training.
+
+### Budget Comparison
+
+Plot adaptive MSE and the best fixed-model MSE as a function of the budget run's `max_train_T`.
+The helper reads generated `budget_mse_results_*.json` files and writes both a PNG plot and a CSV with the plotted values.
+
+```bash
+poetry run budget-compute-comparison --results-dir experiments/lorenz/evaluation/budget_based
+poetry run budget-compute-comparison --results-dir experiments/lorenz/evaluation/budget_based --metric mean --eval-scope T1
+```
+
+**Args:**
+
+| Name            | Description                                      | Values             | Default value     |
+|-----------------|--------------------------------------------------|--------------------|-------------------|
+| `--results-dir` | Directory containing `budget_mse_results_*.json` | str                | `config.EVAL_DIR` |
+| `--metric`      | Statistic shown in plots                         | `mean` \| `median` | `median`          |
+| `--eval-scope`  | Evaluation scope used for plotted MSE values     | `overall` \| `T1`  | `overall`         |
+| `--output`      | Output path                                      | str                | Auto-generated    |
+
+Notes:
+- The default `overall` scope reproduces the budget comparison using the overall summary statistic (on all validation horizons).
+- `--eval-scope T1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at validation horizon `T=1` (`0.08` when `dt=0.08`).
 
 ### Lyapunov Exponents
 
