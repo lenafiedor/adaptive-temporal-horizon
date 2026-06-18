@@ -57,6 +57,13 @@ def get_adaptive_method(checkpoint):
     return adaptive_metadata.get("method")
 
 
+def get_training_wall_time(checkpoint):
+    metadata = checkpoint.get("metadata", {})
+    if "wall_time_seconds" not in metadata:
+        return {"wall_time_seconds": float(metadata["train_wall_clock_seconds"])}
+    return {"wall_time_seconds": float(metadata["wall_time_seconds"])}
+
+
 def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
     if adaptive_method is None:
         return adaptive_paths
@@ -166,6 +173,7 @@ def cross_validate_models(
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
+            wall_time = get_training_wall_time(checkpoint)
             model_records = []
 
             for val_T in val_Ts:
@@ -176,8 +184,7 @@ def cross_validate_models(
                     "train_T": train_T,
                     "val_T": val_T,
                     "mse": mse,
-                    "model_file": model_path.name,
-                    "model_path": str(model_path),
+                    **wall_time,
                 }
                 evaluation_records.append(record)
                 model_records.append(record)
@@ -193,6 +200,7 @@ def cross_validate_models(
             eval_loader = get_eval_loader(checkpoint)
             seed = checkpoint.get("seed")
             method = get_adaptive_method(checkpoint)
+            wall_time = get_training_wall_time(checkpoint)
             model_records = []
 
             for val_T in val_Ts:
@@ -204,8 +212,7 @@ def cross_validate_models(
                     "train_T": None,
                     "val_T": val_T,
                     "mse": mse,
-                    "model_file": model_path.name,
-                    "model_path": str(model_path),
+                    **wall_time,
                 }
                 evaluation_records.append(record)
                 model_records.append(record)

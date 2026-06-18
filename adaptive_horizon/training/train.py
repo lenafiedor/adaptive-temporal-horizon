@@ -86,7 +86,7 @@ def train(
     train_losses = []
     val_losses = []
     gradient_history = []
-    train_wall_clock_seconds = 0.0
+    wall_time_start = perf_counter()
 
     if early_stopping:
         early_stop_best_loss = None
@@ -147,7 +147,6 @@ def train(
             current_T = T
 
         for batch in train_loader:
-            batch_start = perf_counter()
             inputs, targets, *rest = batch
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
@@ -187,7 +186,6 @@ def train(
                 )
             loss.backward()
             optimizer.step()
-            train_wall_clock_seconds += perf_counter() - batch_start
             epoch_loss += loss.item()
 
         avg_loss = epoch_loss / len(train_loader)
@@ -242,7 +240,7 @@ def train(
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
-        metadata["train_wall_clock_seconds"] = float(train_wall_clock_seconds)
+        metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
         if early_stopping:
             metadata["early_stopping"].update(
                 {

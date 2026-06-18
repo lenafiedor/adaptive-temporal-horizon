@@ -157,8 +157,8 @@ Plot adaptive MSE and the best fixed-model MSE as a function of the budget run's
 The helper reads generated `budget_mse_results_*.json` files and writes both a PNG plot and a CSV with the plotted values.
 
 ```bash
-poetry run budget-compute-comparison --results-dir experiments/lorenz/evaluation/budget_based
-poetry run budget-compute-comparison --results-dir experiments/lorenz/evaluation/budget_based --metric mean --eval-scope T1
+poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_based
+poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_based --metric mean --eval-scope T1
 ```
 
 **Args:**

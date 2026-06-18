@@ -15,7 +15,11 @@ from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
 class BudgetComparison:
     max_train_T: int
     adaptive_mse: float
+    adaptive_ci95_low: float
+    adaptive_ci95_high: float
     fixed_mse: float
+    fixed_ci95_low: float
+    fixed_ci95_high: float
     best_train_T: int | None
     source_path: Path
 
@@ -24,23 +28,31 @@ def load_result(path: Path, metric: str, eval_scope: str):
     with path.open("r") as f:
         result = json.load(f)
     metadata = result.get("metadata", {})
+    summary = result.get("summary", {})
     best_train_T = metadata.get("best_train_T")
+    fixed_result = next(
+        item for item in summary["fixed"] if item["train_T"] == best_train_T
+    )
 
     if eval_scope == "T1":
-        summary = result.get("summary", {})
-        fixed_result = next(
-            item for item in summary["fixed"] if item["train_T"] == best_train_T
-        )
-        fixed_mse = fixed_result["by_eval_T"][0][metric]
-        adaptive_mse = summary["adaptive"]["by_eval_T"][0][metric]
+        fixed_summary = fixed_result["by_eval_T"][0]
+        adaptive_summary = summary["adaptive"]["by_eval_T"][0]
+        fixed_mse = fixed_summary[metric]
+        adaptive_mse = adaptive_summary[metric]
     else:
+        fixed_summary = fixed_result["overall"]
+        adaptive_summary = summary["adaptive"]["overall"]
         fixed_mse = metadata.get(f"best_fixed_{metric}_MSE")
         adaptive_mse = metadata.get(f"adaptive_{metric}_MSE")
 
     return BudgetComparison(
         max_train_T=metadata["max_train_T"],
         adaptive_mse=adaptive_mse,
+        adaptive_ci95_low=adaptive_summary[f"{metric}_ci95_low"],
+        adaptive_ci95_high=adaptive_summary[f"{metric}_ci95_high"],
         fixed_mse=fixed_mse,
+        fixed_ci95_low=fixed_summary[f"{metric}_ci95_low"],
+        fixed_ci95_high=fixed_summary[f"{metric}_ci95_high"],
         best_train_T=best_train_T,
         source_path=path,
     )
@@ -63,7 +75,11 @@ def save_csv(comparisons, output_path: Path):
             [
                 "max_train_T",
                 "adaptive_mse",
+                "adaptive_ci95_low",
+                "adaptive_ci95_high",
                 "fixed_mse",
+                "fixed_ci95_low",
+                "fixed_ci95_high",
                 "best_train_T",
                 "source_file",
             ]
@@ -73,7 +89,11 @@ def save_csv(comparisons, output_path: Path):
                 [
                     comparison.max_train_T,
                     comparison.adaptive_mse,
+                    comparison.adaptive_ci95_low,
+                    comparison.adaptive_ci95_high,
                     comparison.fixed_mse,
+                    comparison.fixed_ci95_low,
+                    comparison.fixed_ci95_high,
                     comparison.best_train_T,
                     comparison.source_path,
                 ]
@@ -85,21 +105,45 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     x_values = [comparison.max_train_T for comparison in comparisons]
     adaptive_values = [comparison.adaptive_mse for comparison in comparisons]
     fixed_values = [comparison.fixed_mse for comparison in comparisons]
+    adaptive_errors = [
+        [
+            value - comparison.adaptive_ci95_low
+            for value, comparison in zip(adaptive_values, comparisons)
+        ],
+        [
+            comparison.adaptive_ci95_high - value
+            for value, comparison in zip(adaptive_values, comparisons)
+        ],
+    ]
+    fixed_errors = [
+        [
+            value - comparison.fixed_ci95_low
+            for value, comparison in zip(fixed_values, comparisons)
+        ],
+        [
+            comparison.fixed_ci95_high - value
+            for value, comparison in zip(fixed_values, comparisons)
+        ],
+    ]
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(
+    ax.errorbar(
         x_values,
         adaptive_values,
+        yerr=adaptive_errors,
         marker="o",
         linewidth=2,
+        capsize=3,
         label="Adaptive",
         color=COLOR_EVAL,
     )
-    ax.plot(
+    ax.errorbar(
         x_values,
         fixed_values,
+        yerr=fixed_errors,
         marker="s",
         linewidth=2,
+        capsize=3,
         label="Best fixed",
         color=COLOR_TRAIN,
     )
@@ -107,10 +151,10 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     ax.set_xlabel("Training budget (max train T)")
     ax.set_xticks(x_values)
     if eval_scope == "T1":
-        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$")
+        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$ (95% CI)")
         ax.set_title(r"Budget-Based Comparison at $T_{{val}}=1$")
     else:
-        ax.set_ylabel(f"Overall {metric} MSE")
+        ax.set_ylabel(f"Overall {metric} MSE (95% CI)")
         ax.set_title("Budget-Based Comparison")
     ax.grid(True, alpha=0.25)
     ax.legend()

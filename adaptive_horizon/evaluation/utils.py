@@ -60,6 +60,24 @@ def get_checkpoint_normalization_stats(checkpoint):
     return metadata.get("normalization_stats")
 
 
+def summarize_wall_time(evaluation_records):
+    totals = {
+        "fixed": 0.0,
+        "adaptive": 0.0,
+    }
+    for record in evaluation_records:
+        model_type = record.get("model_type")
+        wall_time = record.get("wall_time_seconds", "train_wall_clock_seconds")
+        if model_type not in totals or wall_time is None:
+            continue
+        totals[model_type] += float(wall_time)
+
+    return {
+        "total_time_fixed": totals["fixed"],
+        "total_time_adaptive": totals["adaptive"],
+    }
+
+
 def save_cross_validation_results(
     evaluation_records,
     summary,
@@ -80,6 +98,7 @@ def save_cross_validation_results(
         / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.json"
     )
     summary_metadata = summarize_metadata(summary)
+    wall_time_metadata = summarize_wall_time(evaluation_records)
 
     payload = {
         "metadata": {
@@ -89,6 +108,7 @@ def save_cross_validation_results(
             "fixed_dir": str(fixed_dir or adaptive_dir),
             "max_train_T": max_train_T,
             **summary_metadata,
+            **wall_time_metadata,
         },
         "summary": summary,
         "evaluation_records": evaluation_records,
