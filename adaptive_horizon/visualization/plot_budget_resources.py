@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
 
 from adaptive_horizon import config
 from adaptive_horizon.utils import format_dt
@@ -15,13 +16,43 @@ from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
 class BudgetComparison:
     max_train_T: int
     adaptive_mse: float
-    adaptive_ci95_low: float
-    adaptive_ci95_high: float
+    adaptive_seed_mses: list[float]
     fixed_mse: float
-    fixed_ci95_low: float
-    fixed_ci95_high: float
+    fixed_seed_mses: list[float]
     best_train_T: int | None
     source_path: Path
+
+
+def per_seed_mses(records, model_type: str, eval_scope: str, train_T=None):
+    matching_records = [
+        record
+        for record in records
+        if record["model_type"] == model_type
+        and record.get("seed") is not None
+        and (train_T is None or record.get("train_T") == train_T)
+        and (eval_scope != "T1" or int(record["val_T"]) == 1)
+    ]
+
+    if eval_scope == "T1":
+        return [float(record["mse"]) for record in matching_records]
+
+    values_by_seed = {}
+    for record in matching_records:
+        values_by_seed.setdefault(int(record["seed"]), []).append(float(record["mse"]))
+
+    return [
+        float(np.mean(seed_values))
+        for _, seed_values in sorted(values_by_seed.items())
+        if seed_values
+    ]
+
+
+def aggregate_mse(seed_mses, metric: str, fallback: float):
+    if not seed_mses:
+        return fallback
+    if metric == "mean":
+        return float(np.mean(seed_mses))
+    return float(np.median(seed_mses))
 
 
 def load_result(path: Path, metric: str, eval_scope: str):
@@ -29,6 +60,7 @@ def load_result(path: Path, metric: str, eval_scope: str):
         result = json.load(f)
     metadata = result.get("metadata", {})
     summary = result.get("summary", {})
+    records = result.get("evaluation_records", [])
     best_train_T = metadata.get("best_train_T")
     fixed_result = next(
         item for item in summary["fixed"] if item["train_T"] == best_train_T
@@ -37,22 +69,21 @@ def load_result(path: Path, metric: str, eval_scope: str):
     if eval_scope == "T1":
         fixed_summary = fixed_result["by_eval_T"][0]
         adaptive_summary = summary["adaptive"]["by_eval_T"][0]
-        fixed_mse = fixed_summary[metric]
-        adaptive_mse = adaptive_summary[metric]
     else:
         fixed_summary = fixed_result["overall"]
         adaptive_summary = summary["adaptive"]["overall"]
-        fixed_mse = metadata.get(f"best_fixed_{metric}_MSE")
-        adaptive_mse = metadata.get(f"adaptive_{metric}_MSE")
+
+    adaptive_seed_mses = per_seed_mses(records, "adaptive", eval_scope)
+    fixed_seed_mses = per_seed_mses(records, "fixed", eval_scope, best_train_T)
 
     return BudgetComparison(
         max_train_T=metadata["max_train_T"],
-        adaptive_mse=adaptive_mse,
-        adaptive_ci95_low=adaptive_summary[f"{metric}_ci95_low"],
-        adaptive_ci95_high=adaptive_summary[f"{metric}_ci95_high"],
-        fixed_mse=fixed_mse,
-        fixed_ci95_low=fixed_summary[f"{metric}_ci95_low"],
-        fixed_ci95_high=fixed_summary[f"{metric}_ci95_high"],
+        adaptive_mse=aggregate_mse(
+            adaptive_seed_mses, metric, adaptive_summary[metric]
+        ),
+        adaptive_seed_mses=adaptive_seed_mses,
+        fixed_mse=aggregate_mse(fixed_seed_mses, metric, fixed_summary[metric]),
+        fixed_seed_mses=fixed_seed_mses,
         best_train_T=best_train_T,
         source_path=path,
     )
@@ -75,11 +106,9 @@ def save_csv(comparisons, output_path: Path):
             [
                 "max_train_T",
                 "adaptive_mse",
-                "adaptive_ci95_low",
-                "adaptive_ci95_high",
+                "adaptive_seed_mses",
                 "fixed_mse",
-                "fixed_ci95_low",
-                "fixed_ci95_high",
+                "fixed_seed_mses",
                 "best_train_T",
                 "source_file",
             ]
@@ -89,11 +118,9 @@ def save_csv(comparisons, output_path: Path):
                 [
                     comparison.max_train_T,
                     comparison.adaptive_mse,
-                    comparison.adaptive_ci95_low,
-                    comparison.adaptive_ci95_high,
+                    json.dumps(comparison.adaptive_seed_mses),
                     comparison.fixed_mse,
-                    comparison.fixed_ci95_low,
-                    comparison.fixed_ci95_high,
+                    json.dumps(comparison.fixed_seed_mses),
                     comparison.best_train_T,
                     comparison.source_path,
                 ]
@@ -105,47 +132,58 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     x_values = [comparison.max_train_T for comparison in comparisons]
     adaptive_values = [comparison.adaptive_mse for comparison in comparisons]
     fixed_values = [comparison.fixed_mse for comparison in comparisons]
-    adaptive_errors = [
-        [
-            value - comparison.adaptive_ci95_low
-            for value, comparison in zip(adaptive_values, comparisons)
-        ],
-        [
-            comparison.adaptive_ci95_high - value
-            for value, comparison in zip(adaptive_values, comparisons)
-        ],
-    ]
-    fixed_errors = [
-        [
-            value - comparison.fixed_ci95_low
-            for value, comparison in zip(fixed_values, comparisons)
-        ],
-        [
-            comparison.fixed_ci95_high - value
-            for value, comparison in zip(fixed_values, comparisons)
-        ],
-    ]
+    x_spacing = min(np.diff(sorted(x_values))) if len(x_values) > 1 else 1.0
+    group_offset = 0.12 * float(x_spacing)
+    jitter_width = 0.04 * float(x_spacing)
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.errorbar(
+    for i, comparison in enumerate(comparisons):
+        if comparison.adaptive_seed_mses:
+            offsets = np.linspace(
+                -jitter_width, jitter_width, len(comparison.adaptive_seed_mses)
+            )
+            ax.scatter(
+                np.full(len(comparison.adaptive_seed_mses), x_values[i] + group_offset)
+                + offsets,
+                comparison.adaptive_seed_mses,
+                color=COLOR_EVAL,
+                alpha=0.8,
+                s=22,
+                linewidths=0,
+                label="Adaptive seeds" if i == 0 else "_nolegend_",
+                zorder=2,
+            )
+        if comparison.fixed_seed_mses:
+            offsets = np.linspace(
+                -jitter_width, jitter_width, len(comparison.fixed_seed_mses)
+            )
+            ax.scatter(
+                np.full(len(comparison.fixed_seed_mses), x_values[i] - group_offset)
+                + offsets,
+                comparison.fixed_seed_mses,
+                color=COLOR_TRAIN,
+                alpha=0.8,
+                s=22,
+                linewidths=0,
+                label="Best fixed seeds" if i == 0 else "_nolegend_",
+                zorder=2,
+            )
+
+    ax.plot(
         x_values,
         adaptive_values,
-        yerr=adaptive_errors,
-        marker="o",
         linewidth=2,
-        capsize=3,
-        label="Adaptive",
+        label=f"Adaptive {metric}",
         color=COLOR_EVAL,
+        zorder=3,
     )
-    ax.errorbar(
+    ax.plot(
         x_values,
         fixed_values,
-        yerr=fixed_errors,
-        marker="s",
         linewidth=2,
-        capsize=3,
-        label="Best fixed",
+        label=f"Best fixed {metric}",
         color=COLOR_TRAIN,
+        zorder=3,
     )
 
     ax.set_xlabel("Training budget (max train T)")
