@@ -57,23 +57,23 @@ poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models un
 
 **Args:**
 
-| Name                | Description                                                           | Values                                                        | Default value        |
-|---------------------|-----------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
-| `--epochs` `-e`     | Number of training epochs                                             | int                                                           | `config.EPOCHS`      |
-| `--single`          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                 | false                |
-| `-T`                | Training horizon for fixed `--single` mode                            | int                                                           | 1                    |
-| `--fixed`, `-f`     | Train only fixed-horizon models                                       | true \| false                                                 | false                |
-| `--adaptive`, `-a`  | Train only adaptive models                                            | true \| false                                                 | false                |
-| `--adaptive-method` | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | `adaptive-horizon`   |
-| `--max-T`           | Maximum horizon used in aggregate training                            | int                                                           | `config.MAX_TRAIN_T` |
-| `--budget-based`    | Train fixed and curriculum-horizon adaptive models under one budget   | true \| false                                                 | false                |
-| `--epochs-per-T`    | Budget mode epochs for each fixed horizon                             | int                                                           | 20                   |
-| `--n-seeds` `-s`    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
-| `--dt`              | Time step for the Lorenz simulation                                   | float                                                         | `config.DT`          |
-| `--batch-size`      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
-| `--early-stopping`  | Enable early stopping when validation loss does not improve           | true \| false                                                 | false                |
-| `--append`          | Append missing models to the run referenced by `models/last_run.txt`  | true \| false                                                 | false                |
-| `--debug`           | Save extra loss and gradient diagnostics                              | true \| false                                                 | false                |
+| Name                | Description                                                                       | Values                                                        | Default value        |
+|---------------------|-----------------------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
+| `--epochs` `-e`     | Number of training epochs                                                         | int                                                           | `config.EPOCHS`      |
+| `--single`          | Train a single model; combine with `--adaptive` for adaptive training             | true \| false                                                 | false                |
+| `-T`                | Training horizon for fixed `--single` mode                                        | int                                                           | 1                    |
+| `--fixed`, `-f`     | Train only fixed-horizon models                                                   | true \| false                                                 | false                |
+| `--adaptive`, `-a`  | Train only adaptive models                                                        | true \| false                                                 | false                |
+| `--adaptive-method` | Adaptive training method                                                          | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | `adaptive-horizon`   |
+| `--max-T`           | Maximum horizon used in aggregate training                                        | int                                                           | `config.MAX_TRAIN_T` |
+| `--budget-based`    | Train fixed and curriculum-horizon adaptive models under one budget               | true \| false                                                 | false                |
+| `--epochs-per-T`    | Budget mode epochs for each fixed horizon                                         | int                                                           | 20                   |
+| `--n-seeds` `-s`    | Number of seeds for aggregate training                                            | int                                                           | `config.NUM_SEEDS`   |
+| `--dt`              | Time step for the Lorenz simulation                                               | float                                                         | `config.DT`          |
+| `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
+| `--early-stopping`  | Enable early stopping when validation loss does not improve                       | true \| false                                                 | false                |
+| `--append`          | Append missing models to an existing run; omit value to use `models/last_run.txt` | optional str                                                  | None                 |
+| `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
@@ -171,7 +171,7 @@ poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_
 | `--output`      | Output path                                      | str                | Auto-generated    |
 
 Notes:
-- The default `overall` scope reproduces the budget comparison using the overall summary statistic (on all validation horizons).
+- The default `overall` scope plots aggregate MSE across all validation horizons.
 - `--eval-scope T1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at validation horizon `T=1` (`0.08` when `dt=0.08`).
 
 ### Lyapunov Exponents

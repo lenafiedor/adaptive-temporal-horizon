@@ -2,7 +2,8 @@ import numpy as np
 
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
 from adaptive_horizon.dynamics.lorenz import lorenz_f, jacobian_lorenz
-from adaptive_horizon.config import resolve_burn_in_steps, FTLE_WINDOW
+from adaptive_horizon.config import FTLE_WINDOW
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def compute_global_lyapunov(dt=0.01, steps=10000, burn_in=None):

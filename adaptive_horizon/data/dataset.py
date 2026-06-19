@@ -10,6 +10,7 @@ from adaptive_horizon.data.utils import (
     NormalizationStats,
     split_trajectory,
 )
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 class LorenzDataset(NormalizationStats, Dataset):
@@ -47,7 +48,7 @@ class LorenzDataset(NormalizationStats, Dataset):
         """
         self.T = T
         self.normalize = normalize
-        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
+        self.burn_in = resolve_burn_in_steps(dt, burn_in)
         self.history_window = int(history_window)
         self.split = split
         self.trajectory_path = trajectory_path or default_lorenz_trajectory_path(

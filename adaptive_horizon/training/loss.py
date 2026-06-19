@@ -81,10 +81,6 @@ def lle_predictability_weights(
     floor: float = config.WEIGHT_FLOOR,
 ):
     """Build normalized rollout-step weights from per-sample FTLE scores."""
-    if temperature <= 0:
-        raise ValueError(f"temperature must be positive, got {temperature}")
-    if floor < 0:
-        raise ValueError(f"floor must be non-negative, got {floor}")
 
     taus = torch.arange(
         1, T + 1, dtype=lambda_scores.dtype, device=lambda_scores.device
@@ -123,8 +119,6 @@ def lle_weighted_batch_loss(
     Returns:
         float: average weighted rollout loss
     """
-    if not 0 <= anchor_alpha <= 1:
-        raise ValueError(f"anchor_alpha must be in [0, 1], got {anchor_alpha}")
 
     T_max = targets.shape[1]
     preds = rollout_predictions(model, inputs, T_max)

@@ -36,6 +36,7 @@ early_stopping = true
 early_stop_patience = 10
 early_stop_min_delta = 0.0001
 early_stop_min_T = 5
+early_stop_grace_epochs = 20
 
 [model]
 input_dim = 3

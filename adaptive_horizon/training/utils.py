@@ -2,10 +2,16 @@ from datetime import datetime
 from pathlib import Path
 import re
 import torch
+import math
 
 import adaptive_horizon.config as config
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
 from adaptive_horizon.utils import format_dt
+
+
+def resolve_burn_in_steps(dt=config.DT, burn_in_time=config.BURN_IN_TIME):
+    """Resolve transient burn-in steps from physical Lorenz time."""
+    return int(math.ceil(burn_in_time / dt))
 
 
 def get_train_Ts(max_T: int):
@@ -43,20 +49,29 @@ def get_existing_adaptive_model_seeds(
     return model_seeds
 
 
-def resolve_dirs(dt, append: bool, max_train_T: int, debug: bool, budget_based: bool):
+def resolve_dirs(
+    dt,
+    append: bool,
+    max_train_T: int,
+    debug: bool,
+    budget_based: bool,
+    append_model_dir: Path | None = None,
+):
     last_run_file = config.MODEL_DIR / "last_run.txt"
 
     if append:
-        if not last_run_file.exists():
-            raise FileNotFoundError(
-                f"Cannot append: {last_run_file} does not exist. Run training without --append first."
-            )
+        if append_model_dir is None:
+            if not last_run_file.exists():
+                raise FileNotFoundError(
+                    f"Cannot append: {last_run_file} does not exist. Run training without --append first."
+                )
+            append_model_dir = Path(last_run_file.read_text().strip())
 
-        model_root = Path(last_run_file.read_text().strip()).resolve()
+        model_root = append_model_dir.expanduser().resolve()
         filename = model_root.name
         if not model_root.exists():
             raise FileNotFoundError(
-                "Cannot append: model directory referenced by last_run.txt was not found."
+                f"Cannot append: model directory {model_root} was not found."
             )
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

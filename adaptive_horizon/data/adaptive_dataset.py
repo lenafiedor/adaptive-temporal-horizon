@@ -18,6 +18,7 @@ from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
 )
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.utils import time_to_steps
 
 
@@ -33,8 +34,8 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         self,
         dt: float = config.DT,
         normalize: bool = True,
-        seed: Optional[int] = config.TRAJECTORY_SEED,
-        burn_in: Optional[int] = None,
+        seed: int = config.TRAJECTORY_SEED,
+        burn_in: int = 0,
         var: int = config.VARIANCE,
         history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
@@ -46,7 +47,7 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         trajectory_path: Optional[str] = None,
     ):
         self.normalize = normalize
-        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
+        self.burn_in = resolve_burn_in_steps(dt, burn_in)
         self.var = var
         self.history_window = int(history_window)
         self.split = split
@@ -161,8 +162,8 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         ftle_window: int = config.FTLE_WINDOW,
         history_window: int = config.HISTORY_WINDOW,
         normalize: bool = True,
-        seed: Optional[int] = config.TRAJECTORY_SEED,
-        burn_in: Optional[int] = None,
+        seed: int = config.TRAJECTORY_SEED,
+        burn_in: int = 0,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
         split: str = "train",

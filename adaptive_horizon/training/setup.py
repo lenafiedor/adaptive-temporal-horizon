@@ -15,6 +15,7 @@ from adaptive_horizon.training.methods import (
     CURRICULUM_HORIZON,
     WEIGHTED_LOSS,
 )
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.utils import time_to_steps
 
 
@@ -86,7 +87,7 @@ def create_model_and_loaders(
         activation=torch.nn.ReLU(),
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
-    burn_in_steps = config.resolve_burn_in_steps(dt)
+    burn_in_steps = resolve_burn_in_steps(dt)
     split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, history_window)
     metadata = {
         "dt": dt,

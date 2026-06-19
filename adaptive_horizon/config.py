@@ -1,5 +1,4 @@
 from pathlib import Path
-import math
 import tomllib
 
 
@@ -49,6 +48,9 @@ CURRICULUM_EARLY_STOPPING = _config["curriculum-horizon"]["early_stopping"]
 CURRICULUM_EARLY_STOP_PATIENCE = _config["curriculum-horizon"]["early_stop_patience"]
 CURRICULUM_EARLY_STOP_MIN_DELTA = _config["curriculum-horizon"]["early_stop_min_delta"]
 CURRICULUM_EARLY_STOP_MIN_T = _config["curriculum-horizon"]["early_stop_min_T"]
+CURRICULUM_EARLY_STOP_GRACE_EPOCHS = _config["curriculum-horizon"][
+    "early_stop_grace_epochs"
+]
 
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
@@ -57,22 +59,3 @@ HISTORY_WINDOW = _config["model"]["history_window"]
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 EVAL_SEED = _config["evaluation"]["eval_seed"]
 MAX_EVAL_T = _config["evaluation"]["max_eval_T"]
-
-
-def resolve_burn_in_steps(dt=DT, burn_in=None, burn_in_time=BURN_IN_TIME):
-    """Resolve transient burn-in steps from physical Lorenz time.
-
-    Passing an explicit integer burn_in keeps that exact value, including zero.
-    Leaving burn_in as None uses ceil(burn_in_time / dt).
-    """
-    if burn_in is not None:
-        if burn_in < 0:
-            raise ValueError(f"burn_in must be non-negative, got {burn_in}")
-        return int(burn_in)
-
-    if dt <= 0:
-        raise ValueError(f"dt must be positive, got {dt}")
-    if burn_in_time < 0:
-        raise ValueError(f"burn_in_time must be non-negative, got {burn_in_time}")
-
-    return int(math.ceil(burn_in_time / dt))

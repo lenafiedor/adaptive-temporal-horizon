@@ -151,10 +151,10 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     ax.set_xlabel("Training budget (max train T)")
     ax.set_xticks(x_values)
     if eval_scope == "T1":
-        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$ (95% CI)")
+        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$")
         ax.set_title(r"Budget-Based Comparison at $T_{{val}}=1$")
     else:
-        ax.set_ylabel(f"Overall {metric} MSE (95% CI)")
+        ax.set_ylabel(f"Overall {metric} MSE")
         ax.set_title("Budget-Based Comparison")
     ax.grid(True, alpha=0.25)
     ax.legend()
