@@ -182,7 +182,7 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         self.ftle_window = int(ftle_window)
         self.history_window = int(history_window)
         self.normalize = normalize
-        self.burn_in = config.resolve_burn_in_steps(dt, burn_in)
+        self.burn_in = resolve_burn_in_steps(dt, burn_in)
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None

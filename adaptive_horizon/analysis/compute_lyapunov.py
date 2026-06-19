@@ -10,6 +10,7 @@ from adaptive_horizon.visualization.plotting import (
     plot_lyapunov_exponents,
     plot_lle_heatmap,
 )
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 import adaptive_horizon.config as config
 
 
@@ -40,7 +41,7 @@ def main():
         print(f"Largest Lyapunov Exponent: {lle:.4f}")
 
     elif args.mode == "local":
-        burn_in = config.resolve_burn_in_steps(args.dt)
+        burn_in = resolve_burn_in_steps(args.dt)
         lorenz_trajectory = np.array(
             simulate_lorenz(
                 dt=args.dt,

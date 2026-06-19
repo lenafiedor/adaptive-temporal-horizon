@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def lorenz_lobe_centers(rho=28, beta=8 / 3):
@@ -182,7 +182,7 @@ def plot_lorenz_with_crossings(traj, crossings, lap_indices):
 
 if __name__ == "__main__":
     dt = 0.01
-    burn_in = config.resolve_burn_in_steps(dt)
+    burn_in = resolve_burn_in_steps(dt)
     trajectory = np.array(simulate_lorenz(dt=dt, burn_in=burn_in))
 
     crossings = find_wing_crossings(trajectory)

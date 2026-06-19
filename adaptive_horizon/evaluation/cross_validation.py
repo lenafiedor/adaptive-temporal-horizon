@@ -8,6 +8,7 @@ from pathlib import Path
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import validation_loss
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
     plot_mse_subplots,
@@ -90,7 +91,7 @@ def get_history_window(checkpoint):
 
 
 def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=None):
-    burn_in_steps = config.resolve_burn_in_steps(dt)
+    burn_in_steps = resolve_burn_in_steps(dt)
     history_window = history_window or config.HISTORY_WINDOW
     split_gap = max(
         config.MAX_TRAIN_T,

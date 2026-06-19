@@ -21,6 +21,7 @@ from adaptive_horizon.visualization.plotting import (
     plot_g_T_heatmap,
     plot_prediction_overlay,
 )
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def normalize_trajectory(trajectory, normalization_stats):
@@ -135,7 +136,7 @@ def compute_gradient_heatmap(args):
     history_window = get_history_window(checkpoint)
     normalization_stats = get_checkpoint_normalization_stats(checkpoint)
 
-    burn_in = config.resolve_burn_in_steps(args.dt)
+    burn_in = resolve_burn_in_steps(args.dt)
     trajectory_path = default_lorenz_trajectory_path(
         config.DATA_DIR,
         dt=args.dt,
