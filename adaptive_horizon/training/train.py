@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 import argparse
+from pathlib import Path
 from time import perf_counter
 
 import adaptive_horizon.config as config
@@ -26,6 +27,7 @@ from adaptive_horizon.training.methods import (
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.utils import (
+    resolve_burn_in_steps,
     get_existing_adaptive_model_seeds,
     get_existing_fixed_model_seeds,
     get_train_Ts,
@@ -93,6 +95,11 @@ def train(
         early_stop_wait = 0
         stopped_early = False
         early_stop_min_T = min(T, config.CURRICULUM_EARLY_STOP_MIN_T)
+        grace_active = False
+        grace_T = None
+        grace_epochs_ran = 0
+        trigger_epoch = None
+        trigger_T = None
         if metadata is not None:
             metadata["early_stopping"] = {
                 "enabled": True,
@@ -100,6 +107,7 @@ def train(
                 "patience": config.CURRICULUM_EARLY_STOP_PATIENCE,
                 "min_delta": config.CURRICULUM_EARLY_STOP_MIN_DELTA,
                 "min_T": early_stop_min_T,
+                "grace_epochs": config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS,
             }
 
     if debug:
@@ -117,7 +125,7 @@ def train(
             dt=dt,
             normalize=True,
             seed=config.TRAJECTORY_SEED,
-            burn_in=config.resolve_burn_in_steps(dt),
+            burn_in=resolve_burn_in_steps(dt),
             history_window=history_window,
             split="val",
             split_gap=split_gap,
@@ -133,10 +141,14 @@ def train(
 
     curriculum_T = 1
 
-    for epoch in range(epochs):
+    epoch = 0
+    final_T = None
+    while epoch < epochs or (early_stopping and grace_active):
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method == CURRICULUM_HORIZON:
+        if early_stopping and grace_active:
+            current_T = grace_T
+        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
             current_T = curriculum_horizon(epoch, epochs, T)
             if current_T != curriculum_T:
                 print(
@@ -145,6 +157,7 @@ def train(
                 curriculum_T = current_T
         else:
             current_T = T
+        final_T = current_T
 
         for batch in train_loader:
             inputs, targets, *rest = batch
@@ -203,7 +216,23 @@ def train(
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
-        if early_stopping and current_T >= early_stop_min_T:
+        if early_stopping and grace_active:
+            improvement = (
+                early_stop_best_loss is None
+                or val_loss
+                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+            )
+            if improvement:
+                early_stop_best_loss = float(val_loss)
+            grace_epochs_ran += 1
+            if grace_epochs_ran >= config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS:
+                stopped_early = True
+                print(
+                    f"\tEarly stopping grace completed after {grace_epochs_ran} "
+                    f"epochs at T={current_T}"
+                )
+                break
+        elif early_stopping and current_T >= early_stop_min_T:
             improvement = (
                 early_stop_best_loss is None
                 or val_loss
@@ -216,11 +245,15 @@ def train(
                 early_stop_wait += 1
 
             if early_stop_wait >= config.CURRICULUM_EARLY_STOP_PATIENCE:
-                stopped_early = True
+                grace_active = True
+                grace_T = current_T
+                trigger_epoch = epoch + 1
+                trigger_T = current_T
                 print(
-                    f"\tEarly stopping curriculum at  epoch {epoch + 1}, T={current_T}"
+                    f"\tEarly stopping triggered at epoch {epoch + 1}, "
+                    f"T={current_T}; training {config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS} "
+                    "additional epochs at the same T"
                 )
-                break
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -236,6 +269,7 @@ def train(
                 )
                 gradient_history.append((epoch, gradients))
                 plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
+        epoch += 1
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
@@ -247,6 +281,10 @@ def train(
                     "stopped_early": stopped_early,
                     "best_val_loss": early_stop_best_loss,
                     "epochs_ran": len(train_losses),
+                    "final_T": final_T,
+                    "trigger_epoch": trigger_epoch,
+                    "trigger_T": trigger_T,
+                    "grace_epochs_ran": grace_epochs_ran,
                 }
             )
 
@@ -564,8 +602,11 @@ def main():
     )
     parser.add_argument(
         "--append",
-        action="store_true",
-        help="Append outputs to the run referenced by models/last_run.txt",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="MODEL_DIR",
+        help="Append outputs to MODEL_DIR, or to the run referenced by models/last_run.txt when no value is provided",
     )
     parser.add_argument(
         "--debug",
@@ -574,20 +615,27 @@ def main():
     )
 
     args = parser.parse_args()
+    append = args.append is not None
+    append_model_dir = Path(args.append) if args.append else None
     train_Ts = get_train_Ts(args.max_T)
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
     print(f"Time step: {args.dt}")
     print(
-        f"Burn-in: {config.resolve_burn_in_steps(args.dt)} steps "
+        f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
         f"({config.BURN_IN_TIME:g} time units)"
     )
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
 
     model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file = resolve_dirs(
-        args.dt, args.append, args.max_T, args.debug, args.budget_based
+        args.dt,
+        append,
+        args.max_T,
+        args.debug,
+        args.budget_based,
+        append_model_dir,
     )
 
     if args.single:
@@ -627,7 +675,7 @@ def main():
                 loss_dir,
                 dt=args.dt,
                 batch_size=args.batch_size,
-                append=args.append,
+                append=append,
                 debug=args.debug,
             )
         if args.adaptive or not args.fixed:
@@ -643,7 +691,7 @@ def main():
                 if args.budget_based
                 else args.adaptive_method,
                 max_T=args.max_T,
-                append=args.append,
+                append=append,
                 debug=args.debug,
                 early_stopping=args.early_stopping,
             )
@@ -654,7 +702,7 @@ def main():
     print(f"Models saved to {model_root}")
     if loss_dir is not None:
         print(f"Losses saved to {loss_dir}")
-    if not args.append:
+    if not append:
         last_run_file.write_text(str(model_root))
 
 
