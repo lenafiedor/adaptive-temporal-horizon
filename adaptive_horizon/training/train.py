@@ -114,11 +114,9 @@ def train(
         if save_dir is None:
             save_dir = config.LOSS_DIR
         save_dir.mkdir(parents=True, exist_ok=True)
-        history_window = getattr(model, "history_window", config.HISTORY_WINDOW)
         split_gap = max(
             config.MAX_TRAIN_T,
             config.MAX_EVAL_T,
-            history_window,
         )
         debug_dataset = LorenzDataset(
             T=config.MAX_EVAL_T,
@@ -126,7 +124,6 @@ def train(
             normalize=True,
             seed=config.TRAJECTORY_SEED,
             burn_in=resolve_burn_in_steps(dt),
-            history_window=history_window,
             split="val",
             split_gap=split_gap,
             normalization_stats=getattr(model, "normalization_stats", None),
@@ -303,7 +300,6 @@ def train_single_model(
     adaptive_method=ADAPTIVE_HORIZON,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     debug=False,
@@ -319,7 +315,6 @@ def train_single_model(
             adaptive_method,
             optimizer_name,
             batch_size,
-            history_window,
             ftle_window,
             var,
             debug,
@@ -383,7 +378,6 @@ def train_fixed_models(
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    history_window=config.HISTORY_WINDOW,
     append=False,
     debug=False,
 ):
@@ -441,7 +435,6 @@ def train_fixed_models(
                 T=T,
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
-                history_window=history_window,
                 debug=debug,
             )
             train_losses.append(train_loss)
@@ -467,7 +460,6 @@ def train_adaptive_models(
     batch_size=config.BATCH_SIZE,
     adaptive_method=ADAPTIVE_HORIZON,
     max_T=config.MAX_TRAIN_T,
-    history_window=config.HISTORY_WINDOW,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     append=False,
@@ -515,7 +507,6 @@ def train_adaptive_models(
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
             batch_size=batch_size,
-            history_window=history_window,
             ftle_window=ftle_window,
             var=var,
             debug=debug,

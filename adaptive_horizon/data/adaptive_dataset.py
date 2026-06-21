@@ -37,7 +37,6 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         seed: int = config.TRAJECTORY_SEED,
         burn_in: int = 0,
         var: int = config.VARIANCE,
-        history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
         split: str = "train",
@@ -49,7 +48,6 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         self.normalize = normalize
         self.burn_in = resolve_burn_in_steps(dt, burn_in)
         self.var = var
-        self.history_window = int(history_window)
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
@@ -102,10 +100,10 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
             traj = self.trajectories[traj_idx]
             horizon = self.horizons[traj_idx]
 
-            for m in range(self.history_window - 1, len(horizon)):
+            for m in range(len(horizon)):
                 T = horizon[m]
                 if m + T < seq_len:
-                    input_state = traj[m - self.history_window + 1 : m + 1].flatten()
+                    input_state = traj[m]
                     target_state = traj[m + 1 : m + T + 1]
                     samples.append((input_state, target_state, T))
 
@@ -160,7 +158,6 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         dt: float = config.DT,
         T_max: Optional[int] = None,
         ftle_window: int = config.FTLE_WINDOW,
-        history_window: int = config.HISTORY_WINDOW,
         normalize: bool = True,
         seed: int = config.TRAJECTORY_SEED,
         burn_in: int = 0,
@@ -180,7 +177,6 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         self.T_max = int(T_max)
         self.dt = dt
         self.ftle_window = int(ftle_window)
-        self.history_window = int(history_window)
         self.normalize = normalize
         self.burn_in = resolve_burn_in_steps(dt, burn_in)
         self.split = split
@@ -228,8 +224,8 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
             lambda_scores = self.lambda_scores[traj_idx]
             max_start = min(seq_len - self.T_max, len(lambda_scores))
 
-            for m in range(self.history_window - 1, max_start):
-                input_state = traj[m - self.history_window + 1 : m + 1].flatten()
+            for m in range(max_start):
+                input_state = traj[m]
                 targets = traj[m + 1 : m + self.T_max + 1]
                 lambda_score = float(lambda_scores[m])
                 samples.append((input_state, targets, lambda_score))

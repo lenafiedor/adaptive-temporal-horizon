@@ -77,26 +77,11 @@ def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
     return filtered_paths
 
 
-def get_history_window(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    if "history_window" in metadata:
-        return int(metadata["history_window"])
-
-    model_config = checkpoint.get("config", {})
-    input_size = model_config.get("input_size")
-    if input_size is not None:
-        return int(input_size) // config.INPUT_DIM
-
-    return config.HISTORY_WINDOW
-
-
-def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=None):
+def make_eval_loader(max_val_T, dt, normalization_stats=None):
     burn_in_steps = resolve_burn_in_steps(dt)
-    history_window = history_window or config.HISTORY_WINDOW
     split_gap = max(
         config.MAX_TRAIN_T,
         config.MAX_EVAL_T,
-        history_window,
         max_val_T,
     )
     eval_dataset = LorenzDataset(
@@ -105,7 +90,6 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=Non
         normalize=True,
         seed=config.TRAJECTORY_SEED,
         burn_in=burn_in_steps,
-        history_window=history_window,
         split="val",
         split_gap=split_gap,
         normalization_stats=normalization_stats,
@@ -118,12 +102,12 @@ def make_eval_loader(max_val_T, dt, normalization_stats=None, history_window=Non
     )
 
 
-def eval_loader_cache_key(normalization_stats, history_window):
+def eval_loader_cache_key(normalization_stats):
     if normalization_stats is None:
-        return None, history_window
+        return None
     mean = tuple(float(value) for value in normalization_stats["mean"])
     std = tuple(float(value) for value in normalization_stats["std"])
-    return mean, std, history_window
+    return mean, std
 
 
 def cross_validate_models(
@@ -155,11 +139,10 @@ def cross_validate_models(
 
     def get_eval_loader(checkpoint):
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
-        history_window = get_history_window(checkpoint)
-        key = eval_loader_cache_key(normalization_stats, history_window)
+        key = eval_loader_cache_key(normalization_stats)
         if key not in eval_loaders:
             eval_loaders[key] = make_eval_loader(
-                max(val_Ts), dt, normalization_stats, history_window
+                max(val_Ts), dt, normalization_stats
             )
         return eval_loaders[key]
 

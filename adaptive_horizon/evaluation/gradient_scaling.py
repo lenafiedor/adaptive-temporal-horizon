@@ -6,7 +6,6 @@ from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_g_T
-from adaptive_horizon.evaluation.cross_validation import get_history_window
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
@@ -26,11 +25,9 @@ def gradient_scaling(
 
     adaptive = "adaptive" in str(model_path)
     train_T = checkpoint.get("train_T") if not adaptive else None
-    history_window = get_history_window(checkpoint)
     split_gap = max(
         config.MAX_TRAIN_T,
         config.MAX_EVAL_T,
-        history_window,
         max_T,
     )
 
@@ -40,7 +37,6 @@ def gradient_scaling(
         normalize=True,
         seed=config.TRAJECTORY_SEED,
         burn_in=burn_in_steps,
-        history_window=history_window,
         split="val",
         split_gap=split_gap,
         normalization_stats=get_checkpoint_normalization_stats(checkpoint),

@@ -23,7 +23,6 @@ class LorenzDataset(NormalizationStats, Dataset):
         normalize: bool = True,
         seed: Optional[int] = config.TRAJECTORY_SEED,
         burn_in: Optional[int] = None,
-        history_window: int = config.HISTORY_WINDOW,
         normalization_stats: Optional[dict] = None,
         split: str = "train",
         trajectory_steps: int = config.TRAJECTORY_STEPS,
@@ -38,7 +37,6 @@ class LorenzDataset(NormalizationStats, Dataset):
             normalize: Whether to normalize the data
             seed: Random seed for the shared Lorenz trajectory
             burn_in: Number of initial steps to discard
-            history_window: Number of past trajectory states included in each input
             normalization_stats: Optional mean/std values from a training dataset
             split: Trajectory split to use ("train" or "val")
             trajectory_steps: Length of the cached post-burn-in trajectory
@@ -49,7 +47,6 @@ class LorenzDataset(NormalizationStats, Dataset):
         self.T = T
         self.normalize = normalize
         self.burn_in = resolve_burn_in_steps(dt, burn_in)
-        self.history_window = int(history_window)
         self.split = split
         self.trajectory_path = trajectory_path or default_lorenz_trajectory_path(
             config.DATA_DIR, dt, trajectory_steps, seed
@@ -79,10 +76,8 @@ class LorenzDataset(NormalizationStats, Dataset):
         num_traj, seq_len, _ = self.trajectories.shape
 
         for traj_idx in range(num_traj):
-            for m in range(self.history_window - 1, seq_len - self.T):
-                input_state = self.trajectories[
-                    traj_idx, m - self.history_window + 1 : m + 1
-                ].flatten()
+            for m in range(seq_len - self.T):
+                input_state = self.trajectories[traj_idx, m]
                 targets = self.trajectories[traj_idx, m + 1 : m + self.T + 1]
                 samples.append((input_state, targets))
 
@@ -94,7 +89,7 @@ class LorenzDataset(NormalizationStats, Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            input_state: (history_window * 3,) tensor - flattened history window
+            input_state: (3,) tensor - current state
             targets: (T, 3) tensor - next T states to predict
         """
         return self.samples[idx]

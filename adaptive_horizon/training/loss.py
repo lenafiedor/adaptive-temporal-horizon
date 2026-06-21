@@ -9,20 +9,19 @@ def rollout_predictions(
     inputs: torch.Tensor,
     steps: int,
 ):
-    """Predict future states autoregressively from a flattened history window."""
-    if inputs.shape[1] % config.INPUT_DIM != 0:
+    """Predict future states autoregressively from the current state."""
+    if inputs.shape[1] != config.INPUT_DIM:
         raise ValueError(
-            f"Input feature size {inputs.shape[1]} is not divisible by "
+            f"Input feature size {inputs.shape[1]} does not match "
             f"state dimension {config.INPUT_DIM}"
         )
-    history_window = inputs.shape[1] // config.INPUT_DIM
-    history = inputs.view(inputs.shape[0], history_window, config.INPUT_DIM)
+    current_state = inputs
     preds = []
 
-    for tau in range(steps):
-        next_state = model(history.reshape(history.shape[0], -1))
+    for _ in range(steps):
+        next_state = model(current_state)
         preds.append(next_state)
-        history = torch.cat([history[:, 1:], next_state.unsqueeze(1)], dim=1)
+        current_state = next_state
 
     return torch.stack(preds, dim=1)
 

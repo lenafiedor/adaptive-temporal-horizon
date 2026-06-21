@@ -54,7 +54,6 @@ CURRICULUM_EARLY_STOP_GRACE_EPOCHS = _config["curriculum-horizon"][
 
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
-HISTORY_WINDOW = _config["model"]["history_window"]
 
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 EVAL_SEED = _config["evaluation"]["eval_seed"]

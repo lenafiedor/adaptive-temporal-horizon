@@ -9,9 +9,6 @@ from adaptive_horizon.data.utils import (
     default_lorenz_trajectory_path,
     get_lorenz_trajectory,
 )
-from adaptive_horizon.evaluation.cross_validation import (
-    get_history_window,
-)
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
@@ -42,14 +39,14 @@ def denormalize(values, mean, std):
     return values * (std + 1e-8) + mean
 
 
-def build_diagnostic_samples(trajectory_normalized, history_window, T_val):
+def build_diagnostic_samples(trajectory_normalized, T_val):
     inputs = []
     targets = []
     sample_indices = []
     seq_len = len(trajectory_normalized)
 
-    for m in range(history_window - 1, seq_len - T_val):
-        inputs.append(trajectory_normalized[m - history_window + 1 : m + 1].flatten())
+    for m in range(seq_len - T_val):
+        inputs.append(trajectory_normalized[m])
         targets.append(trajectory_normalized[m + 1 : m + T_val + 1])
         sample_indices.append(m)
 
@@ -133,7 +130,6 @@ def compute_gradient_heatmap(args):
     device = "cuda" if torch.cuda.is_available() and config.DEVICE == "cuda" else "cpu"
     model, checkpoint = load_model(args.model)
     model = model.to(device)
-    history_window = get_history_window(checkpoint)
     normalization_stats = get_checkpoint_normalization_stats(checkpoint)
 
     burn_in = resolve_burn_in_steps(args.dt)
@@ -157,7 +153,7 @@ def compute_gradient_heatmap(args):
         trajectory, normalization_stats
     )
     inputs, targets, sample_indices = build_diagnostic_samples(
-        trajectory_normalized, history_window, args.T_val
+        trajectory_normalized, args.T_val
     )
 
     g_values, g1_norms, gT_norms = compute_local_g_values(
