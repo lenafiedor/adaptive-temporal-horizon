@@ -141,9 +141,7 @@ def cross_validate_models(
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
         key = eval_loader_cache_key(normalization_stats)
         if key not in eval_loaders:
-            eval_loaders[key] = make_eval_loader(
-                max(val_Ts), dt, normalization_stats
-            )
+            eval_loaders[key] = make_eval_loader(max(val_Ts), dt, normalization_stats)
         return eval_loaders[key]
 
     evaluation_records = []

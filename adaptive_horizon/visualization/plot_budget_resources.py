@@ -13,6 +13,12 @@ from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
 
 
 @dataclass(frozen=True)
+class EvalScope:
+    mode: str
+    eval_T: int | None = None
+
+
+@dataclass(frozen=True)
 class BudgetComparison:
     max_train_T: int
     adaptive_mse: float
@@ -23,17 +29,17 @@ class BudgetComparison:
     source_path: Path
 
 
-def per_seed_mses(records, model_type: str, eval_scope: str, train_T=None):
+def per_seed_mses(records, model_type: str, eval_scope: EvalScope, train_T=None):
     matching_records = [
         record
         for record in records
         if record["model_type"] == model_type
         and record.get("seed") is not None
         and (train_T is None or record.get("train_T") == train_T)
-        and (eval_scope != "T1" or int(record["val_T"]) == 1)
+        and (eval_scope.mode != "single" or int(record["val_T"]) == eval_scope.eval_T)
     ]
 
-    if eval_scope == "T1":
+    if eval_scope.mode == "single":
         return [float(record["mse"]) for record in matching_records]
 
     values_by_seed = {}
@@ -55,7 +61,15 @@ def aggregate_mse(seed_mses, metric: str, fallback: float):
     return float(np.median(seed_mses))
 
 
-def load_result(path: Path, metric: str, eval_scope: str):
+def summary_for_eval_T(summaries, eval_T: int = 1):
+    for summary in summaries:
+        if int(summary["eval_T"]) == eval_T:
+            return summary
+    available = ", ".join(str(summary["eval_T"]) for summary in summaries)
+    raise ValueError(f"Validation horizon T={eval_T} not found. Available: {available}")
+
+
+def load_result(path: Path, metric: str, eval_scope: EvalScope):
     with path.open("r") as f:
         result = json.load(f)
     metadata = result.get("metadata", {})
@@ -66,9 +80,12 @@ def load_result(path: Path, metric: str, eval_scope: str):
         item for item in summary["fixed"] if item["train_T"] == best_train_T
     )
 
-    if eval_scope == "T1":
-        fixed_summary = fixed_result["by_eval_T"][0]
-        adaptive_summary = summary["adaptive"]["by_eval_T"][0]
+    if eval_scope.mode == "single":
+        if eval_scope.eval_T is None:
+            raise ValueError("Single-horizon scope requires an evaluation horizon")
+        eval_T = eval_scope.eval_T
+        fixed_summary = summary_for_eval_T(fixed_result["by_eval_T"], eval_T)
+        adaptive_summary = summary_for_eval_T(summary["adaptive"]["by_eval_T"], eval_T)
     else:
         fixed_summary = fixed_result["overall"]
         adaptive_summary = summary["adaptive"]["overall"]
@@ -188,9 +205,9 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
 
     ax.set_xlabel("Training budget (max train T)")
     ax.set_xticks(x_values)
-    if eval_scope == "T1":
-        ax.set_ylabel(rf"{metric} MSE at $T_{{val}}=1$")
-        ax.set_title(r"Budget-Based Comparison at $T_{{val}}=1$")
+    if eval_scope.mode == "single":
+        ax.set_ylabel(rf"{metric.title()} MSE at $T_{{val}}={eval_scope.eval_T}$")
+        ax.set_title(rf"Budget-Based Comparison at $T_{{val}}={eval_scope.eval_T}$")
     else:
         ax.set_ylabel(f"Overall {metric} MSE")
         ax.set_title("Budget-Based Comparison")
@@ -213,9 +230,25 @@ def default_output_path(results_dir, metric, eval_scope, comparisons):
         dt = next(iter(dt_values))
         if dt is not None:
             dt_part = f"_dt_{format_dt(dt)}"
-    scope_part = "_T1" if eval_scope == "T1" else ""
+    scope_part = f"_T{eval_scope.eval_T}" if eval_scope.mode == "single" else ""
     return Path(results_dir) / (
         f"budget_based_comparison{dt_part}_{metric}{scope_part}_{timestamp}.png"
+    )
+
+
+def parse_eval_scope(scope_args):
+    if scope_args == ["overall"]:
+        return EvalScope("overall")
+    if len(scope_args) == 2 and scope_args[0] == "single":
+        try:
+            eval_T = int(scope_args[1])
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                "--scope single requires an integer validation horizon"
+            ) from exc
+        return EvalScope("single", eval_T)
+    raise argparse.ArgumentTypeError(
+        "--scope must be either 'overall' or 'single <validation horizon>'"
     )
 
 
@@ -237,11 +270,11 @@ def main():
         help="Overall MSE summary statistic to compare",
     )
     parser.add_argument(
-        "--eval-scope",
-        type=str,
-        choices=("overall", "T1"),
-        default="overall",
-        help="Use all evaluation results or only those for T=1",
+        "--scope",
+        nargs="+",
+        default=["overall"],
+        metavar=("MODE", "T"),
+        help="Use 'overall' or 'single <validation horizon>'",
     )
     parser.add_argument(
         "--output",
@@ -250,17 +283,21 @@ def main():
         help="Output PNG path. A CSV with the same stem is also written.",
     )
     args = parser.parse_args()
+    try:
+        eval_scope = parse_eval_scope(args.scope)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
-    comparisons = load_comparisons(args.results_dir, args.metric, args.eval_scope)
+    comparisons = load_comparisons(args.results_dir, args.metric, eval_scope)
     output_path = args.output or default_output_path(
-        args.results_dir, args.metric, args.eval_scope, comparisons
+        args.results_dir, args.metric, eval_scope, comparisons
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     plot_comparisons(
         comparisons,
         args.metric,
-        args.eval_scope,
+        eval_scope,
         output_path,
     )
     csv_path = save_csv(comparisons, output_path)

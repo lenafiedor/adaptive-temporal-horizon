@@ -163,12 +163,12 @@ poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_
 
 **Args:**
 
-| Name            | Description                                      | Values             | Default value     |
-|-----------------|--------------------------------------------------|--------------------|-------------------|
-| `--results-dir` | Directory containing `budget_mse_results_*.json` | str                | `config.EVAL_DIR` |
-| `--metric`      | Statistic shown in plots                         | `mean` \| `median` | `median`          |
-| `--eval-scope`  | Evaluation scope used for plotted MSE values     | `overall` \| `T1`  | `overall`         |
-| `--output`      | Output path                                      | str                | Auto-generated    |
+| Name            | Description                                      | Values                        | Default value     |
+|-----------------|--------------------------------------------------|-------------------------------|-------------------|
+| `--results-dir` | Directory containing `budget_mse_results_*.json` | str                           | `config.EVAL_DIR` |
+| `--metric`      | Statistic shown in plots                         | `mean` \| `median`            | `median`          |
+| `--scope`       | Evaluation scope used for plotted MSE values     | `overall` \| `single <T_val>` | `overall`         |
+| `--output`      | Output path                                      | str                           | Auto-generated    |
 
 Notes:
 - The default `overall` scope plots aggregate MSE across all validation horizons.

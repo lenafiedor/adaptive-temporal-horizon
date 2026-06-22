@@ -640,7 +640,7 @@ def main():
             seed=0,
             epochs=args.epochs,
             device=device,
-            model_save_dir=model_root,
+            model_save_dir=adaptive_dir if args.adaptive else fixed_dir,
             loss_save_dir=loss_dir,
             dt=args.dt,
             T=(
@@ -654,6 +654,7 @@ def main():
             adaptive_method=args.adaptive_method,
             batch_size=args.batch_size,
             debug=args.debug,
+            early_stopping=args.early_stopping,
         )
     else:
         if args.fixed or not args.adaptive:
