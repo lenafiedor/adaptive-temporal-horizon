@@ -5,7 +5,9 @@ from adaptive_horizon.dynamics.integrators import rk4_step
 ROSSLER_PARAMETERS = {"a": 0.37, "b": 0.2, "c": 5.7}
 
 
-def rossler_f(x, a=ROSSLER_PARAMETERS["a"], b=ROSSLER_PARAMETERS["b"], c=ROSSLER_PARAMETERS["c"]):
+def rossler_f(
+    x, a=ROSSLER_PARAMETERS["a"], b=ROSSLER_PARAMETERS["b"], c=ROSSLER_PARAMETERS["c"]
+):
 
     return np.array(
         [
@@ -68,6 +70,7 @@ def simulate_rossler(
         states.append(current_state)
 
     return states[burn_in:]
+
 
 if __name__ == "__main__":
     simulate_rossler()

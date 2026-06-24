@@ -195,8 +195,15 @@ def compute_gradient_heatmap(args):
         device=device,
     )
 
-    plot_g_T_heatmap(trajectory, g_values, sample_indices, T_val=args.T_val, dt=args.dt,
-                     save_dir=config.system_path(config.ANALYSIS_DIR, system.name), system_name=system.label)
+    plot_g_T_heatmap(
+        trajectory,
+        g_values,
+        sample_indices,
+        T_val=args.T_val,
+        dt=args.dt,
+        save_dir=config.system_path(config.ANALYSIS_DIR, system.name),
+        system_name=system.label,
+    )
 
     overlay_position = int(np.nanargmax(g_values))
     m = int(sample_indices[overlay_position])
@@ -211,8 +218,14 @@ def compute_gradient_heatmap(args):
     )
     prediction_path = np.vstack([trajectory[m], prediction])
     ground_truth_path = trajectory[m : m + args.T_val + 1]
-    plot_prediction_overlay(ground_truth_path, prediction_path, T_val=args.T_val, dt=args.dt,
-                            save_dir=config.system_path(config.ANALYSIS_DIR, system.name), system_name=system.name)
+    plot_prediction_overlay(
+        ground_truth_path,
+        prediction_path,
+        T_val=args.T_val,
+        dt=args.dt,
+        save_dir=config.system_path(config.ANALYSIS_DIR, system.name),
+        system_name=system.name,
+    )
 
     print(
         f"Computed {len(g_values)} local g(T) values "

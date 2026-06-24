@@ -573,7 +573,9 @@ def plot_paired_deltas(
     save_figure(fig, filename, save_dir)
 
 
-def plot_lyapunov_exponents(exponents, system_name=config.DEFAULT_SYSTEM, save_dir=ANALYSIS_DIR):
+def plot_lyapunov_exponents(
+    exponents, system_name=config.DEFAULT_SYSTEM, save_dir=ANALYSIS_DIR
+):
     """
     Plot histograms for all Lyapunov exponents.
 

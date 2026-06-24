@@ -303,4 +303,5 @@ def collate_fn_weighted_loss(batch):
     lambda_scores = torch.stack([item[2] for item in batch])
     return inputs, targets, lambda_scores
 
+
 collate_fn_adaptive = collate_fn_adaptive_horizon

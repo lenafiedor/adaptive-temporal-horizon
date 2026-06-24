@@ -78,7 +78,9 @@ def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
     return filtered_paths
 
 
-def make_eval_loader(max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM):
+def make_eval_loader(
+    max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM
+):
     burn_in_steps = resolve_burn_in_steps(dt)
     split_gap = max(
         config.MAX_TRAIN_T,
@@ -242,7 +244,11 @@ def cross_validation(
     if cached:
         payload = load_cross_validation_results(cached)
         dt = float(payload["metadata"]["dt"])
-        save_dir = Path(config.system_path(config.EVAL_DIR, payload["metadata"].get("system", system_name)))
+        save_dir = Path(
+            config.system_path(
+                config.EVAL_DIR, payload["metadata"].get("system", system_name)
+            )
+        )
         budget_based = cached.name.startswith("budget")
 
         train_Ts = list(range(1, payload["metadata"]["max_train_T"] + 1))

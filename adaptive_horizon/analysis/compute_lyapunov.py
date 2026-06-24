@@ -25,9 +25,7 @@ def main():
         choices=["global", "local"],
         help="LLE computation mode (global/local)",
     )
-    parser.add_argument(
-        "--plot", "-p", action="store_true", help="Plot the trajectory"
-    )
+    parser.add_argument("--plot", "-p", action="store_true", help="Plot the trajectory")
     parser.add_argument(
         "--system",
         choices=SYSTEM_CHOICES,
@@ -69,12 +67,10 @@ def main():
         )
 
         print(
-            "Mean LLEs: "
-            + ", ".join(f"{value:.4f}" for value in np.mean(lles, axis=0))
+            "Mean LLEs: " + ", ".join(f"{value:.4f}" for value in np.mean(lles, axis=0))
         )
         print(
-            "Std LLEs: "
-            + ", ".join(f"{value:.4f}" for value in np.std(lles, axis=0))
+            "Std LLEs: " + ", ".join(f"{value:.4f}" for value in np.std(lles, axis=0))
         )
 
         if args.plot:

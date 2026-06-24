@@ -5,13 +5,25 @@ from adaptive_horizon.dynamics.integrators import rk4_step
 LORENZ_PARAMETERS = {"sigma": 10, "rho": 28, "beta": 8 / 3}
 
 
-def lorenz_f(x, sigma=LORENZ_PARAMETERS["sigma"], rho=LORENZ_PARAMETERS["rho"], beta=LORENZ_PARAMETERS["beta"]):
+def lorenz_f(
+    x,
+    sigma=LORENZ_PARAMETERS["sigma"],
+    rho=LORENZ_PARAMETERS["rho"],
+    beta=LORENZ_PARAMETERS["beta"],
+):
     return np.array(
         [sigma * (x[1] - x[0]), x[0] * (rho - x[2]) - x[1], x[0] * x[1] - beta * x[2]]
     )
 
 
-def jacobian_lorenz(x, y, z, sigma=LORENZ_PARAMETERS["sigma"], rho=LORENZ_PARAMETERS["rho"], beta=LORENZ_PARAMETERS["beta"]):
+def jacobian_lorenz(
+    x,
+    y,
+    z,
+    sigma=LORENZ_PARAMETERS["sigma"],
+    rho=LORENZ_PARAMETERS["rho"],
+    beta=LORENZ_PARAMETERS["beta"],
+):
     return np.array([[-sigma, sigma, 0], [rho - z, -1, -x], [y, x, -beta]])
 
 

@@ -10,7 +10,9 @@ from adaptive_horizon.utils import format_dt
 from adaptive_horizon.config import DEFAULT_SYSTEM
 
 
-def simulate_trajectory(system: str | DynamicsSystem, initial_state, dt, steps, burn_in=0):
+def simulate_trajectory(
+    system: str | DynamicsSystem, initial_state, dt, steps, burn_in=0
+):
     """Simulate a trajectory for the selected dynamical system."""
     system = get_system(system)
     states = [initial_state]
@@ -25,7 +27,9 @@ def simulate_trajectory(system: str | DynamicsSystem, initial_state, dt, steps, 
 
 def default_trajectory_path(system_name, data_dir, dt, steps, seed):
     """Return the cache path for a shared system rollout."""
-    return Path(data_dir) / f"{system_name}_dt{format_dt(dt)}_seed{seed}_steps{steps}.pt"
+    return (
+        Path(data_dir) / f"{system_name}_dt{format_dt(dt)}_seed{seed}_steps{steps}.pt"
+    )
 
 
 def get_trajectory(

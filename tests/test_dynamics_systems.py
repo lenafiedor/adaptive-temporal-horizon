@@ -99,7 +99,9 @@ def test_lyapunov_utilities_accept_registered_systems(system_name, tmp_path):
         window=2,
         system=system_name,
     )
-    global_lle = compute_global_lyapunov(dt=0.01, steps=3, burn_in=0, system=system_name)
+    global_lle = compute_global_lyapunov(
+        dt=0.01, steps=3, burn_in=0, system=system_name
+    )
 
     assert local_lle.shape == (6, 3)
     assert forward_ftle.shape == (5,)

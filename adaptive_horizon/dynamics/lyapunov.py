@@ -64,7 +64,9 @@ def compute_local_lyapunov(
     return np.array(lles)
 
 
-def compute_forward_ftle(trajectory, dt=0.01, window=FTLE_WINDOW, system=config.DEFAULT_SYSTEM):
+def compute_forward_ftle(
+    trajectory, dt=0.01, window=FTLE_WINDOW, system=config.DEFAULT_SYSTEM
+):
     """
     Compute an aligned forward finite-time Lyapunov score for each start state.
 

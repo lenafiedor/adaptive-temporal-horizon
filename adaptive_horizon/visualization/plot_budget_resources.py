@@ -69,16 +69,33 @@ def summary_for_eval_T(summaries, eval_T: int = 1):
     raise ValueError(f"Validation horizon T={eval_T} not found. Available: {available}")
 
 
+def select_fixed_result(summary, metadata, metric: str, eval_scope: EvalScope):
+    if eval_scope.mode == "overall":
+        best_train_T = metadata.get("best_train_T")
+        if best_train_T is not None:
+            for record in summary["fixed"]:
+                if record["train_T"] == best_train_T:
+                    return record
+        return min(summary["fixed"], key=lambda item: item["overall"][metric])
+
+    if eval_scope.eval_T is None:
+        raise ValueError("Single-horizon scope requires an evaluation horizon")
+
+    eval_T = eval_scope.eval_T
+    return min(
+        summary["fixed"],
+        key=lambda item: summary_for_eval_T(item["by_eval_T"], eval_T)[metric],
+    )
+
+
 def load_result(path: Path, metric: str, eval_scope: EvalScope):
     with path.open("r") as f:
         result = json.load(f)
     metadata = result.get("metadata", {})
     summary = result.get("summary", {})
     records = result.get("evaluation_records", [])
-    best_train_T = metadata.get("best_train_T")
-    fixed_result = next(
-        item for item in summary["fixed"] if item["train_T"] == best_train_T
-    )
+    fixed_result = select_fixed_result(summary, metadata, metric, eval_scope)
+    best_train_T = fixed_result["train_T"]
 
     if eval_scope.mode == "single":
         if eval_scope.eval_T is None:
@@ -123,11 +140,8 @@ def save_csv(comparisons, output_path: Path):
             [
                 "max_train_T",
                 "adaptive_mse",
-                "adaptive_seed_mses",
                 "fixed_mse",
-                "fixed_seed_mses",
                 "best_train_T",
-                "source_file",
             ]
         )
         for comparison in comparisons:
@@ -135,11 +149,8 @@ def save_csv(comparisons, output_path: Path):
                 [
                     comparison.max_train_T,
                     comparison.adaptive_mse,
-                    json.dumps(comparison.adaptive_seed_mses),
                     comparison.fixed_mse,
-                    json.dumps(comparison.fixed_seed_mses),
                     comparison.best_train_T,
-                    comparison.source_path,
                 ]
             )
     return csv_path
