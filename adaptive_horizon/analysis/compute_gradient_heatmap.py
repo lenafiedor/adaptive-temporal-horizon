@@ -239,7 +239,7 @@ def main():
     parser.add_argument(
         "--T-val", type=int, default=config.MAX_EVAL_T, help="Evaluation horizon"
     )
-    parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
+    parser.add_argument("--dt", type=float, default=0.01, help="Simulation step")
     parser.add_argument(
         "--system",
         choices=SYSTEM_CHOICES,

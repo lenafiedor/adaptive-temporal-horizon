@@ -44,7 +44,7 @@ input_dim = 3
 layer_width = 10
 
 [evaluation]
-simulation_steps = 10000
+simulation_steps = 50000
 num_batches = 50
 eval_seed = 12345
 max_eval_T = 10

@@ -608,7 +608,7 @@ def plot_lyapunov_exponents(
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    save_figure(fig, f"{system_name}_lle_histogram.png", save_dir=save_dir)
+    save_figure(fig, f"{system_name.lower()}_lle_histogram.png", save_dir=save_dir)
 
 
 def plot_lle_heatmap(
@@ -666,7 +666,7 @@ def plot_lle_heatmap(
         cbar.set_label(f"Local {labels[i]}")
 
     plt.tight_layout()
-    save_figure(fig, f"{system_name}_lle_heatmap.png", save_dir=save_dir)
+    save_figure(fig, f"{system_name.lower()}_lle_heatmap.png", save_dir=save_dir)
 
 
 def plot_g_T_heatmap(

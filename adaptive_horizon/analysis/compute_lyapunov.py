@@ -32,7 +32,7 @@ def main():
         default=config.DEFAULT_SYSTEM,
         help="Dynamical system to analyze",
     )
-    parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
+    parser.add_argument("--dt", type=float, default=0.01, help="Simulation step")
     parser.add_argument(
         "--steps",
         type=int,

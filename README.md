@@ -2,7 +2,7 @@
 
 This repository contains an extension of the ideas presented in [Adaptive Temporal Horizon in Auto-Regressive Models](https://arxiv.org/abs/2506.03889).
 
-Specifically, we implement an adaptive temporal horizon for training a multi-layer perceptron (MLP) to learn Lorenz attractor dynamics.
+Specifically, we implement an adaptive temporal horizon for training a multi-layer perceptron (MLP) to learn chaotic dynamical-system trajectories such as Lorenz and Rossler.
 
 ## Requirements
 
@@ -41,7 +41,7 @@ poetry run ruff format
 > [!NOTE]
 > MLP architecture is strongly inspired by [Temporal horizons in forecasting](https://github.com/vboussange/temporal_horizons_in_forecasting) repository.
 
-Train MLPs to learn Lorenz attractor dynamics. By default, the command trains both fixed-horizon models for `T=1..max_T` and adaptive models.
+Train MLPs to learn the selected dynamical system. By default, the command trains both fixed-horizon models for `T=1..max_T` and adaptive models.
 
 ```bash
 poetry run train-mlp                            # Train MLPs with both fixed and adaptive training horizon
@@ -53,6 +53,7 @@ poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..
 poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
 poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
+poetry run train-mlp --system rossler           # Train on Rossler dynamics
 ```
 
 **Args:**
@@ -69,7 +70,8 @@ poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models un
 | `--budget-based`    | Train fixed and curriculum-horizon adaptive models under one budget               | true \| false                                                 | false                |
 | `--epochs-per-T`    | Budget mode epochs for each fixed horizon                                         | int                                                           | 20                   |
 | `--n-seeds` `-s`    | Number of seeds for aggregate training                                            | int                                                           | `config.NUM_SEEDS`   |
-| `--dt`              | Time step for the Lorenz simulation                                               | float                                                         | `config.DT`          |
+| `--dt`              | Time step for the system simulation                                               | float                                                         | `config.DT`          |
+| `--system`          | Dynamical system to train on                                                      | `lorenz` \| `rossler`                                         | `config.SYSTEM`      |
 | `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
 | `--early-stopping`  | Enable early stopping when validation loss does not improve                       | true \| false                                                 | false                |
 | `--append`          | Append missing models to an existing run; omit value to use `models/last_run.txt` | optional str                                                  | None                 |
@@ -94,17 +96,18 @@ $$
 ```bash
 poetry run gradient-scaling --model path/to/trained/model.pt
 poetry run gradient-scaling --model path/to/trained/model.pt --max-eval-T 100 --dt 0.04
-poetry run gradient-scaling --model path/to/trained/model.pt --per-batch
+poetry run gradient-scaling --model path/to/trained/model.pt --system rossler --per-batch
 ```
 
 **Args:**
 
-| Name             | Description                                  | Values          | Default value        |
-|------------------|----------------------------------------------|-----------------|----------------------|
-| `--model`, `-m`  | Path to the trained model                    | str             | required             |
-| `--max-eval-T`   | Maximum evaluation horizon                   | int             | `config.MAX_EVAL_T`  |
-| `--dt`           | Time step for the Lorenz simulation          | float           | `config.DT`          |
-| `--per-batch`    | Compute per-batch gradient scaling ratios    | true \| false   | false                |
+| Name            | Description                               | Values                | Default value       |
+|-----------------|-------------------------------------------|-----------------------|---------------------|
+| `--model`, `-m` | Path to the trained model                 | str                   | required            |
+| `--max-eval-T`  | Maximum evaluation horizon                | int                   | `config.MAX_EVAL_T` |
+| `--dt`          | Time step for the system simulation       | float                 | `config.DT`         |
+| `--system`      | Dynamical system to evaluate              | `lorenz` \| `rossler` | `config.SYSTEM`     |
+| `--per-batch`   | Compute per-batch gradient scaling ratios | true \| false         | false               |
 
 Plots use median plus 95% CI for repeated values.
 
@@ -118,6 +121,7 @@ poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_T10_20260610_120000
 poetry run cross-validation --adaptive-method curriculum-horizon --max-train-T 6
 poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
+poetry run cross-validation --system rossler
 ```
 
 **Args:**
@@ -131,6 +135,7 @@ poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_d
 | `--adaptive-method` | Evaluate only adaptive models trained with this method                 | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
 | `--cached`          | Reuse a saved cross-validation JSON                                    | str                                                           | None                            |
 | `--metric`          | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
+| `--system`          | Dynamical system to evaluate                                           | `lorenz` \| `rossler`                                         | `config.SYSTEM`                 |
 
 Notes:
 - Cross-validation infers `dt` from the model directory name.
@@ -180,17 +185,18 @@ Calculate and plot the chosen system with Lyapunov exponents heatmap.
 
 ```bash
 poetry run compute-lyapunov
-poetry run compute-lyapunov --mode local --plot
+poetry run compute-lyapunov --system rossler --mode local --plot
 ```
 
 **Args:**
 
-| Name           | Description                         | Values              | Default value |
-|----------------|-------------------------------------|---------------------|---------------|
-| `--mode`, `-m` | Lyapunov computation mode           | `global` \| `local` | `global`      |
-| `--plot`, `-p` | Plot the Lorenz trajectory          | true \| false       | false         |
-| `--dt`         | Time step for the Lorenz simulation | float               | 0.01          |
-| `--steps`      | Trajectory length                   | int                 | 10000         |
+| Name           | Description                         | Values                | Default value   |
+|----------------|-------------------------------------|-----------------------|-----------------|
+| `--mode`, `-m` | Lyapunov computation mode           | `global` \| `local`   | `global`        |
+| `--plot`, `-p` | Plot the system trajectory          | true \| false         | false           |
+| `--system`     | Dynamical system to analyze         | `lorenz` \| `rossler` | `config.SYSTEM` |
+| `--dt`         | Time step for the system simulation | float                 | `config.DT`     |
+| `--steps`      | Trajectory length                   | int                   | 10000           |
 
 ### Gradient Heatmap
 

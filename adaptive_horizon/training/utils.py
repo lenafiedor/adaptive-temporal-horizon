@@ -10,7 +10,7 @@ from adaptive_horizon.utils import format_dt
 
 
 def resolve_burn_in_steps(dt=config.DT, burn_in_time=config.BURN_IN_TIME):
-    """Resolve transient burn-in steps from physical Lorenz time."""
+    """Resolve transient burn-in steps from physical time."""
     return int(math.ceil(burn_in_time / dt))
 
 

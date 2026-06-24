@@ -10,7 +10,6 @@ from adaptive_horizon.training.utils import resolve_burn_in_steps
 def compute_global_lyapunov(
     dt=0.01,
     steps=SIMULATION_STEPS,
-    burn_in=None,
     system=DEFAULT_SYSTEM,
 ):
     """
@@ -20,7 +19,7 @@ def compute_global_lyapunov(
     x = np.ones(system.dim)
     Q = np.eye(system.dim)
     sum_log = 0.0
-    burn_in = resolve_burn_in_steps(dt, burn_in)
+    burn_in = resolve_burn_in_steps(dt)
 
     for _ in range(burn_in):
         x, Q = rk4_step_coupled(x, Q, dt, system.rhs, system.jacobian)
