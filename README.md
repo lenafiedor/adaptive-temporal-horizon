@@ -176,6 +176,8 @@ Notes:
 
 ### Lyapunov Exponents
 
+Calculate and plot the chosen system with Lyapunov exponents heatmap.
+
 ```bash
 poetry run compute-lyapunov
 poetry run compute-lyapunov --mode local --plot
@@ -192,21 +194,22 @@ poetry run compute-lyapunov --mode local --plot
 
 ### Gradient Heatmap
 
-Compute and plot local gradient-scaling values along a diagnostic Lorenz trajectory.
+Compute and plot local gradient-scaling values along a diagnostic trajectory.
 
 ```bash
 poetry run gradient-heatmap --model path/to/trained/model.pt
-poetry run gradient-heatmap --model path/to/trained/model.pt --T-val 8 --microbatch-size 4 --regenerate
+poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --T-val 8 --microbatch-size 4 --regenerate
 ```
 
 **Args:**
 
-| Name                | Description                                 | Values        | Default value                 |
-|---------------------|---------------------------------------------|---------------|-------------------------------|
-| `--model`, `-m`     | Path to the trained model                   | str           | required                      |
-| `--T-val`           | Evaluation horizon                          | int           | `config.MAX_EVAL_T`           |
-| `--dt`              | Time step for the Lorenz simulation         | float         | `config.DT`                   |
-| `--steps`           | Post-burn-in diagnostic trajectory length   | int           | `config.TRAJECTORY_STEPS`     |
-| `--seed`            | Diagnostic trajectory seed                  | int           | `config.EVAL_SEED`            |
-| `--microbatch-size` | Samples per local gradient-scaling estimate | int           | 1                             |
-| `--regenerate`      | Regenerate the cached diagnostic trajectory | true \| false | false                         |
+| Name                | Description                                    | Values                | Default value             |
+|---------------------|------------------------------------------------|-----------------------|---------------------------|
+| `--model`, `-m`     | Path to the trained model                      | str                   | required                  |
+| `--T-val`           | Evaluation horizon                             | int                   | `config.MAX_EVAL_T`       |
+| `--dt`              | Time step for the diagnostic simulation        | float                 | `config.DT`               |
+| `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` | `config.SYSTEM`           |
+| `--steps`           | Post-burn-in diagnostic trajectory length      | int                   | `config.TRAJECTORY_STEPS` |
+| `--seed`            | Diagnostic trajectory seed                     | int                   | `config.TRAJECTORY_SEED`  |
+| `--microbatch-size` | Samples per local gradient-scaling estimate    | int                   | 1                         |
+| `--regenerate`      | Regenerate the cached diagnostic trajectory    | true \| false         | false                     |

@@ -56,8 +56,11 @@ def resolve_dirs(
     debug: bool,
     budget_based: bool,
     append_model_dir: Path | None = None,
+    system_name=config.DEFAULT_SYSTEM,
 ):
-    last_run_file = config.MODEL_DIR / "last_run.txt"
+    model_dir = config.system_path(config.MODEL_DIR, system_name)
+    loss_root = config.system_path(config.LOSS_DIR, system_name)
+    last_run_file = model_dir / "last_run.txt"
 
     if append:
         if append_model_dir is None:
@@ -77,11 +80,11 @@ def resolve_dirs(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         prefix = "budget_" if budget_based else ""
         filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
-        model_root = config.MODEL_DIR / filename
+        model_root = model_dir / filename
         model_root.mkdir(parents=True, exist_ok=True)
 
     if debug:
-        loss_dir = config.LOSS_DIR / filename
+        loss_dir = loss_root / filename
         loss_dir.mkdir(parents=True, exist_ok=True)
     else:
         loss_dir = None

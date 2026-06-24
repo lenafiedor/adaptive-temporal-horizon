@@ -4,32 +4,41 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from adaptive_horizon.dynamics.lorenz import simulate_lorenz
+from adaptive_horizon.dynamics.integrators import rk4_step
+from adaptive_horizon.dynamics.systems import DynamicsSystem, get_system
 from adaptive_horizon.utils import format_dt
+from adaptive_horizon.config import DEFAULT_SYSTEM
 
 
-def sample_lorenz_initial_state(rng=None):
-    """Sample an initial state from the repository's Lorenz initialization box."""
-    uniform = np.random.uniform if rng is None else rng.uniform
-    return np.array(
-        [
-            uniform(-20, 20),
-            uniform(-20, 20),
-            uniform(0, 50),
-        ],
-        dtype=np.float64,
-    )
+def simulate_trajectory(system: str | DynamicsSystem, initial_state, dt, steps, burn_in=0):
+    """Simulate a trajectory for the selected dynamical system."""
+    system = get_system(system)
+    states = [initial_state]
+    current_state = np.array(initial_state, dtype=np.float64)
+
+    for _ in range(steps + burn_in):
+        current_state = rk4_step(system.rhs, current_state, dt)
+        states.append(current_state)
+
+    return states[burn_in:]
 
 
-def default_lorenz_trajectory_path(data_dir, dt, steps, seed):
-    """Return the cache path for the shared Lorenz rollout."""
-    return Path(data_dir) / f"lorenz_dt{format_dt(dt)}_seed{seed}_steps{steps}.pt"
+def default_trajectory_path(system_name, data_dir, dt, steps, seed):
+    """Return the cache path for a shared system rollout."""
+    return Path(data_dir) / f"{system_name}_dt{format_dt(dt)}_seed{seed}_steps{steps}.pt"
 
 
-def get_lorenz_trajectory(
-    dt: float, steps, burn_in: int, seed: int, path, regenerate=False
+def get_trajectory(
+    system: str | DynamicsSystem,
+    dt: float,
+    steps,
+    burn_in: int,
+    seed: int,
+    path,
+    regenerate=False,
 ):
-    """Load a cached long Lorenz trajectory or generate it once."""
+    """Load a cached long trajectory or generate it once."""
+    system = get_system(system)
     path = Path(path)
     if path.exists() and not regenerate:
         bundle = torch.load(path, map_location="cpu")
@@ -41,22 +50,25 @@ def get_lorenz_trajectory(
             saved_burn_in = int(bundle.get("burn_in", burn_in))
             saved_seed = int(bundle.get("seed", seed))
             saved_dt = float(bundle.get("dt", dt))
+            saved_system = bundle.get("system", DEFAULT_SYSTEM)
             metadata_matches = (
                 saved_steps >= steps
                 and saved_burn_in == int(burn_in)
                 and saved_seed == int(seed)
                 and np.isclose(saved_dt, dt)
+                and saved_system == system.name
             )
             if metadata_matches:
                 return trajectory[: steps + 1]
-            print("Cached Lorenz trajectory metadata does not match; regenerating")
+            print("Cached trajectory metadata does not match; regenerating")
         elif len(trajectory) >= steps + 1:
             return trajectory[: steps + 1]
 
     path.parent.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
-    trajectory = simulate_lorenz(
-        initial_state=sample_lorenz_initial_state(rng),
+    trajectory = simulate_trajectory(
+        system,
+        initial_state=system.sample_initial_state(rng),
         dt=dt,
         steps=steps,
         burn_in=burn_in,
@@ -65,6 +77,8 @@ def get_lorenz_trajectory(
     torch.save(
         {
             "trajectory": trajectory,
+            "system": system.name,
+            "system_parameters": dict(system.parameters),
             "dt": dt,
             "steps": steps,
             "burn_in": burn_in,

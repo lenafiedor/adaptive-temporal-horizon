@@ -18,6 +18,7 @@ LOSS_DIR = Path(_config["paths"]["loss_dir"])
 ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
 DATA_DIR = Path(_config["paths"]["data_dir"])
 
+DEFAULT_SYSTEM = _config["training"]["default_system"]
 DEVICE = _config["training"]["device"]
 MAX_TRAIN_T = _config["training"]["max_train_T"]
 EPOCHS = _config["training"]["epochs"]
@@ -55,6 +56,22 @@ CURRICULUM_EARLY_STOP_GRACE_EPOCHS = _config["curriculum-horizon"][
 INPUT_DIM = _config["model"]["input_dim"]
 LAYER_WIDTH = _config["model"]["layer_width"]
 
+SIMULATION_STEPS = _config["evaluation"]["simulation_steps"]
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 EVAL_SEED = _config["evaluation"]["eval_seed"]
 MAX_EVAL_T = _config["evaluation"]["max_eval_T"]
+
+
+def system_path(path, system_name=DEFAULT_SYSTEM):
+    """Return a path rooted under the selected dynamical system."""
+    path = Path(path)
+
+    if system_name == DEFAULT_SYSTEM:
+        return path
+
+    parts = list(path.parts)
+    if DEFAULT_SYSTEM in parts:
+        parts[parts.index(DEFAULT_SYSTEM)] = system_name
+        return Path(*parts)
+
+    return path.parent / system_name / path.name

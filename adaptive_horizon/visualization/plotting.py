@@ -573,12 +573,14 @@ def plot_paired_deltas(
     save_figure(fig, filename, save_dir)
 
 
-def plot_lyapunov_exponents(exponents):
+def plot_lyapunov_exponents(exponents, system_name=config.DEFAULT_SYSTEM, save_dir=ANALYSIS_DIR):
     """
-    Plot histograms of all 3 Lyapunov exponents.
+    Plot histograms for all Lyapunov exponents.
 
     Args:
         exponents: array of shape [N, 3] with local Lyapunov exponents
+        system_name: name of the dynamical system
+        save_dir: directory to save the figure
     """
     exponents = np.array(exponents)
     labels = [r"$\lambda_1$", r"$\lambda_2$", r"$\lambda_3$"]
@@ -604,17 +606,25 @@ def plot_lyapunov_exponents(exponents):
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    save_figure(fig, "lle_histogram.png")
+    save_figure(fig, f"{system_name}_lle_histogram.png", save_dir=save_dir)
 
 
-def plot_lle_heatmap(trajectory, exponents, burn_in=0):
+def plot_lle_heatmap(
+    trajectory,
+    exponents,
+    burn_in=0,
+    system_name=config.DEFAULT_SYSTEM,
+    save_dir=ANALYSIS_DIR,
+):
     """
-    Plot 3D Lorenz trajectory colored by each of the 3 local Lyapunov exponents.
+    Plot 3D trajectory colored by each local Lyapunov exponent.
 
     Args:
         trajectory: array of shape [N, 3] with trajectory states
         exponents: array of shape [N, 3] with local Lyapunov exponents
         burn_in: number of initial steps to ignore
+        system_name: name of the dynamical system
+        save_dir: directory to save the figure
     """
     trajectory = np.array(trajectory)
     exponents = np.array(exponents)
@@ -648,13 +658,13 @@ def plot_lle_heatmap(trajectory, exponents, burn_in=0):
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
-        ax.set_title(f"Lorenz Attractor colored by {labels[i]}")
+        ax.set_title(f"{system_name} attractor colored by {labels[i]}")
 
         cbar = fig.colorbar(lc, ax=ax, shrink=0.5, aspect=20, pad=0.1)
         cbar.set_label(f"Local {labels[i]}")
 
     plt.tight_layout()
-    save_figure(fig, "lorenz_lle_heatmap.png")
+    save_figure(fig, f"{system_name}_lle_heatmap.png", save_dir=save_dir)
 
 
 def plot_g_T_heatmap(
@@ -664,9 +674,9 @@ def plot_g_T_heatmap(
     T_val,
     dt=DT,
     save_dir=ANALYSIS_DIR,
-    filename=None,
+    system_name=config.DEFAULT_SYSTEM,
 ):
-    """Plot Lorenz trajectory colored by local gradient scaling values."""
+    """Plot a trajectory colored by local gradient scaling values."""
     trajectory = np.asarray(trajectory, dtype=np.float64)
     g_values = np.asarray(g_values, dtype=np.float64)
     sample_indices = np.asarray(sample_indices, dtype=int)
@@ -710,15 +720,16 @@ def plot_g_T_heatmap(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    ax.set_title(rf"Lorenz attractor colored by local $g(T)$, $t_L={T_val * dt:.2f}$")
+    ax.set_title(
+        rf"{system_name} attractor colored by local $g(T)$, $T_{{val}}={T_val * dt:.2f}$"
+    )
 
     cbar = fig.colorbar(lc, ax=ax, shrink=0.65, aspect=20, pad=0.1)
     cbar.set_label(rf"$g(T)$ at $T={T_val}$ ({T_val * dt:.2f} time units)")
 
     fig.tight_layout()
-    if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"lorenz_gradient_heatmap_T{T_val}_{timestamp}.png"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{system_name}_gradient_heatmap_T{T_val}_{timestamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
     plt.close(fig)
 
@@ -729,7 +740,7 @@ def plot_prediction_overlay(
     T_val,
     dt=DT,
     save_dir=ANALYSIS_DIR,
-    filename=None,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     """Plot one ground-truth trajectory segment and the matching model rollout."""
     ground_truth = np.asarray(ground_truth, dtype=np.float64)
@@ -769,9 +780,8 @@ def plot_prediction_overlay(
     ax.legend()
     fig.tight_layout()
 
-    if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"lorenz_prediction_T{T_val}_{timestamp}.png"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{system_name}_prediction_T{T_val}_{timestamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
     plt.close(fig)
 

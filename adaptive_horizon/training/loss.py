@@ -10,10 +10,11 @@ def rollout_predictions(
     steps: int,
 ):
     """Predict future states autoregressively from the current state."""
-    if inputs.shape[1] != config.INPUT_DIM:
+    expected_dim = model.embedding.in_features
+    if inputs.shape[1] != expected_dim:
         raise ValueError(
             f"Input feature size {inputs.shape[1]} does not match "
-            f"state dimension {config.INPUT_DIM}"
+            f"state dimension {expected_dim}"
         )
     current_state = inputs
     preds = []

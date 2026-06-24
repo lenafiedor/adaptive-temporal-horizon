@@ -6,6 +6,7 @@ analysis_dir = "experiments/lorenz/analysis"
 data_dir = "experiments/lorenz/data"
 
 [training]
+default_system = "lorenz"
 device = "cpu"
 max_train_T = 10
 epochs = 100
@@ -43,6 +44,7 @@ input_dim = 3
 layer_width = 10
 
 [evaluation]
+simulation_steps = 10000
 num_batches = 50
 eval_seed = 12345
 max_eval_T = 10

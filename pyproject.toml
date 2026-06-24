@@ -24,3 +24,14 @@ budget-comparison = "adaptive_horizon.visualization.plot_budget_resources:main"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)"
+]

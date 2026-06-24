@@ -6,7 +6,8 @@ import numpy as np
 from pathlib import Path
 
 import adaptive_horizon.config as config
-from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
+from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
@@ -77,16 +78,17 @@ def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
     return filtered_paths
 
 
-def make_eval_loader(max_val_T, dt, normalization_stats=None):
+def make_eval_loader(max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM):
     burn_in_steps = resolve_burn_in_steps(dt)
     split_gap = max(
         config.MAX_TRAIN_T,
         config.MAX_EVAL_T,
         max_val_T,
     )
-    eval_dataset = LorenzDataset(
+    eval_dataset = TrajectoryDataset(
         T=max_val_T,
         dt=dt,
+        system=system_name,
         normalize=True,
         seed=config.TRAJECTORY_SEED,
         burn_in=burn_in_steps,
@@ -116,6 +118,7 @@ def cross_validate_models(
     dt=config.DT,
     device=config.DEVICE,
     val_Ts=None,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     """
     Evaluate models across different validation horizons.
@@ -139,9 +142,15 @@ def cross_validate_models(
 
     def get_eval_loader(checkpoint):
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
-        key = eval_loader_cache_key(normalization_stats)
+        checkpoint_system = checkpoint.get("metadata", {}).get("system", "")
+        key = (checkpoint_system, eval_loader_cache_key(normalization_stats))
         if key not in eval_loaders:
-            eval_loaders[key] = make_eval_loader(max(val_Ts), dt, normalization_stats)
+            eval_loaders[key] = make_eval_loader(
+                max(val_Ts),
+                dt,
+                normalization_stats,
+                system_name=checkpoint_system,
+            )
         return eval_loaders[key]
 
     evaluation_records = []
@@ -222,11 +231,10 @@ def cross_validation(
     max_train_T=None,
     max_eval_T=config.MAX_EVAL_T,
     cached=None,
-    save_dir=config.EVAL_DIR,
     device=config.DEVICE,
     metric="median",
+    system_name=config.DEFAULT_SYSTEM,
 ):
-    save_dir = Path(save_dir)
     model_dir = Path(model_dir) if model_dir is not None else None
     fixed_dir = Path(fixed_dir) if fixed_dir is not None else None
     cached = Path(cached) if cached is not None else None
@@ -234,6 +242,7 @@ def cross_validation(
     if cached:
         payload = load_cross_validation_results(cached)
         dt = float(payload["metadata"]["dt"])
+        save_dir = Path(config.system_path(config.EVAL_DIR, payload["metadata"].get("system", system_name)))
         budget_based = cached.name.startswith("budget")
 
         train_Ts = list(range(1, payload["metadata"]["max_train_T"] + 1))
@@ -261,7 +270,10 @@ def cross_validation(
         evaluation_records = fixed_records + adaptive_records
 
     else:
-        model_dir = model_dir or get_last_run(config.MODEL_DIR)
+        save_dir = Path(config.system_path(config.EVAL_DIR, system_name))
+        model_dir = model_dir or get_last_run(
+            config.system_path(config.MODEL_DIR, system_name)
+        )
         fixed_dir = fixed_dir or model_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
@@ -283,6 +295,7 @@ def cross_validation(
             dt=dt,
             device=device,
             val_Ts=val_Ts,
+            system_name=system_name,
         )
 
     effective_max_train_T = max_train_T if max_train_T is not None else max(train_Ts)
@@ -297,6 +310,7 @@ def cross_validation(
             fixed_dir,
             save_dir,
             budget_based,
+            system_name,
         )
     plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, metric)
     plot_mse_subplots(
@@ -357,6 +371,12 @@ def main():
         default="median",
         help="Statistic to plot with 95%% CI intervals",
     )
+    parser.add_argument(
+        "--system",
+        choices=SYSTEM_CHOICES,
+        default=config.DEFAULT_SYSTEM,
+        help="Dynamical system to evaluate",
+    )
     args = parser.parse_args()
 
     cross_validation(
@@ -366,6 +386,7 @@ def main():
         max_eval_T=args.max_eval_T,
         cached=args.cached,
         metric=args.metric,
+        system_name=args.system,
     )
 
 

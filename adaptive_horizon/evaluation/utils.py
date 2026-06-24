@@ -87,6 +87,7 @@ def save_cross_validation_results(
     fixed_dir=None,
     save_dir=config.EVAL_DIR,
     budget_based=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +105,7 @@ def save_cross_validation_results(
         "metadata": {
             "created_at": timestamp,
             "dt": dt,
+            "system": system_name,
             "adaptive_dir": str(adaptive_dir),
             "fixed_dir": str(fixed_dir or adaptive_dir),
             "max_train_T": max_train_T,

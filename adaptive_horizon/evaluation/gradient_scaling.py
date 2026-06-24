@@ -2,7 +2,8 @@ from torch.utils.data import DataLoader
 import argparse
 
 import adaptive_horizon.config as config
-from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
+from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.training.loss import compute_g_T
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_g_T
@@ -17,6 +18,7 @@ def gradient_scaling(
     max_T=config.MAX_EVAL_T,
     dt=config.DT,
     per_batch=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     model, checkpoint = load_model(model_path)
     print(f"Loaded model from {model_path}")
@@ -31,8 +33,9 @@ def gradient_scaling(
         max_T,
     )
 
-    eval_dataset = LorenzDataset(
+    eval_dataset = TrajectoryDataset(
         dt=dt,
+        system=system_name,
         T=max_T,
         normalize=True,
         seed=config.TRAJECTORY_SEED,
@@ -47,7 +50,13 @@ def gradient_scaling(
 
     T_vals = list(range(1, max_T + 1))
     g_vals = compute_g_T(model, eval_loader, T_vals, per_batch=per_batch)
-    plot_g_T(g_vals, train_T=train_T, adaptive=adaptive, dt=dt)
+    plot_g_T(
+        g_vals,
+        save_dir=config.system_path(config.EVAL_DIR, system_name),
+        train_T=train_T,
+        adaptive=adaptive,
+        dt=dt,
+    )
 
 
 def main():
@@ -69,13 +78,25 @@ def main():
         "--dt", type=float, default=config.DT, help="Time step for simulation"
     )
     parser.add_argument(
+        "--system",
+        choices=SYSTEM_CHOICES,
+        default=config.DEFAULT_SYSTEM,
+        help="Dynamical system to evaluate",
+    )
+    parser.add_argument(
         "--per-batch",
         action="store_true",
         help="Compute per-batch gradient scaling ratios",
     )
     args = parser.parse_args()
 
-    gradient_scaling(args.model, args.max_eval_T, args.dt, args.per_batch)
+    gradient_scaling(
+        args.model,
+        args.max_eval_T,
+        args.dt,
+        args.per_batch,
+        system_name=args.system,
+    )
 
 
 if __name__ == "__main__":

@@ -9,11 +9,12 @@ from torch.utils.data import Dataset
 import adaptive_horizon.config as config
 from adaptive_horizon.data.utils import (
     apply_normalization,
-    default_lorenz_trajectory_path,
-    get_lorenz_trajectory,
+    default_trajectory_path,
+    get_trajectory,
     NormalizationStats,
     split_trajectory,
 )
+from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
@@ -27,15 +28,16 @@ def default_adaptive_T_max(dt: float) -> int:
     return time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
 
 
-class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
-    """Adaptive-horizon Lorenz dataset sliced from one shared long trajectory."""
+class AdaptiveHorizonDataset(NormalizationStats, Dataset):
+    """Adaptive-horizon dataset sliced from one shared long trajectory."""
 
     def __init__(
         self,
         dt: float = config.DT,
+        system: str = config.DEFAULT_SYSTEM,
         normalize: bool = True,
         seed: int = config.TRAJECTORY_SEED,
-        burn_in: int = 0,
+        burn_in: Optional[int] = None,
         var: int = config.VARIANCE,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
@@ -45,8 +47,10 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         split_gap: int = 0,
         trajectory_path: Optional[str] = None,
     ):
+        self.system = get_system(system)
+        self.system_name = self.system.name
         self.normalize = normalize
-        self.burn_in = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in: int = resolve_burn_in_steps(dt, burn_in)
         self.var = var
         self.split = split
         self.mean: Optional[torch.Tensor] = None
@@ -56,10 +60,15 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         self.min_T = max(1, self.base_T - self.var)
         self.max_T = min(self.base_T + self.var, config.MAX_TRAIN_T)
 
-        self.trajectory_path = trajectory_path or default_lorenz_trajectory_path(
-            config.DATA_DIR, dt, trajectory_steps, seed
+        self.trajectory_path = trajectory_path or default_trajectory_path(
+            self.system.name,
+            config.system_path(config.DATA_DIR, self.system.name),
+            dt,
+            trajectory_steps,
+            seed,
         )
-        full_trajectory = get_lorenz_trajectory(
+        full_trajectory = get_trajectory(
+            self.system,
             dt=dt,
             steps=trajectory_steps,
             burn_in=self.burn_in,
@@ -77,7 +86,7 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         self.lles = []
         self.horizons = []
 
-        lles = compute_local_lyapunov(traj_np, dt=dt)
+        lles = compute_local_lyapunov(traj_np, dt=dt, system=self.system)
         lle_max = lles[:, 0]
         self.lles.append(lle_max)
         self.horizons.append(
@@ -90,7 +99,10 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         self.samples = self._create_samples()
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._write_t_values(config.EVAL_DIR / f"t_values_{timestamp}.txt")
+            self._write_t_values(
+                config.system_path(config.EVAL_DIR, self.system.name)
+                / f"t_values_{timestamp}.txt"
+            )
 
     def _create_samples(self):
         samples = []
@@ -150,17 +162,18 @@ class AdaptiveHorizonLorenzDataset(NormalizationStats, Dataset):
         return input_state, target, torch.tensor(T, dtype=torch.float32)
 
 
-class WeightedLossLorenzDataset(NormalizationStats, Dataset):
-    """Weighted-loss Lorenz dataset sliced from one shared long trajectory."""
+class WeightedLossDataset(NormalizationStats, Dataset):
+    """Weighted-loss dataset sliced from one shared long trajectory."""
 
     def __init__(
         self,
         dt: float = config.DT,
+        system: str = config.DEFAULT_SYSTEM,
         T_max: Optional[int] = None,
         ftle_window: int = config.FTLE_WINDOW,
         normalize: bool = True,
         seed: int = config.TRAJECTORY_SEED,
-        burn_in: int = 0,
+        burn_in: Optional[int] = None,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
         split: str = "train",
@@ -174,19 +187,26 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         if T_max < 1:
             raise ValueError(f"T_max must be at least 1, got {T_max}")
 
+        self.system = get_system(system)
+        self.system_name = self.system.name
         self.T_max = int(T_max)
         self.dt = dt
         self.ftle_window = int(ftle_window)
         self.normalize = normalize
-        self.burn_in = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in: int = resolve_burn_in_steps(dt, burn_in)
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
-        self.trajectory_path = trajectory_path or default_lorenz_trajectory_path(
-            config.DATA_DIR, dt, trajectory_steps, seed
+        self.trajectory_path = trajectory_path or default_trajectory_path(
+            self.system.name,
+            config.system_path(config.DATA_DIR, self.system.name),
+            dt,
+            trajectory_steps,
+            seed,
         )
-        full_trajectory = get_lorenz_trajectory(
+        full_trajectory = get_trajectory(
+            self.system,
             dt=dt,
             steps=trajectory_steps,
             burn_in=self.burn_in,
@@ -202,7 +222,12 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
 
         traj_np = trajectory.numpy()
         self.lambda_scores = [
-            compute_forward_ftle(traj_np, dt=dt, window=self.ftle_window)
+            compute_forward_ftle(
+                traj_np,
+                dt=dt,
+                window=self.ftle_window,
+                system=self.system,
+            )
         ]
 
         self.trajectories = trajectory.unsqueeze(0)
@@ -212,7 +237,8 @@ class WeightedLossLorenzDataset(NormalizationStats, Dataset):
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._write_lambda_values(
-                config.EVAL_DIR / f"lambda_values_{timestamp}.txt"
+                config.system_path(config.EVAL_DIR, self.system.name)
+                / f"lambda_values_{timestamp}.txt"
             )
 
     def _create_samples(self):
@@ -263,7 +289,7 @@ def collate_fn_adaptive_horizon(batch):
         target = item[1]
         T_i = target.shape[0]
         if T_i < max_T:
-            padding = torch.zeros(max_T - T_i, 3)
+            padding = torch.zeros(max_T - T_i, target.shape[-1])
             target = torch.cat([target, padding], dim=0)
         padded_targets.append(target)
 
@@ -277,6 +303,4 @@ def collate_fn_weighted_loss(batch):
     lambda_scores = torch.stack([item[2] for item in batch])
     return inputs, targets, lambda_scores
 
-
-AdaptiveLorenzDataset = AdaptiveHorizonLorenzDataset
 collate_fn_adaptive = collate_fn_adaptive_horizon

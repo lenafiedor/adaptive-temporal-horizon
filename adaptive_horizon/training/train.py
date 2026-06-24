@@ -5,7 +5,8 @@ from pathlib import Path
 from time import perf_counter
 
 import adaptive_horizon.config as config
-from adaptive_horizon.data.dataset import LorenzDataset, collate_fn
+from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
     adaptive_validation_loss,
@@ -61,6 +62,7 @@ def train(
     save_dir=None,
     metadata=None,
     early_stopping=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     """
     Train model with fixed temporal horizon T.
@@ -112,15 +114,16 @@ def train(
 
     if debug:
         if save_dir is None:
-            save_dir = config.LOSS_DIR
+            save_dir = config.system_path(config.LOSS_DIR, system_name)
         save_dir.mkdir(parents=True, exist_ok=True)
         split_gap = max(
             config.MAX_TRAIN_T,
             config.MAX_EVAL_T,
         )
-        debug_dataset = LorenzDataset(
+        debug_dataset = TrajectoryDataset(
             T=config.MAX_EVAL_T,
             dt=dt,
+            system=system_name,
             normalize=True,
             seed=config.TRAJECTORY_SEED,
             burn_in=resolve_burn_in_steps(dt),
@@ -304,6 +307,7 @@ def train_single_model(
     var=config.VARIANCE,
     debug=False,
     early_stopping=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -318,6 +322,7 @@ def train_single_model(
             ftle_window,
             var,
             debug,
+            system_name,
         )
     )
     if adaptive:
@@ -344,6 +349,7 @@ def train_single_model(
         save_dir=loss_save_dir,
         metadata=metadata,
         early_stopping=early_stopping,
+        system_name=system_name,
     )
 
     model_path = save_model(
@@ -380,9 +386,10 @@ def train_fixed_models(
     batch_size=config.BATCH_SIZE,
     append=False,
     debug=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     if debug and loss_save_dir is None:
-        loss_save_dir = config.LOSS_DIR
+        loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
         loss_save_dir.mkdir(parents=True, exist_ok=True)
 
     seed_range = range(n_seeds)
@@ -436,6 +443,7 @@ def train_fixed_models(
                 optimizer_name=optimizer_name,
                 batch_size=batch_size,
                 debug=debug,
+                system_name=system_name,
             )
             train_losses.append(train_loss)
             val_losses.append(val_loss)
@@ -465,9 +473,10 @@ def train_adaptive_models(
     append=False,
     debug=False,
     early_stopping=False,
+    system_name=config.DEFAULT_SYSTEM,
 ):
     if debug and loss_save_dir is None:
-        loss_save_dir = config.LOSS_DIR
+        loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
         loss_save_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 50}")
@@ -511,6 +520,7 @@ def train_adaptive_models(
             var=var,
             debug=debug,
             early_stopping=early_stopping,
+            system_name=system_name,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -581,6 +591,12 @@ def main():
         "--dt", type=float, default=config.DT, help="Time step for simulation"
     )
     parser.add_argument(
+        "--system",
+        choices=SYSTEM_CHOICES,
+        default=config.DEFAULT_SYSTEM,
+        help="Dynamical system to train on",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=config.BATCH_SIZE,
@@ -609,9 +625,11 @@ def main():
     append = args.append is not None
     append_model_dir = Path(args.append) if args.append else None
     train_Ts = get_train_Ts(args.max_T)
+    system = get_system(args.system)
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
+    print(f"Dynamical system: {system.label}")
     print(f"Time step: {args.dt}")
     print(
         f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
@@ -627,6 +645,7 @@ def main():
         args.debug,
         args.budget_based,
         append_model_dir,
+        args.system,
     )
 
     if args.single:
@@ -655,6 +674,7 @@ def main():
             batch_size=args.batch_size,
             debug=args.debug,
             early_stopping=args.early_stopping,
+            system_name=args.system,
         )
     else:
         if args.fixed or not args.adaptive:
@@ -669,6 +689,7 @@ def main():
                 batch_size=args.batch_size,
                 append=append,
                 debug=args.debug,
+                system_name=args.system,
             )
         if args.adaptive or not args.fixed:
             train_adaptive_models(
@@ -686,6 +707,7 @@ def main():
                 append=append,
                 debug=args.debug,
                 early_stopping=args.early_stopping,
+                system_name=args.system,
             )
 
     print("\n" + "=" * 50)

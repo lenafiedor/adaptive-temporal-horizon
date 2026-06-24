@@ -1,14 +1,13 @@
 import argparse
-from pathlib import Path
 import numpy as np
 import torch
-from datetime import datetime
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.utils import (
-    default_lorenz_trajectory_path,
-    get_lorenz_trajectory,
+    default_trajectory_path,
+    get_trajectory,
 )
+from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
@@ -37,6 +36,33 @@ def normalize_trajectory(trajectory, normalization_stats):
 
 def denormalize(values, mean, std):
     return values * (std + 1e-8) + mean
+
+
+def validate_checkpoint(checkpoint, requested_system, requested_dt):
+    metadata = checkpoint.get("metadata", {})
+    checkpoint_system = metadata.get("system")
+    if checkpoint_system is None:
+        raise ValueError(
+            "Model checkpoint does not include metadata['system']; cannot verify "
+            "that the diagnostic trajectory matches the trained dynamics."
+        )
+    if checkpoint_system != requested_system.name:
+        raise ValueError(
+            "Model checkpoint was trained for "
+            f"{checkpoint_system!r}, but --system is {requested_system.name!r}."
+        )
+
+    checkpoint_dt = metadata.get("dt")
+    if checkpoint_dt is None:
+        raise ValueError(
+            "Model checkpoint does not include metadata['dt']; cannot verify "
+            "that the diagnostic trajectory uses the trained timestep."
+        )
+    if not np.isclose(float(checkpoint_dt), requested_dt):
+        raise ValueError(
+            "Model checkpoint was trained with "
+            f"dt={float(checkpoint_dt):g}, but --dt is {requested_dt:g}."
+        )
 
 
 def build_diagnostic_samples(trajectory_normalized, T_val):
@@ -131,15 +157,19 @@ def compute_gradient_heatmap(args):
     model, checkpoint = load_model(args.model)
     model = model.to(device)
     normalization_stats = get_checkpoint_normalization_stats(checkpoint)
+    system = get_system(args.system)
+    validate_checkpoint(checkpoint, system, args.dt)
 
     burn_in = resolve_burn_in_steps(args.dt)
-    trajectory_path = default_lorenz_trajectory_path(
-        config.DATA_DIR,
+    trajectory_path = default_trajectory_path(
+        system.name,
+        config.system_path(config.DATA_DIR, system.name),
         dt=args.dt,
         steps=args.steps,
         seed=args.seed,
     )
-    trajectory = get_lorenz_trajectory(
+    trajectory = get_trajectory(
+        system,
         dt=args.dt,
         steps=args.steps,
         burn_in=burn_in,
@@ -165,17 +195,8 @@ def compute_gradient_heatmap(args):
         device=device,
     )
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_name = Path(args.model).stem
-
-    plot_g_T_heatmap(
-        trajectory,
-        g_values,
-        sample_indices,
-        T_val=args.T_val,
-        dt=args.dt,
-        filename=f"lorenz_gradient_heatmap_{model_name}_T{args.T_val}_{timestamp}.png",
-    )
+    plot_g_T_heatmap(trajectory, g_values, sample_indices, T_val=args.T_val, dt=args.dt,
+                     save_dir=config.system_path(config.ANALYSIS_DIR, system.name), system_name=system.label)
 
     overlay_position = int(np.nanargmax(g_values))
     m = int(sample_indices[overlay_position])
@@ -190,13 +211,8 @@ def compute_gradient_heatmap(args):
     )
     prediction_path = np.vstack([trajectory[m], prediction])
     ground_truth_path = trajectory[m : m + args.T_val + 1]
-    plot_prediction_overlay(
-        ground_truth_path,
-        prediction_path,
-        T_val=args.T_val,
-        dt=args.dt,
-        filename=f"lorenz_prediction_{model_name}_T{args.T_val}_{timestamp}.png",
-    )
+    plot_prediction_overlay(ground_truth_path, prediction_path, T_val=args.T_val, dt=args.dt,
+                            save_dir=config.system_path(config.ANALYSIS_DIR, system.name), system_name=system.name)
 
     print(
         f"Computed {len(g_values)} local g(T) values "
@@ -212,9 +228,15 @@ def main():
     )
     parser.add_argument("--dt", type=float, default=config.DT, help="Simulation step")
     parser.add_argument(
+        "--system",
+        choices=SYSTEM_CHOICES,
+        default=config.DEFAULT_SYSTEM,
+        help="Dynamical system for the diagnostic trajectory",
+    )
+    parser.add_argument(
         "--steps",
         type=int,
-        default=config.TRAJECTORY_STEPS,
+        default=config.SIMULATION_STEPS,
         help="Post-burn-in diagnostic trajectory length",
     )
     parser.add_argument(
@@ -226,7 +248,7 @@ def main():
     parser.add_argument(
         "--microbatch-size",
         type=int,
-        default=1,
+        default=5,
         help="Samples per local gradient-scaling estimate",
     )
     parser.add_argument(
