@@ -17,7 +17,7 @@ LAST_RUN_FILE = "last_run.txt"
 
 def get_dt_from_model_dir(model_dir: Path):
     for path in (model_dir, *model_dir.parents):
-        match = re.search(r"dt_(\d+)_.+$", path.name)
+        match = re.search(r"dt_(\d+)(?:_|$)", path.name)
         if match:
             digits = match.group(1)
             return float(digits) / (10 ** len(digits))

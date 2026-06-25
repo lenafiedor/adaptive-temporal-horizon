@@ -144,7 +144,7 @@ def cross_validate_models(
 
     def get_eval_loader(checkpoint):
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
-        checkpoint_system = checkpoint.get("metadata", {}).get("system", "")
+        checkpoint_system = checkpoint.get("metadata", {}).get("system") or system_name
         key = (checkpoint_system, eval_loader_cache_key(normalization_stats))
         if key not in eval_loaders:
             eval_loaders[key] = make_eval_loader(
