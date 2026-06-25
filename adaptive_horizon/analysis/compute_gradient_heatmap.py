@@ -252,7 +252,7 @@ def main():
     parser.add_argument(
         "--seed",
         type=int,
-        default=config.TRAJECTORY_SEED,
+        default=config.RANDOM_SEED,
         help="Diagnostic trajectory seed",
     )
     parser.add_argument(

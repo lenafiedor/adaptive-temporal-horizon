@@ -125,7 +125,7 @@ def train(
             dt=dt,
             system=system_name,
             normalize=True,
-            seed=config.TRAJECTORY_SEED,
+            seed=config.RANDOM_SEED,
             burn_in=resolve_burn_in_steps(dt),
             split="val",
             split_gap=split_gap,

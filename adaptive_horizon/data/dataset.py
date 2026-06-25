@@ -23,7 +23,7 @@ class TrajectoryDataset(NormalizationStats, Dataset):
         dt: float = config.DT,
         system: str = config.DEFAULT_SYSTEM,
         normalize: bool = True,
-        seed: Optional[int] = config.TRAJECTORY_SEED,
+        seed: Optional[int] = config.RANDOM_SEED,
         burn_in: Optional[int] = None,
         normalization_stats: Optional[dict] = None,
         split: str = "train",

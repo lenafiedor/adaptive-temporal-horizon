@@ -48,7 +48,7 @@ def main():
 
     elif args.mode == "local":
         burn_in = resolve_burn_in_steps(args.dt)
-        rng = np.random.default_rng(config.EVAL_SEED)
+        rng = np.random.default_rng(config.RANDOM_SEED)
         trajectory = np.array(
             simulate_trajectory(
                 system,

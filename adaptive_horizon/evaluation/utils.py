@@ -48,7 +48,7 @@ def load_model(model_path):
         activation=nn.ReLU(),
     )
 
-    model = MLP(mlp_config, random_seed=42)
+    model = MLP(mlp_config, random_seed=config.RANDOM_SEED)
     model.load_state_dict(state_dict)
     model.eval()
 

@@ -92,7 +92,7 @@ def make_eval_loader(
         dt=dt,
         system=system_name,
         normalize=True,
-        seed=config.TRAJECTORY_SEED,
+        seed=config.RANDOM_SEED,
         burn_in=burn_in_steps,
         split="val",
         split_gap=split_gap,

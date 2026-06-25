@@ -1,10 +1,7 @@
 import argparse
 import json
 from pathlib import Path
-
 import torch
-
-import adaptive_horizon.config as config
 
 
 def tensor_shapes(state_dict):
@@ -27,7 +24,6 @@ def summarize_checkpoint(checkpoint):
         "model": {
             "input_size": input_size,
             "output_size": output_size,
-            "input_dim": config.INPUT_DIM,
             "layer_widths": layer_widths,
             "num_hidden_blocks": len(layer_widths),
             "residual_connections": model_config.get("residual_connections"),

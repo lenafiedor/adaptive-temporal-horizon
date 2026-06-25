@@ -16,7 +16,7 @@ learning_rate = 3e-4
 weight_decay = 1e-2
 num_seeds = 10
 trajectory_steps = 120000
-trajectory_seed = 12345
+random_seed = 12345
 train_fraction = 0.8
 dt = 0.08
 burn_in_time = 10.0
@@ -33,18 +33,15 @@ ftle_window = 5
 [curriculum-horizon]
 curriculum_loss_threshold = 0.01
 curriculum_update_frequency = 10
-early_stopping = true
 early_stop_patience = 10
 early_stop_min_delta = 0.0001
 early_stop_min_T = 5
 early_stop_grace_epochs = 20
 
 [model]
-input_dim = 3
 layer_width = 10
 
 [evaluation]
 simulation_steps = 50000
 num_batches = 50
-eval_seed = 12345
 max_eval_T = 10

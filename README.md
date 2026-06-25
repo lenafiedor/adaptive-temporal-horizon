@@ -219,6 +219,6 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 | `--dt`              | Time step for the diagnostic simulation        | float                 | `config.DT`               |
 | `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` | `config.SYSTEM`           |
 | `--steps`           | Post-burn-in diagnostic trajectory length      | int                   | `config.TRAJECTORY_STEPS` |
-| `--seed`            | Diagnostic trajectory seed                     | int                   | `config.TRAJECTORY_SEED`  |
+| `--seed`            | Diagnostic trajectory seed                     | int                   | `config.RANDOM_SEED`      |
 | `--microbatch-size` | Samples per local gradient-scaling estimate    | int                   | 1                         |
 | `--regenerate`      | Regenerate the cached diagnostic trajectory    | true \| false         | false                     |

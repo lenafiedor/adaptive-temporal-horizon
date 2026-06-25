@@ -38,7 +38,7 @@ def gradient_scaling(
         system=system_name,
         T=max_T,
         normalize=True,
-        seed=config.TRAJECTORY_SEED,
+        seed=config.RANDOM_SEED,
         burn_in=burn_in_steps,
         split="val",
         split_gap=split_gap,
