@@ -227,10 +227,7 @@ def compute_gradient_heatmap(args):
         system_name=system.name,
     )
 
-    print(
-        f"Computed {len(g_values)} local g(T) values "
-        f"for T={args.T_val} ({args.T_val * args.dt:.4f} time units)"
-    )
+    print(f"Computed {len(g_values)} local g(T) values for T={args.T_val}")
 
 
 def main():

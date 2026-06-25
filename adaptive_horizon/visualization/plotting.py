@@ -160,7 +160,7 @@ def plot_gradients_histogram(
         )
         ax.set_xlabel("g(T)")
         ax.set_ylabel("batch count")
-        ax.set_title(rf"$t_L = {T * dt:.2f}$")
+        ax.set_title(rf"$\tau = {T * dt:.2f}$")
 
     for ax in flat_axes[num_plots:]:
         ax.set_visible(False)
@@ -168,7 +168,7 @@ def plot_gradients_histogram(
     train_time = train_T * dt if train_T is not None else None
     title = "g(T) batch histograms"
     if train_time is not None:
-        title += rf" (train $t_L = {train_time:.2f}$)"
+        title += rf" (train $\tau = {train_time:.2f}$)"
     fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -237,7 +237,7 @@ def plot_gradient_history(
             medians,
             color=color,
             linewidth=1.8,
-            label=rf"$t_L = {T_time:.2f}$",
+            label=rf"$\tau = {T_time:.2f}$",
         )
         ax.fill_between(
             epochs, p05_values, p95_values, color=color, alpha=0.12, linewidth=0
@@ -246,7 +246,7 @@ def plot_gradient_history(
             epochs, p25_values, p75_values, color=color, alpha=0.25, linewidth=0
         )
         ax.scatter(epochs, p99_values, color=color, alpha=0.35, s=14, linewidths=0)
-        ax.set_title(rf"$t_L = {T_time:.2f}$")
+        ax.set_title(rf"$\tau = {T_time:.2f}$")
         ax.set_yscale("log")
         ax.grid(True, alpha=0.3)
 
@@ -333,7 +333,7 @@ def plot_mse(
             centers,
             yerr=np.array([lower_errors, upper_errors]),
             color=colors[i],
-            label=f"$t_L={val_summary['eval_T'] * dt:.2f}$",
+            label=rf"$\tau_{{val}}={val_summary['eval_T'] * dt:.2f}$",
             linewidth=1.5,
             marker=".",
             markersize=6,
@@ -348,7 +348,7 @@ def plot_mse(
             alpha=0.7,
         )
 
-    ax.set_xlabel(r"Training Horizon ($\tau \cdot dt$)")
+    ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
     ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
     ax.set_title("Cross-Validation MSE (dashed = adaptive model)")
     ax.set_yscale("log")
@@ -500,7 +500,7 @@ def plot_mse_subplots(
             summary.get("deltas", {}).get("by_val_T", {}).get(str(val_T), {})
         )
         paired_count = delta_summary.get("n_pairs")
-        title = rf"$T_{{val}}={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
+        title = rf"$\tau_{{val}}={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
         ax.set_title(title)
         ax.set_yscale("log")
         ax.set_xticks(x_positions)
@@ -510,7 +510,7 @@ def plot_mse_subplots(
         ax.set_visible(False)
 
     for ax in axes[-1, :]:
-        ax.set_xlabel(r"Training horizon ($\tau \cdot dt$)")
+        ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
     for ax in axes[:, 0]:
         ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
 
@@ -559,7 +559,7 @@ def plot_paired_deltas(
         label="Best fixed MSE - adaptive MSE",
     )
     ax.fill_between(x, lows, highs, color=COLOR_EVAL, alpha=0.35, linewidth=0)
-    ax.set_xlabel(r"Validation horizon ($\tau \cdot dt$)")
+    ax.set_xlabel(r"Validation horizon ($\tau = T \cdot dt$)")
     ax.set_ylabel(f"Paired MSE deltas ({metric})")
     ax.set_title("Horizon search: validation deltas")
     ax.legend()
@@ -723,11 +723,11 @@ def plot_g_T_heatmap(
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.set_title(
-        rf"{system_name} attractor colored by local $g(T)$, $T_{{val}}={T_val * dt:.2f}$"
+        rf"{system_name} attractor colored by local $g(T)$, $\tau_{{val}}={T_val * dt:.2f}$"
     )
 
     cbar = fig.colorbar(lc, ax=ax, shrink=0.65, aspect=20, pad=0.1)
-    cbar.set_label(rf"$g(T)$ at $T={T_val}$ ({T_val * dt:.2f} time units)")
+    cbar.set_label(rf"$g(T)$ at $T={T_val}$, $\tau={T_val * dt:.2f}$")
 
     fig.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -778,7 +778,7 @@ def plot_prediction_overlay(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    ax.set_title(rf"Prediction rollout overlay, $t_L={T_val * dt:.2f}$")
+    ax.set_title(rf"Prediction rollout overlay, $\tau={T_val * dt:.2f}$")
     ax.legend()
     fig.tight_layout()
 

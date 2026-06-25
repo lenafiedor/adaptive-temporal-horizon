@@ -53,6 +53,36 @@ def per_seed_mses(records, model_type: str, eval_scope: EvalScope, train_T=None)
     ]
 
 
+def mean_mses_by_eval_T(records, model_type: str, eval_scope: EvalScope, train_T=None):
+    matching_records = [
+        record
+        for record in records
+        if record["model_type"] == model_type
+        and (train_T is None or record.get("train_T") == train_T)
+        and record.get("seed") is not None
+    ]
+    val_Ts = sorted(
+        {
+            int(record["val_T"])
+            for record in matching_records
+            if eval_scope.mode != "single" or int(record["val_T"]) == eval_scope.eval_T
+        }
+    )
+
+    return [
+        float(
+            np.mean(
+                [
+                    float(record["mse"])
+                    for record in matching_records
+                    if int(record["val_T"]) == val_T
+                ]
+            )
+        )
+        for val_T in val_Ts
+    ]
+
+
 def aggregate_mse(seed_mses, metric: str, fallback: float):
     if not seed_mses:
         return fallback
@@ -109,14 +139,16 @@ def load_result(path: Path, metric: str, eval_scope: EvalScope):
 
     adaptive_seed_mses = per_seed_mses(records, "adaptive", eval_scope)
     fixed_seed_mses = per_seed_mses(records, "fixed", eval_scope, best_train_T)
+    adaptive_eval_T_mses = mean_mses_by_eval_T(records, "adaptive", eval_scope)
+    fixed_eval_T_mses = mean_mses_by_eval_T(records, "fixed", eval_scope, best_train_T)
 
     return BudgetComparison(
         max_train_T=metadata["max_train_T"],
         adaptive_mse=aggregate_mse(
-            adaptive_seed_mses, metric, adaptive_summary[metric]
+            adaptive_eval_T_mses, metric, adaptive_summary[metric]
         ),
         adaptive_seed_mses=adaptive_seed_mses,
-        fixed_mse=aggregate_mse(fixed_seed_mses, metric, fixed_summary[metric]),
+        fixed_mse=aggregate_mse(fixed_eval_T_mses, metric, fixed_summary[metric]),
         fixed_seed_mses=fixed_seed_mses,
         best_train_T=best_train_T,
         source_path=path,

@@ -54,6 +54,7 @@ poetry run train-mlp --adaptive                 # Train only with adaptive T usi
 poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
+poetry run train-mlp --output-dir runs/demo     # Save this run under a custom model_root
 ```
 
 **Args:**
@@ -75,6 +76,7 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 | `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
 | `--early-stopping`  | Enable early stopping when validation loss does not improve                       | true \| false                                                 | false                |
 | `--append`          | Append missing models to an existing run; omit value to use `models/last_run.txt` | optional str                                                  | None                 |
+| `--output-dir`      | Directory to save the models in                                                   | path                                                          | None                 |
 | `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
 
 Notes:
@@ -82,6 +84,7 @@ Notes:
 - `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
 - `-T` only affects fixed-horizon `--single` training.
 - In `--append` mode, training checks seeds `0..n_seeds-1` and only trains missing models.
+- `--output-dir` is only for new runs and cannot be combined with `--append`.
 - In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
 - To permanently change default variables, edit `config.toml`.
 

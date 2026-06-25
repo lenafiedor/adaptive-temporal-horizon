@@ -57,6 +57,7 @@ def resolve_dirs(
     budget_based: bool,
     append_model_dir: Path | None = None,
     system_name=config.DEFAULT_SYSTEM,
+    output_dir: Path | None = None,
 ):
     model_dir = config.system_path(config.MODEL_DIR, system_name)
     loss_root = config.system_path(config.LOSS_DIR, system_name)
@@ -77,10 +78,14 @@ def resolve_dirs(
                 f"Cannot append: model directory {model_root} was not found."
             )
     else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = "budget_" if budget_based else ""
-        filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
-        model_root = model_dir / filename
+        if output_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            prefix = "budget_" if budget_based else ""
+            filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+            model_root = model_dir / filename
+        else:
+            model_root = output_dir.expanduser().resolve()
+            filename = model_root.name
         model_root.mkdir(parents=True, exist_ok=True)
 
     if debug:

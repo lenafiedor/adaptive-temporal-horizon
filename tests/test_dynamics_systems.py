@@ -71,7 +71,7 @@ def test_rossler_fixed_horizon_loader_shapes(tmp_path):
         seed=123,
         burn_in=0,
         trajectory_steps=12,
-        trajectory_path=tmp_path / "rossler_dataset.pt",
+        trajectory_path=str(tmp_path / "rossler_dataset.pt"),
     )
     loader = DataLoader(dataset, batch_size=4, collate_fn=collate_fn)
 

@@ -616,6 +616,12 @@ def main():
         help="Append outputs to MODEL_DIR, or to the run referenced by models/last_run.txt when no value is provided",
     )
     parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory to save the trained models to",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Debug training losses, adaptive dataset T values and Lyapunov exponents",
@@ -646,6 +652,7 @@ def main():
         args.budget_based,
         append_model_dir,
         args.system,
+        args.output_dir,
     )
 
     if args.single:
