@@ -164,7 +164,7 @@ def create_model_and_loaders(
                 split_gap=split_gap,
             )
             val_dataset = TrajectoryDataset(
-                T=T,
+                T=config.MAX_EVAL_T,
                 dt=dt,
                 system=system.name,
                 seed=config.RANDOM_SEED,

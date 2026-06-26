@@ -18,7 +18,6 @@ LOSS_DIR = Path(_config["paths"]["loss_dir"])
 ANALYSIS_DIR = Path(_config["paths"]["analysis_dir"])
 DATA_DIR = Path(_config["paths"]["data_dir"])
 
-DEFAULT_SYSTEM = _config["training"]["default_system"]
 DEVICE = _config["training"]["device"]
 MAX_TRAIN_T = _config["training"]["max_train_T"]
 EPOCHS = _config["training"]["epochs"]
@@ -27,13 +26,17 @@ OPTIMIZER = _config["training"]["optimizer"]
 LEARNING_RATE = _config["training"]["learning_rate"]
 WEIGHT_DECAY = _config["training"]["weight_decay"]
 NUM_SEEDS = _config["training"]["num_seeds"]
-TRAJECTORY_STEPS = _config["training"]["trajectory_steps"]
-RANDOM_SEED = _config["training"]["random_seed"]
-TRAIN_FRACTION = _config["training"]["train_fraction"]
-DT = _config["training"]["dt"]
-BURN_IN_TIME = _config["training"]["burn_in_time"]
-VARIANCE = _config["training"]["variance"]
-DEFAULT_ADAPTIVE_HORIZON = _config["training"]["default_adaptive_horizon"]
+
+DEFAULT_SYSTEM = _config["system"]["default_system"]
+DT = _config["system"]["dt"]
+BURN_IN_TIME = _config["system"]["burn_in_time"]
+
+TRAJECTORY_STEPS = _config["trajectory"]["trajectory_steps"]
+RANDOM_SEED = _config["trajectory"]["random_seed"]
+TRAIN_FRACTION = _config["trajectory"]["train_fraction"]
+
+VARIANCE = _config["adaptive-horizon"]["variance"]
+DEFAULT_ADAPTIVE_HORIZON = _config["adaptive-horizon"]["default_adaptive_horizon"]
 
 RHO = _config["weighted-loss"]["rho"]
 TEMPERATURE = _config["weighted-loss"]["temperature"]
@@ -43,9 +46,10 @@ FTLE_WINDOW = _config["weighted-loss"]["ftle_window"]
 
 LAYER_WIDTH = _config["model"]["layer_width"]
 
-SIMULATION_STEPS = _config["evaluation"]["simulation_steps"]
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 MAX_EVAL_T = _config["evaluation"]["max_eval_T"]
+
+SIMULATION_STEPS = _config["analysis"]["simulation_steps"]
 
 
 def system_path(path, system_name=DEFAULT_SYSTEM):

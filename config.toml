@@ -6,7 +6,6 @@ analysis_dir = "experiments/lorenz/analysis"
 data_dir = "experiments/lorenz/data"
 
 [training]
-default_system = "lorenz"
 device = "cpu"
 max_train_T = 10
 epochs = 100
@@ -15,11 +14,18 @@ optimizer = "adam"
 learning_rate = 3e-4
 weight_decay = 1e-2
 num_seeds = 10
+
+[system]
+default_system = "lorenz"
+dt = 0.08
+burn_in_time = 10.0
+
+[trajectory]
 trajectory_steps = 120000
 random_seed = 12345
 train_fraction = 0.8
-dt = 0.08
-burn_in_time = 10.0
+
+[adaptive-horizon]
 variance = 1
 default_adaptive_horizon = 0.4
 
@@ -34,6 +40,8 @@ ftle_window = 5
 layer_width = 10
 
 [evaluation]
-simulation_steps = 50000
 num_batches = 50
 max_eval_T = 10
+
+[analysis]
+simulation_steps = 50000
