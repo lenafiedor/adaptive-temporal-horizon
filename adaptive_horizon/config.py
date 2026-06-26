@@ -41,17 +41,6 @@ WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
 ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
 FTLE_WINDOW = _config["weighted-loss"]["ftle_window"]
 
-CURRICULUM_LOSS_THRESHOLD = _config["curriculum-horizon"]["curriculum_loss_threshold"]
-CURRICULUM_UPDATE_FREQUENCY = _config["curriculum-horizon"][
-    "curriculum_update_frequency"
-]
-CURRICULUM_EARLY_STOP_PATIENCE = _config["curriculum-horizon"]["early_stop_patience"]
-CURRICULUM_EARLY_STOP_MIN_DELTA = _config["curriculum-horizon"]["early_stop_min_delta"]
-CURRICULUM_EARLY_STOP_MIN_T = _config["curriculum-horizon"]["early_stop_min_T"]
-CURRICULUM_EARLY_STOP_GRACE_EPOCHS = _config["curriculum-horizon"][
-    "early_stop_grace_epochs"
-]
-
 LAYER_WIDTH = _config["model"]["layer_width"]
 
 SIMULATION_STEPS = _config["evaluation"]["simulation_steps"]

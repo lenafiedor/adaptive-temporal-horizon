@@ -74,7 +74,7 @@ poetry run train-mlp --output-dir runs/demo     # Save this run under a custom m
 | `--dt`              | Time step for the system simulation                                               | float                                                         | `config.DT`          |
 | `--system`          | Dynamical system to train on                                                      | `lorenz` \| `rossler`                                         | `config.SYSTEM`      |
 | `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
-| `--early-stopping`  | Enable early stopping when validation loss does not improve                       | true \| false                                                 | false                |
+| `--early-stopping`  | Enable early stopping based on online cross-validation                            | true \| false                                                 | false                |
 | `--append`          | Append missing models to an existing run; omit value to use `models/last_run.txt` | optional str                                                  | None                 |
 | `--output-dir`      | Directory to save the models in                                                   | path                                                          | None                 |
 | `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
@@ -86,6 +86,7 @@ Notes:
 - In `--append` mode, training checks seeds `0..n_seeds-1` and only trains missing models.
 - `--output-dir` is only for new runs and cannot be combined with `--append`.
 - In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
+- `--early-stopping` applies only to curriculum-horizon adaptive training. At each horizon boundary it evaluates validation horizons `1..max_T`, caches the current model when the median improves, and restores the previous cached model when the median worsens.
 - To permanently change default variables, edit `config.toml`.
 
 ### Gradient Scaling

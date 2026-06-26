@@ -192,7 +192,7 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     x_values = [comparison.max_train_T for comparison in comparisons]
     adaptive_values = [comparison.adaptive_mse for comparison in comparisons]
     fixed_values = [comparison.fixed_mse for comparison in comparisons]
-    x_spacing = min(np.diff(sorted(x_values))) if len(x_values) > 1 else 1.0
+    x_spacing = min(np.diff(sorted(set(x_values)))) if len(x_values) > 1 else 1.0
     group_offset = 0.12 * float(x_spacing)
     jitter_width = 0.04 * float(x_spacing)
 

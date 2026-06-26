@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
+from statistics import median
 from time import perf_counter
 
 import adaptive_horizon.config as config
@@ -47,6 +48,32 @@ def padded_mean_loss(losses_by_seed):
     return torch.nanmean(padded, dim=0)
 
 
+def clone_model_state_dict(model):
+    return {
+        name: tensor.detach().cpu().clone()
+        for name, tensor in model.state_dict().items()
+    }
+
+
+def restore_model_state_dict(model, state_dict):
+    model.load_state_dict(state_dict)
+
+
+def curriculum_boundary_reached(epoch, total_epochs, current_T, T_max):
+    if epoch + 1 >= total_epochs:
+        return True
+    next_T = curriculum_horizon(epoch + 1, total_epochs, T_max)
+    return next_T > current_T
+
+
+def cross_validation_median_loss(model, val_loader, val_Ts, device):
+    losses_by_T = {
+        int(val_T): float(validation_loss(model, val_loader, val_T, device))
+        for val_T in val_Ts
+    }
+    return float(median(losses_by_T.values())), losses_by_T
+
+
 def train(
     model,
     train_loader,
@@ -81,7 +108,7 @@ def train(
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
-        early_stopping: Whether to enable early stopping based on validation loss
+        early_stopping: Enable early stopping based on validation loss
 
     Returns:
         losses: List of training_results losses
@@ -93,23 +120,17 @@ def train(
     wall_time_start = perf_counter()
 
     if early_stopping:
-        early_stop_best_loss = None
-        early_stop_wait = 0
-        stopped_early = False
-        early_stop_min_T = min(T, config.CURRICULUM_EARLY_STOP_MIN_T)
-        grace_active = False
-        grace_T = None
-        grace_epochs_ran = 0
-        trigger_epoch = None
-        trigger_T = None
+        cv_val_Ts = list(range(1, config.MAX_EVAL_T + 1))
+        cv_cached_state = None
+        cv_cached_T = None
+        cv_cached_epoch = None
+        cv_cached_median = None
         if metadata is not None:
             metadata["early_stopping"] = {
                 "enabled": True,
-                "metric": "validation_loss",
-                "patience": config.CURRICULUM_EARLY_STOP_PATIENCE,
-                "min_delta": config.CURRICULUM_EARLY_STOP_MIN_DELTA,
-                "min_T": early_stop_min_T,
-                "grace_epochs": config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS,
+                "metric": "median_validation_loss",
+                "val_Ts": cv_val_Ts,
+                "max_T": T,
             }
 
     if debug:
@@ -142,13 +163,10 @@ def train(
     curriculum_T = 1
 
     epoch = 0
-    final_T = None
-    while epoch < epochs or (early_stopping and grace_active):
+    while epoch < epochs:
         model.train()
         epoch_loss = 0.0
-        if early_stopping and grace_active:
-            current_T = grace_T
-        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
+        if adaptive and adaptive_method == CURRICULUM_HORIZON:
             current_T = curriculum_horizon(epoch, epochs, T)
             if current_T != curriculum_T:
                 print(
@@ -157,7 +175,6 @@ def train(
                 curriculum_T = current_T
         else:
             current_T = T
-        final_T = current_T
 
         for batch in train_loader:
             inputs, targets, *rest = batch
@@ -216,44 +233,36 @@ def train(
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
-        if early_stopping and grace_active:
-            improvement = (
-                early_stop_best_loss is None
-                or val_loss
-                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+        if (
+            early_stopping
+            and adaptive
+            and adaptive_method == CURRICULUM_HORIZON
+            and curriculum_boundary_reached(epoch, epochs, current_T, T)
+        ):
+            cv_median, _ = cross_validation_median_loss(
+                model,
+                val_loader,
+                cv_val_Ts,
+                device,
             )
-            if improvement:
-                early_stop_best_loss = float(val_loss)
-            grace_epochs_ran += 1
-            if grace_epochs_ran >= config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS:
-                stopped_early = True
+            print(
+                f"\tCross-validation check at epoch {epoch + 1}, "
+                f"T={current_T}: median MSE={cv_median:.6f}"
+            )
+
+            if current_T > 1 and cv_cached_median < cv_median:
+                restore_model_state_dict(model, cv_cached_state)
                 print(
-                    f"\tEarly stopping grace completed after {grace_epochs_ran} "
-                    f"epochs at T={current_T}"
+                    f"\tCross-validation early stopping selected cached "
+                    f"T={cv_cached_T} from epoch {cv_cached_epoch} "
+                    f"(median MSE={cv_cached_median:.6f})"
                 )
                 break
-        elif early_stopping and current_T >= early_stop_min_T:
-            improvement = (
-                early_stop_best_loss is None
-                or val_loss
-                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
-            )
-            if improvement:
-                early_stop_best_loss = float(val_loss)
-                early_stop_wait = 0
-            else:
-                early_stop_wait += 1
 
-            if early_stop_wait >= config.CURRICULUM_EARLY_STOP_PATIENCE:
-                grace_active = True
-                grace_T = current_T
-                trigger_epoch = epoch + 1
-                trigger_T = current_T
-                print(
-                    f"\tEarly stopping triggered at epoch {epoch + 1}, "
-                    f"T={current_T}; training {config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS} "
-                    "additional epochs at the same T"
-                )
+            cv_cached_state = clone_model_state_dict(model)
+            cv_cached_T = int(current_T)
+            cv_cached_epoch = epoch + 1
+            cv_cached_median = cv_median
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -278,13 +287,10 @@ def train(
         if early_stopping:
             metadata["early_stopping"].update(
                 {
-                    "stopped_early": stopped_early,
-                    "best_val_loss": early_stop_best_loss,
+                    "selected_T": cv_cached_T,
+                    "selected_epoch": cv_cached_epoch,
+                    "selected_median": cv_cached_median,
                     "epochs_ran": len(train_losses),
-                    "final_T": final_T,
-                    "trigger_epoch": trigger_epoch,
-                    "trigger_T": trigger_T,
-                    "grace_epochs_ran": grace_epochs_ran,
                 }
             )
 
@@ -605,7 +611,7 @@ def main():
     parser.add_argument(
         "--early-stopping",
         action="store_true",
-        help="Early stop adaptive training when the validation loss does not improve for a certain number of epochs",
+        help="Early stop curriculum-horizon training using median validation loss over all horizons",
     )
     parser.add_argument(
         "--append",
@@ -632,6 +638,17 @@ def main():
     append_model_dir = Path(args.append) if args.append else None
     train_Ts = get_train_Ts(args.max_T)
     system = get_system(args.system)
+    effective_adaptive_method = (
+        CURRICULUM_HORIZON if args.budget_based else args.adaptive_method
+    )
+    if args.early_stopping:
+        if args.fixed or (args.single and not args.adaptive):
+            parser.error("--early-stopping requires adaptive training")
+        if effective_adaptive_method != CURRICULUM_HORIZON:
+            parser.error(
+                "--early-stopping requires "
+                "--adaptive-method curriculum-horizon or --budget-based"
+            )
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
