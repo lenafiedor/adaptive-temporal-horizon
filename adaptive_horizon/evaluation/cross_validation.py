@@ -1,7 +1,6 @@
 from torch.utils.data import DataLoader
 import argparse
 import json
-import re
 import numpy as np
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.training.utils import resolve_burn_in_steps
+from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
     plot_mse_subplots,
@@ -30,9 +29,9 @@ def get_T_values(model_dir: Path):
     model_files = list(model_dir.glob("mlp_T*.pt"))
     train_Ts = set()
     for f in model_files:
-        match = re.search(r"mlp_T(\d+)", f.name)
-        if match:
-            train_Ts.add(int(match.group(1)))
+        info = model_info(f)
+        if info is not None and info[0] is not None:
+            train_Ts.add(info[0])
     return sorted(train_Ts)
 
 
@@ -40,11 +39,12 @@ def get_fixed_paths(train_Ts, model_dir=config.MODEL_DIR):
     """Get all model paths for each train_T."""
     model_paths = {T: [] for T in train_Ts}
     for f in sorted(model_dir.glob("mlp_T*.pt")):
-        match = re.search(r"mlp_T(\d+)", f.name)
-        if match:
-            T = int(match.group(1))
-            if T in model_paths:
-                model_paths[T].append(f)
+        info = model_info(f)
+        if info is None or info[0] is None:
+            continue
+        T, _ = info
+        if T in model_paths:
+            model_paths[T].append(f)
     return model_paths
 
 

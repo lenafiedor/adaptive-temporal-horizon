@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import torch
 import math
+from statistics import mean
 
 import adaptive_horizon.config as config
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
@@ -20,14 +21,25 @@ def get_train_Ts(max_T: int):
     return list(range(1, max_T + 1))
 
 
+def model_info(model_path: Path):
+    match = re.search(r"mlp_T(\d+)_seed(\d+)(?:_|$)", model_path.name)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    match = re.search(r"_seed(\d+)(?:_|$)", model_path.name)
+    if not match:
+        return None
+    return None, int(match.group(1))
+
+
 def get_existing_fixed_model_seeds(model_dir: Path):
     model_seeds = {}
     for model_path in model_dir.glob("mlp_T*.pt"):
-        match = re.search(r"mlp_T(\d+)_seed(\d+)", model_path.name)
-        if match:
-            train_T = int(match.group(1))
-            seed = int(match.group(2))
-            model_seeds.setdefault(train_T, set()).add(seed)
+        info = model_info(model_path)
+        if info is None or info[0] is None:
+            continue
+        train_T, seed = info
+        model_seeds.setdefault(train_T, set()).add(seed)
     return model_seeds
 
 
@@ -37,7 +49,7 @@ def get_existing_adaptive_model_seeds(
     model_seeds = set()
     method_short = adaptive_method_abbreviation(adaptive_method)
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed(\d+)", model_path.name)
+        match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed\d+(?:_|$)", model_path.name)
         if not match:
             continue
 
@@ -45,17 +57,17 @@ def get_existing_adaptive_model_seeds(
         if method_abbr != method_short:
             continue
 
-        model_seeds.add(int(match.group(2)))
+        info = model_info(model_path)
+        if info is not None:
+            model_seeds.add(info[1])
     return model_seeds
 
 
 def resolve_dirs(
     dt,
-    append: bool,
     max_train_T: int,
     debug: bool,
     budget_based: bool,
-    append_model_dir: Path | None = None,
     system_name=config.DEFAULT_SYSTEM,
     output_dir: Path | None = None,
 ):
@@ -63,30 +75,17 @@ def resolve_dirs(
     loss_root = config.system_path(config.LOSS_DIR, system_name)
     last_run_file = model_dir / "last_run.txt"
 
-    if append:
-        if append_model_dir is None:
-            if not last_run_file.exists():
-                raise FileNotFoundError(
-                    f"Cannot append: {last_run_file} does not exist. Run training without --append first."
-                )
-            append_model_dir = Path(last_run_file.read_text().strip())
-
-        model_root = append_model_dir.expanduser().resolve()
-        filename = model_root.name
-        if not model_root.exists():
-            raise FileNotFoundError(
-                f"Cannot append: model directory {model_root} was not found."
-            )
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        prefix = "budget_" if budget_based else ""
+        filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+        model_root = model_dir / filename
+        append_existing = False
     else:
-        if output_dir is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            prefix = "budget_" if budget_based else ""
-            filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
-            model_root = model_dir / filename
-        else:
-            model_root = output_dir.expanduser().resolve()
-            filename = model_root.name
-        model_root.mkdir(parents=True, exist_ok=True)
+        model_root = output_dir.expanduser().resolve()
+        filename = model_root.name
+        append_existing = model_root.exists()
+    model_root.mkdir(parents=True, exist_ok=True)
 
     if debug:
         loss_dir = loss_root / filename
@@ -99,7 +98,35 @@ def resolve_dirs(
     fixed_dir.mkdir(parents=True, exist_ok=True)
     adaptive_dir.mkdir(parents=True, exist_ok=True)
 
-    return model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file
+    return model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file, append_existing
+
+
+def checkpoint_wall_time(checkpoint):
+    metadata = checkpoint.get("metadata", {})
+    if "wall_time_seconds" in metadata:
+        return float(metadata["wall_time_seconds"])
+    return float(metadata["train_wall_clock_seconds"])
+
+
+def fixed_budget_wall_time(fixed_dir: Path, max_T: int):
+    wall_times_by_T = {T: [] for T in range(1, max_T + 1)}
+    for model_path in Path(fixed_dir).glob("mlp_T*.pt"):
+        info = model_info(model_path)
+        if info is None or info[0] is None:
+            continue
+        train_T, _ = info
+        if train_T not in wall_times_by_T:
+            continue
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        wall_times_by_T[train_T].append(checkpoint_wall_time(checkpoint))
+
+    missing_Ts = [T for T, values in wall_times_by_T.items() if not values]
+    if missing_Ts:
+        raise FileNotFoundError(
+            f"Missing fixed model wall-time metadata for T values: {missing_Ts}"
+        )
+
+    return float(sum(mean(values) for values in wall_times_by_T.values()))
 
 
 def save_model(

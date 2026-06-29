@@ -51,8 +51,8 @@ poetry run train-mlp --single --adaptive        # Train a single adaptive model
 poetry run train-mlp --fixed                    # Train only with fixed T
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
 poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
-poetry run train-mlp --fixed --append --max-T 8 # Append only missing fixed T values to the last run
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
+poetry run train-mlp --budget-based --adaptive --adaptive-method adaptive-horizon --max-T 6 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
 poetry run train-mlp --output-dir runs/demo     # Save this run under a custom model_root
 ```
@@ -66,26 +66,27 @@ poetry run train-mlp --output-dir runs/demo     # Save this run under a custom m
 | `-T`                | Training horizon for fixed `--single` mode                                        | int                                                           | 1                    |
 | `--fixed`, `-f`     | Train only fixed-horizon models                                                   | true \| false                                                 | false                |
 | `--adaptive`, `-a`  | Train only adaptive models                                                        | true \| false                                                 | false                |
-| `--adaptive-method` | Adaptive training method                                                          | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | `adaptive-horizon`   |
+| `--adaptive-method` | Adaptive training method                                                          | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
+| `--fixed-dir`       | Fixed model directory used for budget wall-clock metadata                         | path                                                          | None                 |
 | `--max-T`           | Maximum horizon used in aggregate training                                        | int                                                           | `config.MAX_TRAIN_T` |
-| `--budget-based`    | Train fixed and curriculum-horizon adaptive models under one budget               | true \| false                                                 | false                |
+| `--budget-based`    | Train fixed and adaptive models under one budget                                  | true \| false                                                 | false                |
 | `--epochs-per-T`    | Budget mode epochs for each fixed horizon                                         | int                                                           | 20                   |
 | `--n-seeds` `-s`    | Number of seeds for aggregate training                                            | int                                                           | `config.NUM_SEEDS`   |
 | `--dt`              | Time step for the system simulation                                               | float                                                         | `config.DT`          |
 | `--system`          | Dynamical system to train on                                                      | `lorenz` \| `rossler`                                         | `config.SYSTEM`      |
 | `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
 | `--early-stopping`  | Enable early stopping based on online cross-validation                            | true \| false                                                 | false                |
-| `--append`          | Append missing models to an existing run; omit value to use `models/last_run.txt` | optional str                                                  | None                 |
-| `--output-dir`      | Directory to save the models in                                                   | path                                                          | None                 |
+| `--output-dir`      | Directory to save models to; existing directories are reused                      | path                                                          | None                 |
 | `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
+- `--adaptive-method` defaults to `adaptive-horizon` outside budget mode and `curriculum-horizon` in budget mode.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
 - `-T` only affects fixed-horizon `--single` training.
-- In `--append` mode, training checks seeds `0..n_seeds-1` and only trains missing models.
-- `--output-dir` is only for new runs and cannot be combined with `--append`.
+- When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
 - In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
+- With `--budget-based --adaptive-method adaptive-horizon`, adaptive training also stops when it reaches the summed mean fixed-model wall time for `T=1..max_T`, read from `--fixed-dir` or the current run's `fixed/` directory.
 - `--early-stopping` applies only to curriculum-horizon adaptive training. At each horizon boundary it evaluates validation horizons `1..max_T`, caches the current model when the median improves, and restores the previous cached model when the median worsens.
 - To permanently change default variables, edit `config.toml`.
 

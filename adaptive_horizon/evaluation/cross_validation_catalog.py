@@ -17,6 +17,10 @@ from adaptive_horizon.evaluation.utils import (
     save_cross_validation_results,
     summarize_cross_validation,
 )
+from adaptive_horizon.training.utils import (
+    get_existing_fixed_model_seeds,
+    model_info,
+)
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
     plot_mse_subplots,
@@ -67,22 +71,20 @@ def inferred_cache_dirs(catalog_dir: Path, output_dir: Path):
 
 
 def fixed_model_seeds(fixed_dir: Path, max_train_T: int):
-    seeds_by_T = {T: set() for T in range(1, max_train_T + 1)}
-    for path in fixed_dir.glob("mlp_T*.pt"):
-        match = re.search(r"mlp_T(\d+)_seed(\d+)_", path.name)
-        if match:
-            train_T = int(match.group(1))
-            if train_T in seeds_by_T:
-                seeds_by_T[train_T].add(int(match.group(2)))
-    return {train_T: seeds for train_T, seeds in seeds_by_T.items() if seeds}
+    seeds_by_T = get_existing_fixed_model_seeds(fixed_dir)
+    return {
+        train_T: seeds
+        for train_T, seeds in seeds_by_T.items()
+        if train_T <= max_train_T and seeds
+    }
 
 
 def adaptive_model_seeds(adaptive_dir: Path):
     seeds = set()
     for path in adaptive_dir.glob("adaptive_mlp*.pt"):
-        match = re.search(r"_seed(\d+)_", path.name)
-        if match:
-            seeds.add(int(match.group(1)))
+        info = model_info(path)
+        if info is not None:
+            seeds.add(info[1])
     return seeds
 
 
@@ -164,13 +166,6 @@ def copy_cached_result(cache_path: Path, output_dir: Path):
         shutil.copy2(cache_path, target)
 
 
-def model_seed(path: Path):
-    match = re.search(r"_seed(\d+)_", path.name)
-    if match:
-        return int(match.group(1))
-    return None
-
-
 def reusable_cached_records(cache_dirs, model_dir, fixed_dir, max_train_T, max_eval_T):
     fixed_records = {}
     adaptive_records = {}
@@ -217,10 +212,11 @@ def missing_fixed_paths(fixed_paths, cached_records, max_eval_T):
     for train_T, paths in fixed_paths.items():
         missing_paths = []
         for path in paths:
-            seed = model_seed(path)
-            if seed is None:
+            info = model_info(path)
+            if info is None:
                 missing_paths.append(path)
                 continue
+            seed = info[1]
             if any(
                 ("fixed", int(train_T), seed, val_T) not in cached_records
                 for val_T in val_Ts
@@ -234,10 +230,11 @@ def missing_adaptive_paths(adaptive_paths, cached_records, max_eval_T):
     val_Ts = range(1, max_eval_T + 1)
     missing = []
     for path in adaptive_paths:
-        seed = model_seed(path)
-        if seed is None:
+        info = model_info(path)
+        if info is None:
             missing.append(path)
             continue
+        seed = info[1]
         if any(("adaptive", seed, val_T) not in cached_records for val_T in val_Ts):
             missing.append(path)
     return missing

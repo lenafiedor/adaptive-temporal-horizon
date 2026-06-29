@@ -33,6 +33,7 @@ from adaptive_horizon.training.utils import (
     get_existing_adaptive_model_seeds,
     get_existing_fixed_model_seeds,
     get_train_Ts,
+    fixed_budget_wall_time,
     resolve_dirs,
     save_model,
 )
@@ -89,6 +90,7 @@ def train(
     save_dir=None,
     metadata=None,
     early_stopping=False,
+    max_wall_time_seconds=None,
     system_name=config.DEFAULT_SYSTEM,
 ):
     """
@@ -109,6 +111,7 @@ def train(
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
         early_stopping: Enable early stopping based on validation loss
+        max_wall_time_seconds: Optional training wall-clock budget
 
     Returns:
         losses: List of training_results losses
@@ -118,6 +121,8 @@ def train(
     val_losses = []
     gradient_history = []
     wall_time_start = perf_counter()
+    if max_wall_time_seconds is not None and metadata is not None:
+        metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
     if early_stopping:
         cv_val_Ts = list(range(1, config.MAX_EVAL_T + 1))
@@ -278,6 +283,17 @@ def train(
                 )
                 gradient_history.append((epoch, gradients))
                 plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
+
+        if (
+            max_wall_time_seconds is not None
+            and perf_counter() - wall_time_start >= max_wall_time_seconds
+        ):
+            print(
+                f"\tStopping after epoch {epoch + 1}: "
+                f"wall-clock budget {max_wall_time_seconds:.2f}s reached"
+            )
+            epoch += 1
+            break
         epoch += 1
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
@@ -293,6 +309,11 @@ def train(
                     "epochs_ran": len(train_losses),
                 }
             )
+        if max_wall_time_seconds is not None:
+            metadata["wall_time_budget_result"] = {
+                "epochs_ran": len(train_losses),
+                "stopped_by_wall_time": len(train_losses) < epochs,
+            }
 
     return train_losses, val_losses
 
@@ -313,6 +334,8 @@ def train_single_model(
     var=config.VARIANCE,
     debug=False,
     early_stopping=False,
+    max_wall_time_seconds=None,
+    budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
@@ -332,6 +355,8 @@ def train_single_model(
         )
     )
     if adaptive:
+        if budget_metadata is not None:
+            metadata["budget"] = budget_metadata
         if adaptive_method in (
             CURRICULUM_HORIZON,
             WEIGHTED_LOSS,
@@ -355,6 +380,7 @@ def train_single_model(
         save_dir=loss_save_dir,
         metadata=metadata,
         early_stopping=early_stopping,
+        max_wall_time_seconds=max_wall_time_seconds,
         system_name=system_name,
     )
 
@@ -479,6 +505,8 @@ def train_adaptive_models(
     append=False,
     debug=False,
     early_stopping=False,
+    max_wall_time_seconds=None,
+    budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
 ):
     if debug and loss_save_dir is None:
@@ -526,6 +554,8 @@ def train_adaptive_models(
             var=var,
             debug=debug,
             early_stopping=early_stopping,
+            max_wall_time_seconds=max_wall_time_seconds,
+            budget_metadata=budget_metadata,
             system_name=system_name,
         )
         train_losses.append(train_loss)
@@ -552,7 +582,7 @@ def main():
     parser.add_argument(
         "--budget-based",
         action="store_true",
-        help="Train fixed and curriculum-horizon adaptive models under the same epoch budget",
+        help="Train fixed and adaptive models under the same budget",
     )
     parser.add_argument(
         "--epochs-per-T",
@@ -581,8 +611,14 @@ def main():
     parser.add_argument(
         "--adaptive-method",
         choices=ADAPTIVE_METHOD_CHOICES,
-        default=ADAPTIVE_HORIZON,
+        default=None,
         help="Adaptive training method used with --adaptive",
+    )
+    parser.add_argument(
+        "--fixed-dir",
+        type=Path,
+        default=None,
+        help="Fixed model directory used to read wall-clock budgets for budget-based adaptive-horizon training",
     )
     parser.add_argument(
         "--max-T",
@@ -614,18 +650,10 @@ def main():
         help="Early stop curriculum-horizon training using median validation loss over all horizons",
     )
     parser.add_argument(
-        "--append",
-        nargs="?",
-        const="",
-        default=None,
-        metavar="MODEL_DIR",
-        help="Append outputs to MODEL_DIR, or to the run referenced by models/last_run.txt when no value is provided",
-    )
-    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory to save the trained models to",
+        help="Directory to save models to; existing directories are reused and missing models are appended",
     )
     parser.add_argument(
         "--debug",
@@ -634,21 +662,9 @@ def main():
     )
 
     args = parser.parse_args()
-    append = args.append is not None
-    append_model_dir = Path(args.append) if args.append else None
     train_Ts = get_train_Ts(args.max_T)
     system = get_system(args.system)
-    effective_adaptive_method = (
-        CURRICULUM_HORIZON if args.budget_based else args.adaptive_method
-    )
-    if args.early_stopping:
-        if args.fixed or (args.single and not args.adaptive):
-            parser.error("--early-stopping requires adaptive training")
-        if effective_adaptive_method != CURRICULUM_HORIZON:
-            parser.error(
-                "--early-stopping requires "
-                "--adaptive-method curriculum-horizon or --budget-based"
-            )
+    effective_adaptive_method = args.adaptive_method or CURRICULUM_HORIZON
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"Using device: {device}")
@@ -661,16 +677,15 @@ def main():
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
 
-    model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file = resolve_dirs(
+    model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file, append = resolve_dirs(
         args.dt,
-        append,
         args.max_T,
         args.debug,
         args.budget_based,
-        append_model_dir,
         args.system,
         args.output_dir,
     )
+    budget_fixed_dir = args.fixed_dir or fixed_dir
 
     if args.single:
         print(f"\n{'=' * 50}")
@@ -688,13 +703,13 @@ def main():
             dt=args.dt,
             T=(
                 args.max_T
-                if args.adaptive and args.adaptive_method == CURRICULUM_HORIZON
+                if args.adaptive and effective_adaptive_method == CURRICULUM_HORIZON
                 else None
                 if args.adaptive
                 else args.T
             ),
             adaptive=args.adaptive,
-            adaptive_method=args.adaptive_method,
+            adaptive_method=effective_adaptive_method,
             batch_size=args.batch_size,
             debug=args.debug,
             early_stopping=args.early_stopping,
@@ -716,6 +731,18 @@ def main():
                 system_name=args.system,
             )
         if args.adaptive or not args.fixed:
+            wall_time_budget = None
+            budget_metadata = None
+            if args.budget_based and effective_adaptive_method == ADAPTIVE_HORIZON:
+                wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)
+                budget_metadata = {
+                    "fixed_dir": str(budget_fixed_dir),
+                    "max_epochs": args.epochs_per_T * args.max_T,
+                }
+                print(
+                    f"Adaptive wall-clock budget from fixed models: "
+                    f"{wall_time_budget:.2f}s"
+                )
             train_adaptive_models(
                 args.n_seeds,
                 args.epochs_per_T * args.max_T if args.budget_based else args.epochs,
@@ -724,13 +751,13 @@ def main():
                 loss_dir,
                 dt=args.dt,
                 batch_size=args.batch_size,
-                adaptive_method=CURRICULUM_HORIZON
-                if args.budget_based
-                else args.adaptive_method,
+                adaptive_method=effective_adaptive_method,
                 max_T=args.max_T,
                 append=append,
                 debug=args.debug,
                 early_stopping=args.early_stopping,
+                max_wall_time_seconds=wall_time_budget,
+                budget_metadata=budget_metadata,
                 system_name=args.system,
             )
 
@@ -740,8 +767,7 @@ def main():
     print(f"Models saved to {model_root}")
     if loss_dir is not None:
         print(f"Losses saved to {loss_dir}")
-    if not append:
-        last_run_file.write_text(str(model_root))
+    last_run_file.write_text(str(model_root))
 
 
 if __name__ == "__main__":
