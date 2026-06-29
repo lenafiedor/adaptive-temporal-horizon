@@ -29,7 +29,15 @@ class BudgetComparison:
     source_path: Path
 
 
-def per_seed_mses(records, model_type: str, eval_scope: EvalScope, train_T=None):
+def aggregate_values(values, metric: str):
+    if metric == "mean":
+        return float(np.mean(values))
+    return float(np.median(values))
+
+
+def per_seed_mses(
+    records, model_type: str, metric: str, eval_scope: EvalScope, train_T=None
+):
     matching_records = [
         record
         for record in records
@@ -39,59 +47,18 @@ def per_seed_mses(records, model_type: str, eval_scope: EvalScope, train_T=None)
         and (eval_scope.mode != "single" or int(record["val_T"]) == eval_scope.eval_T)
     ]
 
-    if eval_scope.mode == "single":
-        return [float(record["mse"]) for record in matching_records]
-
     values_by_seed = {}
     for record in matching_records:
         values_by_seed.setdefault(int(record["seed"]), []).append(float(record["mse"]))
 
     return [
-        float(np.mean(seed_values))
+        aggregate_values(seed_values, metric)
         for _, seed_values in sorted(values_by_seed.items())
         if seed_values
     ]
 
 
-def mean_mses_by_eval_T(records, model_type: str, eval_scope: EvalScope, train_T=None):
-    matching_records = [
-        record
-        for record in records
-        if record["model_type"] == model_type
-        and (train_T is None or record.get("train_T") == train_T)
-        and record.get("seed") is not None
-    ]
-    val_Ts = sorted(
-        {
-            int(record["val_T"])
-            for record in matching_records
-            if eval_scope.mode != "single" or int(record["val_T"]) == eval_scope.eval_T
-        }
-    )
-
-    return [
-        float(
-            np.mean(
-                [
-                    float(record["mse"])
-                    for record in matching_records
-                    if int(record["val_T"]) == val_T
-                ]
-            )
-        )
-        for val_T in val_Ts
-    ]
-
-
-def aggregate_mse(seed_mses, metric: str, fallback: float):
-    if not seed_mses:
-        return fallback
-    if metric == "mean":
-        return float(np.mean(seed_mses))
-    return float(np.median(seed_mses))
-
-
-def summary_for_eval_T(summaries, eval_T: int = 1):
+def summary_for_eval_T(summaries, eval_T: int):
     for summary in summaries:
         if int(summary["eval_T"]) == eval_T:
             return summary
@@ -99,13 +66,8 @@ def summary_for_eval_T(summaries, eval_T: int = 1):
     raise ValueError(f"Validation horizon T={eval_T} not found. Available: {available}")
 
 
-def select_fixed_result(summary, metadata, metric: str, eval_scope: EvalScope):
+def select_fixed_result(summary, metric: str, eval_scope: EvalScope):
     if eval_scope.mode == "overall":
-        best_train_T = metadata.get("best_train_T")
-        if best_train_T is not None:
-            for record in summary["fixed"]:
-                if record["train_T"] == best_train_T:
-                    return record
         return min(summary["fixed"], key=lambda item: item["overall"][metric])
 
     if eval_scope.eval_T is None:
@@ -124,7 +86,7 @@ def load_result(path: Path, metric: str, eval_scope: EvalScope):
     metadata = result.get("metadata", {})
     summary = result.get("summary", {})
     records = result.get("evaluation_records", [])
-    fixed_result = select_fixed_result(summary, metadata, metric, eval_scope)
+    fixed_result = select_fixed_result(summary, metric, eval_scope)
     best_train_T = fixed_result["train_T"]
 
     if eval_scope.mode == "single":
@@ -137,18 +99,14 @@ def load_result(path: Path, metric: str, eval_scope: EvalScope):
         fixed_summary = fixed_result["overall"]
         adaptive_summary = summary["adaptive"]["overall"]
 
-    adaptive_seed_mses = per_seed_mses(records, "adaptive", eval_scope)
-    fixed_seed_mses = per_seed_mses(records, "fixed", eval_scope, best_train_T)
-    adaptive_eval_T_mses = mean_mses_by_eval_T(records, "adaptive", eval_scope)
-    fixed_eval_T_mses = mean_mses_by_eval_T(records, "fixed", eval_scope, best_train_T)
+    adaptive_seed_mses = per_seed_mses(records, "adaptive", metric, eval_scope)
+    fixed_seed_mses = per_seed_mses(records, "fixed", metric, eval_scope, best_train_T)
 
     return BudgetComparison(
         max_train_T=metadata["max_train_T"],
-        adaptive_mse=aggregate_mse(
-            adaptive_eval_T_mses, metric, adaptive_summary[metric]
-        ),
+        adaptive_mse=float(adaptive_summary[metric]),
         adaptive_seed_mses=adaptive_seed_mses,
-        fixed_mse=aggregate_mse(fixed_eval_T_mses, metric, fixed_summary[metric]),
+        fixed_mse=float(fixed_summary[metric]),
         fixed_seed_mses=fixed_seed_mses,
         best_train_T=best_train_T,
         source_path=path,
@@ -319,12 +277,6 @@ def main():
         metavar=("MODE", "T"),
         help="Use 'overall' or 'single <validation horizon>'",
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Output PNG path. A CSV with the same stem is also written.",
-    )
     args = parser.parse_args()
     try:
         eval_scope = parse_eval_scope(args.scope)
@@ -332,7 +284,7 @@ def main():
         parser.error(str(exc))
 
     comparisons = load_comparisons(args.results_dir, args.metric, eval_scope)
-    output_path = args.output or default_output_path(
+    output_path = default_output_path(
         args.results_dir, args.metric, eval_scope, comparisons
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)

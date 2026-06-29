@@ -21,6 +21,7 @@ def get_dt_from_model_dir(model_dir: Path):
         if match:
             digits = match.group(1)
             return float(digits) / (10 ** len(digits))
+    raise ValueError(f"Could not infer dt from model directory: {model_dir}")
 
 
 def get_last_run(save_dir):

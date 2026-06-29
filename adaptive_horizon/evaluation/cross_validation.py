@@ -230,6 +230,7 @@ def load_cross_validation_results(cached: Path):
 def cross_validation(
     model_dir=None,
     fixed_dir=None,
+    output_dir=None,
     max_train_T=None,
     max_eval_T=config.MAX_EVAL_T,
     cached=None,
@@ -239,12 +240,13 @@ def cross_validation(
 ):
     model_dir = Path(model_dir) if model_dir is not None else None
     fixed_dir = Path(fixed_dir) if fixed_dir is not None else None
+    output_dir = Path(output_dir) if output_dir is not None else None
     cached = Path(cached) if cached is not None else None
 
     if cached:
         payload = load_cross_validation_results(cached)
         dt = float(payload["metadata"]["dt"])
-        save_dir = Path(
+        output_dir = Path(
             config.system_path(
                 config.EVAL_DIR, payload["metadata"].get("system", system_name)
             )
@@ -276,7 +278,9 @@ def cross_validation(
         evaluation_records = fixed_records + adaptive_records
 
     else:
-        save_dir = Path(config.system_path(config.EVAL_DIR, system_name))
+        output_dir = output_dir or Path(
+            config.system_path(config.EVAL_DIR, system_name)
+        )
         model_dir = model_dir or get_last_run(
             config.system_path(config.MODEL_DIR, system_name)
         )
@@ -314,15 +318,15 @@ def cross_validation(
             dt,
             adaptive_dir,
             fixed_dir,
-            save_dir,
+            output_dir,
             budget_based,
             system_name,
         )
-    plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, metric)
+    plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
     plot_mse_subplots(
         evaluation_records,
         summary,
-        save_dir,
+        output_dir,
         dt,
         effective_max_train_T,
         budget_based,
@@ -332,7 +336,7 @@ def cross_validation(
         summary["deltas"],
         val_Ts,
         dt,
-        save_dir,
+        output_dir,
         effective_max_train_T,
         budget_based,
         metric,
@@ -352,6 +356,12 @@ def main():
         type=str,
         default=None,
         help="Fixed model directory (default: reads from model_dir)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory for cross-validation JSON and plots (default: configured evaluation directory)",
     )
     parser.add_argument(
         "--max-train-T",
@@ -388,6 +398,7 @@ def main():
     cross_validation(
         model_dir=args.model_dir,
         fixed_dir=args.fixed_dir,
+        output_dir=args.output_dir,
         max_train_T=args.max_train_T,
         max_eval_T=args.max_eval_T,
         cached=args.cached,
