@@ -274,6 +274,9 @@ def summarize_cross_validation(
     adaptive_records = [
         record for record in evaluation_records if record["model_type"] == "adaptive"
     ]
+    if not adaptive_records:
+        return summary
+
     adaptive_overall = calculate_stats(record["mse"] for record in adaptive_records)
 
     summary["adaptive"] = {

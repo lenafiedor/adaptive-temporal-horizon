@@ -305,15 +305,16 @@ def run_with_partial_cache(
         budget_based,
         metric,
     )
-    plot_paired_deltas(
-        summary["deltas"],
-        val_Ts,
-        dt,
-        output_dir,
-        max_train_T,
-        budget_based,
-        metric,
-    )
+    if summary["adaptive"] is not None:
+        plot_paired_deltas(
+            summary["deltas"],
+            val_Ts,
+            dt,
+            output_dir,
+            max_train_T,
+            budget_based,
+            metric,
+        )
 
 
 def run_catalog(

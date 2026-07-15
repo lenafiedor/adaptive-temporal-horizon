@@ -332,15 +332,16 @@ def cross_validation(
         budget_based,
         metric,
     )
-    plot_paired_deltas(
-        summary["deltas"],
-        val_Ts,
-        dt,
-        output_dir,
-        effective_max_train_T,
-        budget_based,
-        metric,
-    )
+    if summary["adaptive"] is not None:
+        plot_paired_deltas(
+            summary["deltas"],
+            val_Ts,
+            dt,
+            output_dir,
+            effective_max_train_T,
+            budget_based,
+            metric,
+        )
 
 
 def main():
