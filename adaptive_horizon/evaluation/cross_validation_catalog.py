@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 import adaptive_horizon.config as config
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
@@ -117,7 +118,7 @@ def cache_matches(
     cache_path, model_dir, fixed_dir, max_train_T, max_eval_T, system_name
 ):
     with cache_path.open("r") as f:
-        payload = json.load(f)
+        payload: dict[str, Any] = json.load(f)
 
     metadata = payload.get("metadata", {})
     records = payload.get("evaluation_records", [])
@@ -141,9 +142,14 @@ def cache_matches(
 
 
 def find_cached_result(
-    cache_dirs, model_dir, fixed_dir, max_train_T, max_eval_T, system_name
-):
-    candidates = []
+    cache_dirs: list[Path],
+    model_dir: Path,
+    fixed_dir: Path,
+    max_train_T: int,
+    max_eval_T: int,
+    system_name: str,
+) -> Path | None:
+    candidates: list[Path] = []
     for cache_dir in cache_dirs:
         candidates.extend(
             sorted(Path(cache_dir).glob(f"budget_mse_results_*_T{max_train_T}_*.json"))
@@ -179,7 +185,7 @@ def reusable_cached_records(cache_dirs, model_dir, fixed_dir, max_train_T, max_e
 
     for cache_path in sorted(candidates, key=lambda path: path.stat().st_mtime):
         with cache_path.open("r") as f:
-            payload = json.load(f)
+            payload: dict[str, Any] = json.load(f)
         metadata = payload.get("metadata", {})
         records = payload.get("evaluation_records", [])
 
@@ -206,11 +212,15 @@ def reusable_cached_records(cache_dirs, model_dir, fixed_dir, max_train_T, max_e
     return fixed_records, adaptive_records
 
 
-def missing_fixed_paths(fixed_paths, cached_records, max_eval_T):
+def missing_fixed_paths(
+    fixed_paths: dict[int, list[Path]],
+    cached_records: dict[tuple[str, int, int, int], dict[str, Any]],
+    max_eval_T: int,
+) -> dict[int, list[Path]]:
     val_Ts = range(1, max_eval_T + 1)
-    missing = {}
+    missing: dict[int, list[Path]] = {}
     for train_T, paths in fixed_paths.items():
-        missing_paths = []
+        missing_paths: list[Path] = []
         for path in paths:
             info = model_info(path)
             if info is None:
@@ -226,9 +236,13 @@ def missing_fixed_paths(fixed_paths, cached_records, max_eval_T):
     return missing
 
 
-def missing_adaptive_paths(adaptive_paths, cached_records, max_eval_T):
+def missing_adaptive_paths(
+    adaptive_paths: list[Path],
+    cached_records: dict[tuple[str, int, int], dict[str, Any]],
+    max_eval_T: int,
+) -> list[Path]:
     val_Ts = range(1, max_eval_T + 1)
-    missing = []
+    missing: list[Path] = []
     for path in adaptive_paths:
         info = model_info(path)
         if info is None:
@@ -241,15 +255,15 @@ def missing_adaptive_paths(adaptive_paths, cached_records, max_eval_T):
 
 
 def run_with_partial_cache(
-    model_dir,
-    fixed_dir,
-    output_dir,
-    cache_dirs,
-    max_train_T,
-    max_eval_T,
-    metric,
-    system_name,
-):
+    model_dir: Path,
+    fixed_dir: Path,
+    output_dir: Path,
+    cache_dirs: list[Path],
+    max_train_T: int,
+    max_eval_T: int,
+    metric: str,
+    system_name: str,
+) -> None:
     adaptive_dir = model_dir / "adaptive"
     train_Ts = list(range(1, max_train_T + 1))
     val_Ts = list(range(1, max_eval_T + 1))

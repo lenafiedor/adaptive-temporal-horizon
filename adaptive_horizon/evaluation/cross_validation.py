@@ -24,10 +24,10 @@ from adaptive_horizon.evaluation.utils import (
 )
 
 
-def get_T_values(model_dir: Path):
+def get_T_values(model_dir: Path) -> list[int]:
     """Get unique train_T values from model files matching mlp_T{T}*.pt"""
     model_files = list(model_dir.glob("mlp_T*.pt"))
-    train_Ts = set()
+    train_Ts: set[int] = set()
     for f in model_files:
         info = model_info(f)
         if info is not None and info[0] is not None:
@@ -35,9 +35,11 @@ def get_T_values(model_dir: Path):
     return sorted(train_Ts)
 
 
-def get_fixed_paths(train_Ts, model_dir=config.MODEL_DIR):
+def get_fixed_paths(
+    train_Ts: list[int], model_dir: Path = config.MODEL_DIR
+) -> dict[int, list[Path]]:
     """Get all model paths for each train_T."""
-    model_paths = {T: [] for T in train_Ts}
+    model_paths: dict[int, list[Path]] = {T: [] for T in train_Ts}
     for f in sorted(model_dir.glob("mlp_T*.pt")):
         info = model_info(f)
         if info is None or info[0] is None:
@@ -48,7 +50,7 @@ def get_fixed_paths(train_Ts, model_dir=config.MODEL_DIR):
     return model_paths
 
 
-def get_adaptive_paths(model_dir=config.MODEL_DIR):
+def get_adaptive_paths(model_dir: Path = config.MODEL_DIR) -> list[Path]:
     """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
@@ -115,12 +117,12 @@ def eval_loader_cache_key(normalization_stats):
 
 
 def cross_validate_models(
-    fixed_paths,
-    adaptive_paths,
+    fixed_paths: dict[int, list[Path]],
+    adaptive_paths: list[Path],
     dt=config.DT,
     device=config.DEVICE,
-    val_Ts=None,
-    system_name=config.DEFAULT_SYSTEM,
+    val_Ts: list[int] | None = None,
+    system_name: str = config.DEFAULT_SYSTEM,
 ):
     """
     Evaluate models across different validation horizons.
