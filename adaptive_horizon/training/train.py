@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
-from statistics import median
 from time import perf_counter
 
 import adaptive_horizon.config as config
@@ -37,7 +36,7 @@ from adaptive_horizon.training.utils import (
     resolve_dirs,
     save_model,
 )
-from adaptive_horizon.training.schedules import curriculum_horizon
+from adaptive_horizon.training.schedules import curriculum_horizon_with_threshold
 from adaptive_horizon.training.setup import create_model_and_loaders
 
 
@@ -47,32 +46,6 @@ def padded_mean_loss(losses_by_seed):
     for idx, losses in enumerate(losses_by_seed):
         padded[idx, : len(losses)] = torch.tensor(losses, dtype=torch.float32)
     return torch.nanmean(padded, dim=0)
-
-
-def clone_model_state_dict(model):
-    return {
-        name: tensor.detach().cpu().clone()
-        for name, tensor in model.state_dict().items()
-    }
-
-
-def restore_model_state_dict(model, state_dict):
-    model.load_state_dict(state_dict)
-
-
-def curriculum_boundary_reached(epoch, total_epochs, current_T, T_max):
-    if epoch + 1 >= total_epochs:
-        return True
-    next_T = curriculum_horizon(epoch + 1, total_epochs, T_max)
-    return next_T > current_T
-
-
-def cross_validation_median_loss(model, val_loader, val_Ts, device):
-    losses_by_T = {
-        int(val_T): float(validation_loss(model, val_loader, val_T, device))
-        for val_T in val_Ts
-    }
-    return float(median(losses_by_T.values())), losses_by_T
 
 
 def train(
@@ -124,18 +97,25 @@ def train(
     if max_wall_time_seconds is not None and metadata is not None:
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
-    if early_stopping:
-        cv_val_Ts = list(range(1, config.MAX_EVAL_T + 1))
-        cv_cached_state = None
-        cv_cached_T = None
-        cv_cached_epoch = None
-        cv_cached_median = None
+    use_curriculum_early_stopping = (
+        early_stopping and adaptive and adaptive_method == CURRICULUM_HORIZON
+    )
+    if use_curriculum_early_stopping:
+        early_stop_best_loss = None
+        early_stop_wait = 0
+        stopped_early = False
+        early_stop_min_T = min(T, config.CURRICULUM_EARLY_STOP_MIN_T)
+        grace_active = False
+        grace_T = None
+        grace_epochs_ran = 0
         if metadata is not None:
             metadata["early_stopping"] = {
                 "enabled": True,
-                "metric": "median_validation_loss",
-                "val_Ts": cv_val_Ts,
-                "max_T": T,
+                "metric": "validation_loss",
+                "patience": config.CURRICULUM_EARLY_STOP_PATIENCE,
+                "min_delta": config.CURRICULUM_EARLY_STOP_MIN_DELTA,
+                "min_T": early_stop_min_T,
+                "grace_epochs": config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS,
             }
 
     if debug:
@@ -168,18 +148,17 @@ def train(
     curriculum_T = 1
 
     epoch = 0
-    while epoch < epochs:
+    final_T = None
+    while epoch < epochs or (use_curriculum_early_stopping and grace_active):
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T = curriculum_horizon(epoch, epochs, T)
-            if current_T != curriculum_T:
-                print(
-                    f"\tEpoch {epoch + 1}/{epochs}, updating T: {curriculum_T} -> {current_T}"
-                )
-                curriculum_T = current_T
+        if use_curriculum_early_stopping and grace_active:
+            current_T = grace_T
+        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
+            current_T = curriculum_T
         else:
             current_T = T
+        final_T = current_T
 
         for batch in train_loader:
             inputs, targets, *rest = batch
@@ -238,36 +217,59 @@ def train(
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
-        if (
-            early_stopping
-            and adaptive
-            and adaptive_method == CURRICULUM_HORIZON
-            and curriculum_boundary_reached(epoch, epochs, current_T, T)
-        ):
-            cv_median, _ = cross_validation_median_loss(
-                model,
-                val_loader,
-                cv_val_Ts,
-                device,
+        if use_curriculum_early_stopping and grace_active:
+            improvement = (
+                early_stop_best_loss is None
+                or val_loss
+                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
             )
-            print(
-                f"\tCross-validation check at epoch {epoch + 1}, "
-                f"T={current_T}: median MSE={cv_median:.6f}"
-            )
-
-            if current_T > 1 and cv_cached_median < cv_median:
-                restore_model_state_dict(model, cv_cached_state)
+            if improvement:
+                early_stop_best_loss = float(val_loss)
+            grace_epochs_ran += 1
+            if grace_epochs_ran >= config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS:
+                stopped_early = True
                 print(
-                    f"\tCross-validation early stopping selected cached "
-                    f"T={cv_cached_T} from epoch {cv_cached_epoch} "
-                    f"(median MSE={cv_cached_median:.6f})"
+                    f"\tEarly stopping grace completed after {grace_epochs_ran} "
+                    f"epochs at T={current_T}"
                 )
                 break
+        elif use_curriculum_early_stopping and current_T >= early_stop_min_T:
+            if (
+                early_stop_best_loss is None
+                or val_loss
+                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+            ):
+                early_stop_best_loss = float(val_loss)
+                early_stop_wait = 0
+            else:
+                early_stop_wait += 1
 
-            cv_cached_state = clone_model_state_dict(model)
-            cv_cached_T = int(current_T)
-            cv_cached_epoch = epoch + 1
-            cv_cached_median = cv_median
+            if early_stop_wait >= config.CURRICULUM_EARLY_STOP_PATIENCE:
+                grace_active = True
+                grace_T = current_T
+                print(
+                    f"\tEarly stopping triggered at epoch {epoch + 1}, "
+                    f"T={current_T}; training {config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS} "
+                    "additional epochs at the same T"
+                )
+
+        if (
+            adaptive
+            and adaptive_method == CURRICULUM_HORIZON
+            and (not use_curriculum_early_stopping or not grace_active)
+        ):
+            next_T, mean_val_loss = curriculum_horizon_with_threshold(
+                epoch,
+                [float(loss) for loss in val_losses],
+                curriculum_T,
+                T,
+            )
+            if next_T != curriculum_T:
+                print(
+                    f"\tEpoch {epoch + 1}/{epochs}, increasing T={next_T}/{T} "
+                    f"(mean val loss={mean_val_loss:.6f})"
+                )
+                curriculum_T = next_T
 
         if (epoch + 1) % 10 == 0:
             message = (
@@ -300,13 +302,13 @@ def train(
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
-        if early_stopping:
+        if use_curriculum_early_stopping:
             metadata["early_stopping"].update(
                 {
-                    "selected_T": cv_cached_T,
-                    "selected_epoch": cv_cached_epoch,
-                    "selected_median": cv_cached_median,
+                    "stopped_early": stopped_early,
+                    "best_val_loss": early_stop_best_loss,
                     "epochs_ran": len(train_losses),
+                    "final_T": final_T,
                 }
             )
         if max_wall_time_seconds is not None:
@@ -647,7 +649,7 @@ def main():
     parser.add_argument(
         "--early-stopping",
         action="store_true",
-        help="Early stop curriculum-horizon training using median validation loss over all horizons",
+        help="Early stop curriculum-horizon training using validation-loss patience",
     )
     parser.add_argument(
         "--output-dir",
