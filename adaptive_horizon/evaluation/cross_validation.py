@@ -1,7 +1,6 @@
 from torch.utils.data import DataLoader
 import argparse
 import json
-import re
 import numpy as np
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.training.utils import resolve_burn_in_steps
+from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
     plot_mse_subplots,
@@ -25,30 +24,33 @@ from adaptive_horizon.evaluation.utils import (
 )
 
 
-def get_T_values(model_dir: Path):
+def get_T_values(model_dir: Path) -> list[int]:
     """Get unique train_T values from model files matching mlp_T{T}*.pt"""
     model_files = list(model_dir.glob("mlp_T*.pt"))
-    train_Ts = set()
+    train_Ts: set[int] = set()
     for f in model_files:
-        match = re.search(r"mlp_T(\d+)", f.name)
-        if match:
-            train_Ts.add(int(match.group(1)))
+        info = model_info(f)
+        if info is not None and info[0] is not None:
+            train_Ts.add(info[0])
     return sorted(train_Ts)
 
 
-def get_fixed_paths(train_Ts, model_dir=config.MODEL_DIR):
+def get_fixed_paths(
+    train_Ts: list[int], model_dir: Path = config.MODEL_DIR
+) -> dict[int, list[Path]]:
     """Get all model paths for each train_T."""
-    model_paths = {T: [] for T in train_Ts}
+    model_paths: dict[int, list[Path]] = {T: [] for T in train_Ts}
     for f in sorted(model_dir.glob("mlp_T*.pt")):
-        match = re.search(r"mlp_T(\d+)", f.name)
-        if match:
-            T = int(match.group(1))
-            if T in model_paths:
-                model_paths[T].append(f)
+        info = model_info(f)
+        if info is None or info[0] is None:
+            continue
+        T, _ = info
+        if T in model_paths:
+            model_paths[T].append(f)
     return model_paths
 
 
-def get_adaptive_paths(model_dir=config.MODEL_DIR):
+def get_adaptive_paths(model_dir: Path = config.MODEL_DIR) -> list[Path]:
     """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
@@ -115,12 +117,12 @@ def eval_loader_cache_key(normalization_stats):
 
 
 def cross_validate_models(
-    fixed_paths,
-    adaptive_paths,
+    fixed_paths: dict[int, list[Path]],
+    adaptive_paths: list[Path],
     dt=config.DT,
     device=config.DEVICE,
-    val_Ts=None,
-    system_name=config.DEFAULT_SYSTEM,
+    val_Ts: list[int] | None = None,
+    system_name: str = config.DEFAULT_SYSTEM,
 ):
     """
     Evaluate models across different validation horizons.
@@ -230,6 +232,7 @@ def load_cross_validation_results(cached: Path):
 def cross_validation(
     model_dir=None,
     fixed_dir=None,
+    output_dir=None,
     max_train_T=None,
     max_eval_T=config.MAX_EVAL_T,
     cached=None,
@@ -239,12 +242,13 @@ def cross_validation(
 ):
     model_dir = Path(model_dir) if model_dir is not None else None
     fixed_dir = Path(fixed_dir) if fixed_dir is not None else None
+    output_dir = Path(output_dir) if output_dir is not None else None
     cached = Path(cached) if cached is not None else None
 
     if cached:
         payload = load_cross_validation_results(cached)
         dt = float(payload["metadata"]["dt"])
-        save_dir = Path(
+        output_dir = Path(
             config.system_path(
                 config.EVAL_DIR, payload["metadata"].get("system", system_name)
             )
@@ -276,7 +280,9 @@ def cross_validation(
         evaluation_records = fixed_records + adaptive_records
 
     else:
-        save_dir = Path(config.system_path(config.EVAL_DIR, system_name))
+        output_dir = output_dir or Path(
+            config.system_path(config.EVAL_DIR, system_name)
+        )
         model_dir = model_dir or get_last_run(
             config.system_path(config.MODEL_DIR, system_name)
         )
@@ -314,29 +320,30 @@ def cross_validation(
             dt,
             adaptive_dir,
             fixed_dir,
-            save_dir,
+            output_dir,
             budget_based,
             system_name,
         )
-    plot_mse(summary, save_dir, dt, effective_max_train_T, budget_based, metric)
+    plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
     plot_mse_subplots(
         evaluation_records,
         summary,
-        save_dir,
+        output_dir,
         dt,
         effective_max_train_T,
         budget_based,
         metric,
     )
-    plot_paired_deltas(
-        summary["deltas"],
-        val_Ts,
-        dt,
-        save_dir,
-        effective_max_train_T,
-        budget_based,
-        metric,
-    )
+    if summary["adaptive"] is not None:
+        plot_paired_deltas(
+            summary["deltas"],
+            val_Ts,
+            dt,
+            output_dir,
+            effective_max_train_T,
+            budget_based,
+            metric,
+        )
 
 
 def main():
@@ -352,6 +359,12 @@ def main():
         type=str,
         default=None,
         help="Fixed model directory (default: reads from model_dir)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory for cross-validation JSON and plots (default: configured evaluation directory)",
     )
     parser.add_argument(
         "--max-train-T",
@@ -388,6 +401,7 @@ def main():
     cross_validation(
         model_dir=args.model_dir,
         fixed_dir=args.fixed_dir,
+        output_dir=args.output_dir,
         max_train_T=args.max_train_T,
         max_eval_T=args.max_eval_T,
         cached=args.cached,

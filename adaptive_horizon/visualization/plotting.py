@@ -306,6 +306,7 @@ def plot_mse(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     fixed_summaries = summary["fixed"]
+    adaptive_summary = summary["adaptive"]
     train_Ts = [train_summary["train_T"] for train_summary in fixed_summaries]
     eval_summaries = fixed_summaries[0]["by_eval_T"]
 
@@ -340,17 +341,21 @@ def plot_mse(
             capsize=3,
         )
 
-        ax.axhline(
-            y=summary["adaptive"]["by_eval_T"][i][metric],
-            color=colors[i],
-            linestyle="--",
-            linewidth=1.0,
-            alpha=0.7,
-        )
+        if adaptive_summary is not None:
+            ax.axhline(
+                y=adaptive_summary["by_eval_T"][i][metric],
+                color=colors[i],
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
+            )
 
     ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
     ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
-    ax.set_title("Cross-Validation MSE (dashed = adaptive model)")
+    title = "Cross-Validation MSE"
+    if adaptive_summary is not None:
+        title += " (dashed = adaptive model)"
+    ax.set_title(title)
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.legend(
@@ -359,6 +364,7 @@ def plot_mse(
         bbox_to_anchor=(1.02, 0.5),
         borderaxespad=0.0,
     )
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -386,6 +392,7 @@ def plot_mse_subplots(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     fixed_summaries = summary["fixed"]
+    adaptive_summary = summary["adaptive"]
     train_Ts = [train_summary["train_T"] for train_summary in fixed_summaries]
     eval_summaries = fixed_summaries[0]["by_eval_T"]
     num_plots = len(eval_summaries)
@@ -443,18 +450,18 @@ def plot_mse_subplots(
             if center > 0:
                 positive_values.append(center)
 
-        adaptive_summary = summary["adaptive"]["by_eval_T"][i]
-        adaptive_center = adaptive_summary[metric]
-        adaptive_low = adaptive_summary[f"{metric}_ci95_low"]
-        adaptive_high = adaptive_summary[f"{metric}_ci95_high"]
-        if adaptive_center > 0:
-            positive_values.append(adaptive_center)
+        adaptive_eval_summary = None
+        if adaptive_summary is not None:
+            adaptive_eval_summary = adaptive_summary["by_eval_T"][i]
+            adaptive_center = adaptive_eval_summary[metric]
+            adaptive_low = adaptive_eval_summary[f"{metric}_ci95_low"]
+            adaptive_high = adaptive_eval_summary[f"{metric}_ci95_high"]
+            if adaptive_center > 0:
+                positive_values.append(adaptive_center)
 
         plot_floor = min(positive_values) * 0.5 if positive_values else 1e-12
         fixed_lows = [max(low, plot_floor) for low in fixed_lows]
         fixed_highs = [max(high, plot_floor) for high in fixed_highs]
-        adaptive_low = max(adaptive_low, plot_floor)
-        adaptive_high = max(adaptive_high, plot_floor)
 
         ax.fill_between(
             x_positions,
@@ -477,30 +484,34 @@ def plot_mse_subplots(
             zorder=3,
         )
 
-        ax.fill_between(
-            x_positions,
-            [adaptive_low] * len(x_positions),
-            [adaptive_high] * len(x_positions),
-            color=COLOR_EVAL,
-            alpha=0.22,
-            linewidth=0,
-            label=f"adaptive {metric} 95% CI" if i == 0 else "_nolegend_",
-            zorder=1,
-        )
-        ax.axhline(
-            adaptive_center,
-            color=COLOR_EVAL,
-            linestyle="--",
-            linewidth=1.5,
-            label=f"adaptive {metric}" if i == 0 else "_nolegend_",
-            zorder=3,
-        )
+        title = rf"$\tau_{{val}}={val_T * dt:.2f}$"
+        if adaptive_eval_summary is not None:
+            adaptive_low = max(adaptive_low, plot_floor)
+            adaptive_high = max(adaptive_high, plot_floor)
+            ax.fill_between(
+                x_positions,
+                [adaptive_low] * len(x_positions),
+                [adaptive_high] * len(x_positions),
+                color=COLOR_EVAL,
+                alpha=0.22,
+                linewidth=0,
+                label=f"adaptive {metric} 95% CI" if i == 0 else "_nolegend_",
+                zorder=1,
+            )
+            ax.axhline(
+                adaptive_center,
+                color=COLOR_EVAL,
+                linestyle="--",
+                linewidth=1.5,
+                label=f"adaptive {metric}" if i == 0 else "_nolegend_",
+                zorder=3,
+            )
 
-        delta_summary = (
-            summary.get("deltas", {}).get("by_val_T", {}).get(str(val_T), {})
-        )
-        paired_count = delta_summary.get("n_pairs")
-        title = rf"$\tau_{{val}}={val_T * dt:.2f}$ | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
+            delta_summary = (
+                summary.get("deltas", {}).get("by_val_T", {}).get(str(val_T), {})
+            )
+            paired_count = delta_summary.get("n_pairs")
+            title += f" | adaptive wins {delta_summary['adaptive_wins']}/{paired_count}"
         ax.set_title(title)
         ax.set_yscale("log")
         ax.set_xticks(x_positions)
