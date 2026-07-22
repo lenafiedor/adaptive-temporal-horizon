@@ -123,8 +123,8 @@ Evaluate fixed and adaptive models across validation horizons. The command saves
 ```bash
 poetry run cross-validation
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607_120000
-poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_T10_20260610_120000
-poetry run cross-validation --adaptive-method curriculum-horizon --max-train-T 6
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_ah_3 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed --max-train-T 6
 poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
 poetry run cross-validation --system rossler
 ```
@@ -135,9 +135,9 @@ poetry run cross-validation --system rossler
 |---------------------|------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
 | `--model-dir`       | Run directory containing `fixed/` and `adaptive/` model subdirectories | str                                                           | Read from `models/last_run.txt` |
 | `--fixed-dir`       | Directory with fixed models                                            | str                                                           | Read from `--model-dir`         |
+| `--output-dir`      | Directory for cross-validation JSON and plots                          | str                                                           | Configured evaluation directory |
 | `--max-train-T`     | Maximum fixed training horizon to include                              | int                                                           | Max fixed T found               |
 | `--max-eval-T`      | Maximum validation horizon to evaluate                                 | int                                                           | `config.MAX_EVAL_T`             |
-| `--adaptive-method` | Evaluate only adaptive models trained with this method                 | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | None                            |
 | `--cached`          | Reuse a saved cross-validation JSON                                    | str                                                           | None                            |
 | `--metric`          | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
 | `--system`          | Dynamical system to evaluate                                           | `lorenz` \| `rossler`                                         | `config.SYSTEM`                 |
@@ -154,7 +154,7 @@ Budget training is now part of `train-mlp`; cross-validation stays in `cross-val
 
 ```bash
 poetry run train-mlp --budget-based --max-T 8 --epochs-per-T 20 --n-seeds 10
-poetry run cross-validation --adaptive-method curriculum-horizon
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
 ```
 
 Notes:
