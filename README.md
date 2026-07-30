@@ -125,6 +125,7 @@ poetry run cross-validation
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607_120000
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_ah_3 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed --max-train-T 6
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_ah_5 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed
 poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
 poetry run cross-validation --system rossler
 ```
@@ -146,6 +147,7 @@ Notes:
 - Cross-validation infers `dt` from the model directory name.
 - `--cached` requires a JSON path.
 - Cross-validation expects model directory to contain `fixed/` and `adaptive/` subdirectories (unless `--fixed-dir` is specified).
+- When `--model-dir` contains `budget_dt_*_T*/adaptive` run directories, cross-validation evaluates all runs and reuses matching fixed-model records between them.
 - Cross-validation always writes the JSON report, MSE plot, MSE seed-subplot plot, and paired-delta plot when fixed and adaptive records are present.
 
 ### Budget Training

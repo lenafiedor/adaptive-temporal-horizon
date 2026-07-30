@@ -42,13 +42,15 @@ def get_catalog_runs(catalog_dir: Path):
 def infer_fixed_dir(catalog_dir: Path):
     direct = catalog_dir.parent / f"{catalog_dir.name}_fixed"
     if direct.is_dir():
-        return direct
+        nested = direct / "fixed"
+        return nested if nested.is_dir() else direct
 
     match = re.match(r"(.+dt_\d+)(?:_.+)?$", catalog_dir.name)
     if match:
         sibling = catalog_dir.parent / f"{match.group(1)}_fixed"
         if sibling.is_dir():
-            return sibling
+            nested = sibling / "fixed"
+            return nested if nested.is_dir() else sibling
 
     raise FileNotFoundError(
         "Could not infer fixed model directory. Pass --fixed-dir explicitly."
@@ -108,15 +110,20 @@ def cached_adaptive_seeds(records):
     }
 
 
-def same_path(left, right):
+def same_path(left: str | Path | None, right: str | Path) -> bool:
     if left is None:
         return False
     return Path(left).resolve() == Path(right).resolve()
 
 
 def cache_matches(
-    cache_path, model_dir, fixed_dir, max_train_T, max_eval_T, system_name
-):
+    cache_path: Path,
+    model_dir: Path,
+    fixed_dir: Path,
+    max_train_T: int,
+    max_eval_T: int,
+    system_name: str,
+) -> bool:
     with cache_path.open("r") as f:
         payload: dict[str, Any] = json.load(f)
 
