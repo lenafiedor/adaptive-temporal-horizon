@@ -112,9 +112,7 @@ def main():
         default=config.EVAL_DIR / "budget_epochs",
         help="Directory containing fixed-model cross-validation JSON files",
     )
-    parser.add_argument(
-        "--metric", choices=("mean", "median"), default="median"
-    )
+    parser.add_argument("--metric", choices=("mean", "median"), default="median")
     parser.add_argument(
         "--scope",
         nargs="+",

@@ -53,8 +53,18 @@ poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..
 poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
 poetry run train-mlp --budget-based --adaptive --adaptive-method adaptive-horizon --max-T 6 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
+poetry run train-mlp --budget-based --adaptive --adaptive-method curriculum-horizon --early-stopping
+poetry run train-mlp --budget-based --adaptive --adaptive-method curriculum-horizon --cross-validation-early-stopping
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
 poetry run train-mlp --output-dir runs/demo     # Save this run under a custom model_root
+```
+
+Run all budget horizons through the unified script by selecting one method:
+
+```bash
+./scripts/train_budget_based.sh --method early-stopping --output-root experiments/lorenz/models/budget_based_dt_08_es
+./scripts/train_budget_based.sh --method cross-validation --output-root experiments/lorenz/models/budget_based_dt_08_cv
+./scripts/train_budget_based.sh --method adaptive-horizon --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed --output-root experiments/lorenz/models/budget_based_dt_08_ah_5
 ```
 
 **Args:**
@@ -75,7 +85,8 @@ poetry run train-mlp --output-dir runs/demo     # Save this run under a custom m
 | `--dt`              | Time step for the system simulation                                               | float                                                         | `config.DT`          |
 | `--system`          | Dynamical system to train on                                                      | `lorenz` \| `rossler`                                         | `config.SYSTEM`      |
 | `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
-| `--early-stopping`  | Enable early stopping based on online cross-validation                            | true \| false                                                 | false                |
+| `--early-stopping`  | Enable validation-loss patience for curriculum training                           | true \| false                                                 | false                |
+| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping              | true \| false                                                 | false                |
 | `--output-dir`      | Directory to save models to; existing directories are reused                      | path                                                          | None                 |
 | `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
 
@@ -87,7 +98,9 @@ Notes:
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
 - In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
 - With `--budget-based --adaptive-method adaptive-horizon`, adaptive training also stops when it reaches the summed mean fixed-model wall time for `T=1..max_T`, read from `--fixed-dir` or the current run's `fixed/` directory.
-- `--early-stopping` applies only to curriculum-horizon adaptive training. At each horizon boundary it evaluates validation horizons `1..max_T`, caches the current model when the median improves, and restores the previous cached model when the median worsens.
+- `--early-stopping` applies validation-loss patience and grace epochs to threshold-based curriculum training.
+- `--cross-validation-early-stopping` uses the historical linear curriculum. At each horizon boundary it evaluates all validation horizons, caches the model when median MSE improves, and restores the cached model when median MSE worsens.
+- The two early-stopping flags are mutually exclusive and apply only to curriculum-horizon adaptive training.
 - To permanently change default variables, edit `config.toml`.
 
 ### Gradient Scaling
