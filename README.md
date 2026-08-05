@@ -186,6 +186,16 @@ Notes:
 - The default `overall` scope plots aggregate MSE across all validation horizons.
 - `--eval-scope T1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at validation horizon `T=1` (`0.08` when `dt=0.08`).
 
+### Optimal Horizon by Epoch Budget
+
+Plot the fixed training horizon with the lowest cross-validation MSE for each
+epoch budget:
+
+```bash
+poetry run optimal-horizon --results-dir experiments/lorenz/evaluation/budget_epochs
+poetry run optimal-horizon --results-dir experiments/lorenz/evaluation/budget_epochs --scope single 1
+```
+
 ### Lyapunov Exponents
 
 Calculate and plot the chosen system with Lyapunov exponents heatmap.
