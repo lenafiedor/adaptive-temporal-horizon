@@ -2,13 +2,13 @@ import argparse
 import csv
 import json
 import re
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 from adaptive_horizon import config
 from adaptive_horizon.visualization.plot_budget_resources import (
@@ -17,7 +17,7 @@ from adaptive_horizon.visualization.plot_budget_resources import (
     parse_eval_scope,
     select_fixed_result,
 )
-from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
+from adaptive_horizon.visualization.plotting import COLOR_TRAIN
 
 
 @dataclass(frozen=True)
@@ -116,36 +116,28 @@ def load_results(results_dir, metric, eval_scope, budget_epochs):
 def plot_results(results, eval_scope, output_path):
     epochs = [result.epochs for result in results]
     fig, ax = plt.subplots(figsize=(8, 5))
-    distribution_epochs = []
-    distribution_horizons = []
-    distribution_counts = []
     expected_horizons = []
+    horizon_std = []
     for result in results:
-        horizon_counts = Counter(result.seed_train_Ts.values())
-        for train_T, count in horizon_counts.items():
-            distribution_epochs.append(result.epochs)
-            distribution_horizons.append(train_T)
-            distribution_counts.append(count)
-        expected_horizons.append(
-            sum(train_T * count for train_T, count in horizon_counts.items())
-            / sum(horizon_counts.values())
-        )
-    ax.scatter(
-        distribution_epochs,
-        distribution_horizons,
-        color=COLOR_EVAL,
-        alpha=0.45,
-        s=[45 * count for count in distribution_counts],
-        label="Seeds",
-        zorder=2,
-    )
-    ax.plot(
+        seed_horizons = np.array(list(result.seed_train_Ts.values()))
+        expected_horizons.append(np.mean(seed_horizons))
+        horizon_std.append(np.std(seed_horizons))
+    ax.errorbar(
         epochs,
         expected_horizons,
-        linewidth=2,
+        yerr=horizon_std,
+        fmt="none",
+        ecolor=COLOR_TRAIN,
+        elinewidth=1.5,
+        capsize=4,
+        zorder=3,
+    )
+    ax.scatter(
+        epochs,
+        expected_horizons,
         color=COLOR_TRAIN,
         label="Expected horizon",
-        zorder=3,
+        zorder=4,
     )
     if len(epochs) >= 2:
         fit_coefficients = np.polyfit(np.log2(epochs), expected_horizons, deg=1)
@@ -164,14 +156,14 @@ def plot_results(results, eval_scope, output_path):
     ax.set_xscale("log", base=2)
     ax.set_xlabel("Training budget (epochs per horizon)")
     ax.set_ylabel("Optimal training horizon T")
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xticks(epochs)
-    ax.set_yticks(sorted(set(distribution_horizons)))
     scope_label = (
         "overall"
         if eval_scope.mode == "overall"
         else f"single eval T={eval_scope.eval_T}"
     )
-    ax.set_title(f"Optimal Horizon Distribution ({scope_label})")
+    ax.set_title(f"Optimal Horizon ({scope_label})")
     ax.legend()
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
