@@ -371,6 +371,7 @@ def plot_mse(
     prefix = "budget_" if budget_based else ""
     filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
+    plt.close(fig)
 
 
 def plot_mse_subplots(
@@ -534,6 +535,7 @@ def plot_mse_subplots(
     prefix = "budget_" if budget_based else ""
     filename = f"{prefix}mse_subplots_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
+    plt.close(fig)
 
 
 def plot_paired_deltas(
@@ -582,6 +584,7 @@ def plot_paired_deltas(
         f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     )
     save_figure(fig, filename, save_dir)
+    plt.close(fig)
 
 
 def plot_lyapunov_exponents(

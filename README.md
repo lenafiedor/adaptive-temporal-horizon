@@ -69,26 +69,26 @@ Run all budget horizons through the unified script by selecting one method:
 
 **Args:**
 
-| Name                | Description                                                                       | Values                                                        | Default value        |
-|---------------------|-----------------------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
-| `--epochs` `-e`     | Number of training epochs                                                         | int                                                           | `config.EPOCHS`      |
-| `--single`          | Train a single model; combine with `--adaptive` for adaptive training             | true \| false                                                 | false                |
-| `-T`                | Training horizon for fixed `--single` mode                                        | int                                                           | 1                    |
-| `--fixed`, `-f`     | Train only fixed-horizon models                                                   | true \| false                                                 | false                |
-| `--adaptive`, `-a`  | Train only adaptive models                                                        | true \| false                                                 | false                |
-| `--adaptive-method` | Adaptive training method                                                          | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
-| `--fixed-dir`       | Fixed model directory used for budget wall-clock metadata                         | path                                                          | None                 |
-| `--max-T`           | Maximum horizon used in aggregate training                                        | int                                                           | `config.MAX_TRAIN_T` |
-| `--budget-based`    | Train fixed and adaptive models under one budget                                  | true \| false                                                 | false                |
-| `--epochs-per-T`    | Budget mode epochs for each fixed horizon                                         | int                                                           | 20                   |
-| `--n-seeds` `-s`    | Number of seeds for aggregate training                                            | int                                                           | `config.NUM_SEEDS`   |
-| `--dt`              | Time step for the system simulation                                               | float                                                         | `config.DT`          |
-| `--system`          | Dynamical system to train on                                                      | `lorenz` \| `rossler`                                         | `config.SYSTEM`      |
-| `--batch-size`      | Batch size for training and validation loaders                                    | int                                                           | `config.BATCH_SIZE`  |
-| `--early-stopping`  | Enable validation-loss patience for curriculum training                           | true \| false                                                 | false                |
-| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping              | true \| false                                                 | false                |
-| `--output-dir`      | Directory to save models to; existing directories are reused                      | path                                                          | None                 |
-| `--debug`           | Save extra loss and gradient diagnostics                                          | true \| false                                                 | false                |
+| Name                                | Description                                                           | Values                                                        | Default value        |
+|-------------------------------------|-----------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
+| `--epochs` `-e`                     | Number of training epochs                                             | int                                                           | `config.EPOCHS`      |
+| `--single`                          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                 | false                |
+| `-T`                                | Training horizon for fixed `--single` mode                            | int                                                           | 1                    |
+| `--fixed`, `-f`                     | Train only fixed-horizon models                                       | true \| false                                                 | false                |
+| `--adaptive`, `-a`                  | Train only adaptive models                                            | true \| false                                                 | false                |
+| `--adaptive-method`                 | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
+| `--fixed-dir`                       | Fixed model directory used for budget wall-clock metadata             | path                                                          | None                 |
+| `--max-T`                           | Maximum horizon used in aggregate training                            | int                                                           | `config.MAX_TRAIN_T` |
+| `--budget-based`                    | Train fixed and adaptive models under one budget                      | true \| false                                                 | false                |
+| `--epochs-per-T`                    | Budget mode epochs for each fixed horizon                             | int                                                           | 20                   |
+| `--n-seeds` `-s`                    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
+| `--dt`                              | Time step for the system simulation                                   | float                                                         | `config.DT`          |
+| `--system`                          | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                           | `config.SYSTEM`      |
+| `--batch-size`                      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
+| `--early-stopping`                  | Enable validation-loss patience for curriculum training               | true \| false                                                 | false                |
+| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping                    | true \| false                                                 | false                |
+| `--output-dir`                      | Directory to save models to; existing directories are reused          | path                                                          | None                 |
+| `--debug`                           | Save extra loss and gradient diagnostics                              | true \| false                                                 | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
@@ -102,6 +102,7 @@ Notes:
 - `--cross-validation-early-stopping` uses the historical linear curriculum. At each horizon boundary it evaluates all validation horizons, caches the model when median MSE improves, and restores the cached model when median MSE worsens.
 - The two early-stopping flags are mutually exclusive and apply only to curriculum-horizon adaptive training.
 - To permanently change default variables, edit `config.toml`.
+- Lorenz-96 uses `[lorenz96] dimension` and `forcing` from `config.toml`; the default is 10 variables and forcing 8. Use a smaller `dt` such as `0.01` for this system.
 
 ### Gradient Scaling
 
@@ -119,13 +120,13 @@ poetry run gradient-scaling --model path/to/trained/model.pt --system rossler --
 
 **Args:**
 
-| Name            | Description                               | Values                | Default value       |
-|-----------------|-------------------------------------------|-----------------------|---------------------|
-| `--model`, `-m` | Path to the trained model                 | str                   | required            |
-| `--max-eval-T`  | Maximum evaluation horizon                | int                   | `config.MAX_EVAL_T` |
-| `--dt`          | Time step for the system simulation       | float                 | `config.DT`         |
-| `--system`      | Dynamical system to evaluate              | `lorenz` \| `rossler` | `config.SYSTEM`     |
-| `--per-batch`   | Compute per-batch gradient scaling ratios | true \| false         | false               |
+| Name            | Description                               | Values                              | Default value       |
+|-----------------|-------------------------------------------|-------------------------------------|---------------------|
+| `--model`, `-m` | Path to the trained model                 | str                                 | required            |
+| `--max-eval-T`  | Maximum evaluation horizon                | int                                 | `config.MAX_EVAL_T` |
+| `--dt`          | Time step for the system simulation       | float                               | `config.DT`         |
+| `--system`      | Dynamical system to evaluate              | `lorenz` \| `rossler` \| `lorenz96` | `config.SYSTEM`     |
+| `--per-batch`   | Compute per-batch gradient scaling ratios | true \| false                       | false               |
 
 Plots use median plus 95% CI for repeated values.
 
@@ -145,16 +146,16 @@ poetry run cross-validation --system rossler
 
 **Args:**
 
-| Name                | Description                                                            | Values                                                        | Default value                   |
-|---------------------|------------------------------------------------------------------------|---------------------------------------------------------------|---------------------------------|
-| `--model-dir`       | Run directory containing `fixed/` and `adaptive/` model subdirectories | str                                                           | Read from `models/last_run.txt` |
-| `--fixed-dir`       | Directory with fixed models                                            | str                                                           | Read from `--model-dir`         |
-| `--output-dir`      | Directory for cross-validation JSON and plots                          | str                                                           | Configured evaluation directory |
-| `--max-train-T`     | Maximum fixed training horizon to include                              | int                                                           | Max fixed T found               |
-| `--max-eval-T`      | Maximum validation horizon to evaluate                                 | int                                                           | `config.MAX_EVAL_T`             |
-| `--cached`          | Reuse a saved cross-validation JSON                                    | str                                                           | None                            |
-| `--metric`          | Statistic shown in plots                                               | `mean` \| `median`                                            | `median`                        |
-| `--system`          | Dynamical system to evaluate                                           | `lorenz` \| `rossler`                                         | `config.SYSTEM`                 |
+| Name            | Description                                                            | Values                              | Default value                   |
+|-----------------|------------------------------------------------------------------------|-------------------------------------|---------------------------------|
+| `--model-dir`   | Run directory containing `fixed/` and `adaptive/` model subdirectories | str                                 | Read from `models/last_run.txt` |
+| `--fixed-dir`   | Directory with fixed models                                            | str                                 | Read from `--model-dir`         |
+| `--output-dir`  | Directory for cross-validation JSON and plots                          | str                                 | Configured evaluation directory |
+| `--max-train-T` | Maximum fixed training horizon to include                              | int                                 | Max fixed T found               |
+| `--max-eval-T`  | Maximum validation horizon to evaluate                                 | int                                 | `config.MAX_EVAL_T`             |
+| `--cached`      | Reuse a saved cross-validation JSON                                    | str                                 | None                            |
+| `--metric`      | Statistic shown in plots                                               | `mean` \| `median`                  | `median`                        |
+| `--system`      | Dynamical system to evaluate                                           | `lorenz` \| `rossler` \| `lorenz96` | `config.SYSTEM`                 |
 
 Notes:
 - Cross-validation infers `dt` from the model directory name.
@@ -220,13 +221,13 @@ poetry run compute-lyapunov --system rossler --mode local --plot
 
 **Args:**
 
-| Name           | Description                         | Values                | Default value   |
-|----------------|-------------------------------------|-----------------------|-----------------|
-| `--mode`, `-m` | Lyapunov computation mode           | `global` \| `local`   | `global`        |
-| `--plot`, `-p` | Plot the system trajectory          | true \| false         | false           |
-| `--system`     | Dynamical system to analyze         | `lorenz` \| `rossler` | `config.SYSTEM` |
-| `--dt`         | Time step for the system simulation | float                 | `config.DT`     |
-| `--steps`      | Trajectory length                   | int                   | 10000           |
+| Name           | Description                         | Values                              | Default value   |
+|----------------|-------------------------------------|-------------------------------------|-----------------|
+| `--mode`, `-m` | Lyapunov computation mode           | `global` \| `local`                 | `global`        |
+| `--plot`, `-p` | Plot the system trajectory          | true \| false                       | false           |
+| `--system`     | Dynamical system to analyze         | `lorenz` \| `rossler` \| `lorenz96` | `config.SYSTEM` |
+| `--dt`         | Time step for the system simulation | float                               | `config.DT`     |
+| `--steps`      | Trajectory length                   | int                                 | 10000           |
 
 ### Gradient Heatmap
 
@@ -239,13 +240,13 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 
 **Args:**
 
-| Name                | Description                                    | Values                | Default value             |
-|---------------------|------------------------------------------------|-----------------------|---------------------------|
-| `--model`, `-m`     | Path to the trained model                      | str                   | required                  |
-| `--T-val`           | Evaluation horizon                             | int                   | `config.MAX_EVAL_T`       |
-| `--dt`              | Time step for the diagnostic simulation        | float                 | `config.DT`               |
-| `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` | `config.SYSTEM`           |
-| `--steps`           | Post-burn-in diagnostic trajectory length      | int                   | `config.TRAJECTORY_STEPS` |
-| `--seed`            | Diagnostic trajectory seed                     | int                   | `config.RANDOM_SEED`      |
-| `--microbatch-size` | Samples per local gradient-scaling estimate    | int                   | 1                         |
-| `--regenerate`      | Regenerate the cached diagnostic trajectory    | true \| false         | false                     |
+| Name                | Description                                    | Values                              | Default value             |
+|---------------------|------------------------------------------------|-------------------------------------|---------------------------|
+| `--model`, `-m`     | Path to the trained model                      | str                                 | required                  |
+| `--T-val`           | Evaluation horizon                             | int                                 | `config.MAX_EVAL_T`       |
+| `--dt`              | Time step for the diagnostic simulation        | float                               | `config.DT`               |
+| `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` \| `lorenz96` | `config.SYSTEM`           |
+| `--steps`           | Post-burn-in diagnostic trajectory length      | int                                 | `config.TRAJECTORY_STEPS` |
+| `--seed`            | Diagnostic trajectory seed                     | int                                 | `config.RANDOM_SEED`      |
+| `--microbatch-size` | Samples per local gradient-scaling estimate    | int                                 | 1                         |
+| `--regenerate`      | Regenerate the cached diagnostic trajectory    | true \| false                       | false                     |

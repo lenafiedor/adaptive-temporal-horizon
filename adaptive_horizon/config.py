@@ -30,6 +30,8 @@ NUM_SEEDS = _config["training"]["num_seeds"]
 DEFAULT_SYSTEM = _config["system"]["default_system"]
 DT = _config["system"]["dt"]
 BURN_IN_TIME = _config["system"]["burn_in_time"]
+LORENZ96_DIMENSION = _config["lorenz96"]["dimension"]
+LORENZ96_FORCING = _config["lorenz96"]["forcing"]
 
 TRAJECTORY_STEPS = _config["trajectory"]["trajectory_steps"]
 RANDOM_SEED = _config["trajectory"]["random_seed"]

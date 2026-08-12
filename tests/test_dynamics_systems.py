@@ -23,6 +23,29 @@ def test_system_registry_contains_lorenz_and_rossler():
     assert rossler.dim == 3
 
 
+def test_lorenz96_rhs_and_jacobian_shapes():
+    system = get_system("lorenz96")
+    state = np.linspace(1.0, 2.0, system.dim)
+
+    assert system.dim == 10
+    assert system.parameters == {"dimension": 10, "forcing": 8.0}
+    assert system.rhs(state).shape == (10,)
+    assert system.jacobian(*state).shape == (10, 10)
+
+    epsilon = 1e-6
+    numerical_jacobian = np.column_stack(
+        [
+            (
+                system.rhs(state + epsilon * np.eye(system.dim)[column])
+                - system.rhs(state)
+            )
+            / epsilon
+            for column in range(system.dim)
+        ]
+    )
+    np.testing.assert_allclose(system.jacobian(*state), numerical_jacobian, atol=1e-5)
+
+
 def test_rossler_rhs_and_jacobian_shapes():
     system = get_system("rossler")
     state = np.array([1.0, 2.0, 3.0])
@@ -81,7 +104,7 @@ def test_rossler_fixed_horizon_loader_shapes(tmp_path):
     assert targets.shape == (4, 2, 3)
 
 
-@pytest.mark.parametrize("system_name", ["lorenz", "rossler"])
+@pytest.mark.parametrize("system_name", ["lorenz", "rossler", "lorenz96"])
 def test_lyapunov_utilities_accept_registered_systems(system_name, tmp_path):
     trajectory = get_trajectory(
         system_name,
@@ -101,6 +124,6 @@ def test_lyapunov_utilities_accept_registered_systems(system_name, tmp_path):
     )
     global_lle = compute_global_lyapunov(dt=0.01, steps=3, system=system_name)
 
-    assert local_lle.shape == (6, 3)
+    assert local_lle.shape == (6, get_system(system_name).dim)
     assert forward_ftle.shape == (5,)
     assert np.isfinite(global_lle)

@@ -55,12 +55,14 @@ def get_trajectory(
             saved_seed = int(bundle.get("seed", seed))
             saved_dt = float(bundle.get("dt", dt))
             saved_system = bundle.get("system", DEFAULT_SYSTEM)
+            saved_parameters = bundle.get("system_parameters", {})
             metadata_matches = (
                 saved_steps >= steps
                 and saved_burn_in == int(burn_in)
                 and saved_seed == int(seed)
                 and np.isclose(saved_dt, dt)
                 and saved_system == system.name
+                and saved_parameters == dict(system.parameters)
             )
             if metadata_matches:
                 return trajectory[: steps + 1]

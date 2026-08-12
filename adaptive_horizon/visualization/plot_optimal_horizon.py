@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,10 +12,11 @@ import matplotlib.pyplot as plt
 from adaptive_horizon import config
 from adaptive_horizon.visualization.plot_budget_resources import (
     EvalScope,
+    aggregate_values,
     parse_eval_scope,
     select_fixed_result,
 )
-from adaptive_horizon.visualization.plotting import COLOR_TRAIN
+from adaptive_horizon.visualization.plotting import COLOR_EVAL
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class OptimalHorizon:
     epochs: int
     train_T: int
     mse: float
+    seed_train_Ts: dict[int, int]
     source_path: Path
 
 
@@ -34,8 +37,31 @@ def infer_epochs(fixed_dir: str, budget_epochs: int) -> int:
     raise ValueError(f"Could not infer epoch budget from fixed directory: {fixed_dir}")
 
 
+def select_seed_train_T(records, seed: int, metric: str, eval_scope: EvalScope) -> int:
+    values_by_train_T = {}
+    for record in records:
+        if record["model_type"] != "fixed" or int(record["seed"]) != seed:
+            continue
+        if eval_scope.mode == "single" and int(record["val_T"]) != eval_scope.eval_T:
+            continue
+        values_by_train_T.setdefault(int(record["train_T"]), []).append(
+            float(record["mse"])
+        )
+
+    if not values_by_train_T:
+        raise ValueError(f"No cross-validation records found for seed {seed}")
+
+    return min(
+        values_by_train_T,
+        key=lambda train_T: aggregate_values(values_by_train_T[train_T], metric),
+    )
+
+
 def load_optimal_horizon(
-    path: Path, metric: str, eval_scope: EvalScope, budget_epochs: int
+    path: Path,
+    metric: str,
+    eval_scope: EvalScope,
+    budget_epochs: int,
 ) -> OptimalHorizon:
     with path.open("r") as f:
         payload = json.load(f)
@@ -53,10 +79,23 @@ def load_optimal_horizon(
     else:
         mse = best["overall"][metric]
 
+    records = payload["evaluation_records"]
+    seeds = sorted(
+        {
+            int(record["seed"])
+            for record in records
+            if record["model_type"] == "fixed" and record.get("seed") is not None
+        }
+    )
+
     return OptimalHorizon(
         epochs=epochs,
         train_T=int(best["train_T"]),
         mse=float(mse),
+        seed_train_Ts={
+            seed: select_seed_train_T(records, seed, metric, eval_scope)
+            for seed in seeds
+        },
         source_path=path,
     )
 
@@ -75,16 +114,31 @@ def load_results(results_dir, metric, eval_scope, budget_epochs):
 
 def plot_results(results, metric, output_path):
     epochs = [result.epochs for result in results]
-    horizons = [result.train_T for result in results]
-
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(epochs, horizons, marker="o", linewidth=2, color=COLOR_TRAIN)
+    distribution_epochs = []
+    distribution_horizons = []
+    distribution_counts = []
+    for result in results:
+        for train_T, count in Counter(result.seed_train_Ts.values()).items():
+            distribution_epochs.append(result.epochs)
+            distribution_horizons.append(train_T)
+            distribution_counts.append(count)
+    ax.scatter(
+        distribution_epochs,
+        distribution_horizons,
+        color=COLOR_EVAL,
+        alpha=0.45,
+        s=[45 * count for count in distribution_counts],
+        label="Seeds",
+        zorder=2,
+    )
+    ax.set_xscale("log", base=2)
     ax.set_xlabel("Training budget (epochs per horizon)")
     ax.set_ylabel("Optimal training horizon T")
     ax.set_xticks(epochs)
-    ax.set_yticks(sorted(set(horizons)))
-    ax.set_title(f"Optimal Horizon by Training Budget ({metric} MSE)")
-    ax.grid(True, alpha=0.25)
+    ax.set_yticks(sorted(set(distribution_horizons)))
+    ax.set_title(f"Optimal Horizon Distribution by Training Budget ({metric} MSE)")
+    ax.legend()
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

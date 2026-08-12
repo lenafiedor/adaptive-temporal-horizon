@@ -15,6 +15,8 @@ from adaptive_horizon.dynamics.rossler import (
     rossler_f,
     sample_rossler_initial_state,
 )
+from adaptive_horizon.dynamics.lorenz96 import make_lorenz96_functions
+from adaptive_horizon import config
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,25 @@ SYSTEMS = {
         parameters=ROSSLER_PARAMETERS,
     ),
 }
+
+lorenz96_rhs, lorenz96_jacobian, lorenz96_sample_initial_state = (
+    make_lorenz96_functions(
+        config.LORENZ96_DIMENSION,
+        config.LORENZ96_FORCING,
+    )
+)
+SYSTEMS["lorenz96"] = DynamicsSystem(
+    name="lorenz96",
+    display_name="Lorenz-96",
+    dim=config.LORENZ96_DIMENSION,
+    rhs=lorenz96_rhs,
+    jacobian=lorenz96_jacobian,
+    sample_initial_state=lorenz96_sample_initial_state,
+    parameters={
+        "dimension": config.LORENZ96_DIMENSION,
+        "forcing": config.LORENZ96_FORCING,
+    },
+)
 
 SYSTEM_CHOICES = tuple(sorted(SYSTEMS))
 

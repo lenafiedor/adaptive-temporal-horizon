@@ -20,6 +20,10 @@ default_system = "lorenz"
 dt = 0.08
 burn_in_time = 10.0
 
+[lorenz96]
+dimension = 10
+forcing = 8.0
+
 [trajectory]
 trajectory_steps = 120000
 random_seed = 12345
