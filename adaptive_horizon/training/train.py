@@ -793,7 +793,7 @@ def main():
     effective_adaptive_method = args.adaptive_method or CURRICULUM_HORIZON
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
-    print(f"Using device: {device}")
+    print(f"\nUsing device: {device}")
     print(f"Dynamical system: {system.label}")
     print(f"Time step: {args.dt}")
     print(
@@ -889,12 +889,10 @@ def main():
                 system_name=args.system,
             )
 
+    print(f"\nModels saved to {model_root}")
     print("\n" + "=" * 50)
     print("Training Complete")
-    print("=" * 50)
-    print(f"Models saved to {model_root}")
-    if loss_dir is not None:
-        print(f"Losses saved to {loss_dir}")
+    print("=" * 50 + "\n")
     last_run_file.write_text(str(model_root))
 
 

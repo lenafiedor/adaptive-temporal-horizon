@@ -53,7 +53,7 @@ layer_width = 10
 
 [evaluation]
 num_batches = 50
-max_eval_T = 10
+max_eval_T = 15
 
 [analysis]
 simulation_steps = 50000

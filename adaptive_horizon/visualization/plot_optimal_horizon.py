@@ -102,7 +102,7 @@ def load_optimal_horizon(
 
 
 def load_results(results_dir, metric, eval_scope, budget_epochs):
-    paths = sorted(Path(results_dir).glob("mse_results_*.json"))
+    paths = sorted(Path(results_dir).glob("*mse_results_*.json"))
     if not paths:
         raise FileNotFoundError(f"No MSE result files found in {results_dir}")
 
