@@ -18,7 +18,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           early-stopping, cross-validation, or adaptive-horizon"
+  echo "  --method METHOD           fixed, early-stopping, cross-validation, or lyapunov-based"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -26,7 +26,7 @@ usage() {
   echo "  --epochs-per-T VALUE      Epoch budget per horizon (default: $EPOCHS_PER_T)"
   echo "  --n-seeds VALUE           Total desired seed count (default: $N_SEEDS)"
   echo "  --system NAME             Dynamical system (default: $SYSTEM)"
-  echo "  --fixed-dir DIR           Fixed models used for adaptive-horizon wall-time budgets"
+  echo "  --fixed-dir DIR           Fixed models used for lyapunov-based wall-time budgets"
   echo "  -h, --help                Show this help"
 }
 
@@ -58,18 +58,21 @@ if [[ -z "$OUTPUT_DIR" ]]; then
 fi
 
 case "$METHOD" in
+  fixed)
+    method_args=(--fixed)
+    ;;
   early-stopping)
-    method_args=(--adaptive-method curriculum-horizon --early-stopping)
+    method_args=(--adaptive --adaptive-method curriculum-horizon --early-stopping)
     ;;
   cross-validation)
-    method_args=(--adaptive-method curriculum-horizon --cross-validation-early-stopping)
+    method_args=(--adaptive --adaptive-method curriculum-horizon --cross-validation-early-stopping)
     ;;
-  adaptive-horizon)
+  lyapunov-based)
     if [[ -z "$FIXED_DIR" ]]; then
-      echo "--fixed-dir is required for adaptive-horizon" >&2
+      echo "--fixed-dir is required for lyapunov-based" >&2
       exit 1
     fi
-    method_args=(--adaptive-method adaptive-horizon)
+    method_args=(--adaptive --adaptive-method lyapunov-based)
     ;;
   *)
     echo "Unknown method: $METHOD" >&2
@@ -81,15 +84,20 @@ esac
 cd "$PROJECT_DIR"
 
 for ((T = MIN_T; T <= MAX_T; T++)); do
+  if [[ "$METHOD" == "fixed" ]]; then
+    run_output_dir="$OUTPUT_DIR"
+  else
+    run_output_dir="$OUTPUT_DIR/budget_dt_${DT#*.}_T${T}"
+  fi
+
   args=(
     --budget-based
-    --adaptive
     --dt "$DT"
     --max-T "$T"
     --epochs-per-T "$EPOCHS_PER_T"
     --n-seeds "$N_SEEDS"
     --system "$SYSTEM"
-    --output-dir "$OUTPUT_DIR/budget_dt_${DT#*.}_T${T}"
+    --output-dir "$run_output_dir"
   )
   args+=("${method_args[@]}")
 

@@ -78,7 +78,7 @@ def test_summarize_cross_validation_allows_fixed_only_records():
 
 
 def test_infer_fixed_dir_uses_nested_fixed_directory(tmp_path):
-    catalog_dir = tmp_path / "budget_based_dt_08_ah_5"
+    catalog_dir = tmp_path / "budget_based_dt_08_lb_5"
     catalog_dir.mkdir()
     fixed_dir = tmp_path / "budget_based_dt_08_fixed" / "fixed"
     fixed_dir.mkdir(parents=True)

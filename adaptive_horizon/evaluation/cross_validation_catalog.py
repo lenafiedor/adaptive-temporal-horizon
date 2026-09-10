@@ -24,7 +24,6 @@ from adaptive_horizon.training.utils import (
 )
 from adaptive_horizon.visualization.plotting import (
     plot_mse,
-    plot_mse_subplots,
     plot_paired_deltas,
 )
 
@@ -223,22 +222,24 @@ def missing_fixed_paths(
     fixed_paths: dict[int, list[Path]],
     cached_records: dict[tuple[str, int, int, int], dict[str, Any]],
     max_eval_T: int,
-) -> dict[int, list[Path]]:
-    val_Ts = range(1, max_eval_T + 1)
-    missing: dict[int, list[Path]] = {}
+) -> dict[int, dict[Path, list[int]]]:
+    val_Ts = list(range(1, max_eval_T + 1))
+    missing: dict[int, dict[Path, list[int]]] = {}
     for train_T, paths in fixed_paths.items():
-        missing_paths: list[Path] = []
+        missing_paths: dict[Path, list[int]] = {}
         for path in paths:
             info = model_info(path)
             if info is None:
-                missing_paths.append(path)
+                missing_paths[path] = val_Ts
                 continue
             seed = info[1]
-            if any(
-                ("fixed", int(train_T), seed, val_T) not in cached_records
+            missing_val_Ts = [
+                val_T
                 for val_T in val_Ts
-            ):
-                missing_paths.append(path)
+                if ("fixed", int(train_T), seed, val_T) not in cached_records
+            ]
+            if missing_val_Ts:
+                missing_paths[path] = missing_val_Ts
         missing[int(train_T)] = missing_paths
     return missing
 
@@ -247,17 +248,22 @@ def missing_adaptive_paths(
     adaptive_paths: list[Path],
     cached_records: dict[tuple[str, int, int], dict[str, Any]],
     max_eval_T: int,
-) -> list[Path]:
-    val_Ts = range(1, max_eval_T + 1)
-    missing: list[Path] = []
+) -> dict[Path, list[int]]:
+    val_Ts = list(range(1, max_eval_T + 1))
+    missing: dict[Path, list[int]] = {}
     for path in adaptive_paths:
         info = model_info(path)
         if info is None:
-            missing.append(path)
+            missing[path] = val_Ts
             continue
         seed = info[1]
-        if any(("adaptive", seed, val_T) not in cached_records for val_T in val_Ts):
-            missing.append(path)
+        missing_val_Ts = [
+            val_T
+            for val_T in val_Ts
+            if ("adaptive", seed, val_T) not in cached_records
+        ]
+        if missing_val_Ts:
+            missing[path] = missing_val_Ts
     return missing
 
 
@@ -294,11 +300,13 @@ def run_with_partial_cache(
     new_records = []
     if missing_fixed_count or adaptive_missing:
         new_records = cross_validate_models(
-            fixed_missing,
-            adaptive_missing,
+            {train_T: list(paths) for train_T, paths in fixed_missing.items()},
+            list(adaptive_missing),
             dt=get_dt_from_model_dir(model_dir),
             val_Ts=val_Ts,
             system_name=system_name,
+            fixed_val_Ts=fixed_missing,
+            adaptive_val_Ts=adaptive_missing,
         )
 
     evaluation_records = cached_records + new_records
@@ -316,26 +324,18 @@ def run_with_partial_cache(
         budget_based,
         system_name,
     )
-    plot_mse(summary, output_dir, dt, max_train_T, budget_based, metric)
-    plot_mse_subplots(
-        evaluation_records,
-        summary,
-        output_dir,
-        dt,
-        max_train_T,
-        budget_based,
-        metric,
-    )
-    if summary["adaptive"] is not None:
-        plot_paired_deltas(
-            summary["deltas"],
-            val_Ts,
-            dt,
-            output_dir,
-            max_train_T,
-            budget_based,
-            metric,
-        )
+    if max_train_T == max_eval_T:
+        plot_mse(summary, output_dir, dt, max_train_T, budget_based, metric)
+        if summary["adaptive"] is not None:
+            plot_paired_deltas(
+                summary["deltas"],
+                val_Ts,
+                dt,
+                output_dir,
+                max_train_T,
+                budget_based,
+                metric,
+            )
 
 
 def run_catalog(

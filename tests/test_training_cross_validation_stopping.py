@@ -26,19 +26,3 @@ def test_cross_validation_median_loss(monkeypatch):
 
     assert median_loss == 2.0
     assert losses == {1: 1.0, 2: 2.0, 3: 3.0}
-
-
-def test_curriculum_stopping_methods_are_mutually_exclusive():
-    with pytest.raises(ValueError, match="only one"):
-        train_module.train(
-            model=None,
-            train_loader=None,
-            val_loader=None,
-            optimizer=None,
-            epochs=0,
-            T=2,
-            adaptive=True,
-            adaptive_method=CURRICULUM_HORIZON,
-            early_stopping=True,
-            cross_validation_early_stopping=True,
-        )

@@ -23,7 +23,7 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
 )
 from adaptive_horizon.training.methods import (
-    ADAPTIVE_HORIZON,
+    LYAPUNOV_BASED,
     ADAPTIVE_METHOD_CHOICES,
     CURRICULUM_HORIZON,
     WEIGHTED_LOSS,
@@ -82,7 +82,7 @@ def train(
     device=config.DEVICE,
     T=None,
     adaptive=False,
-    adaptive_method=ADAPTIVE_HORIZON,
+    adaptive_method=LYAPUNOV_BASED,
     dt=config.DT,
     debug=False,
     save_dir=None,
@@ -224,7 +224,7 @@ def train(
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             if adaptive:
-                if adaptive_method == ADAPTIVE_HORIZON:
+                if adaptive_method == LYAPUNOV_BASED:
                     T_values = rest[0].to(device) if rest else None
                     loss = adaptive_batch_loss(
                         model,
@@ -266,7 +266,7 @@ def train(
 
         if not adaptive:
             val_loss = validation_loss(model, val_loader, T, device)
-        elif adaptive_method == ADAPTIVE_HORIZON:
+        elif adaptive_method == LYAPUNOV_BASED:
             val_loss = adaptive_validation_loss(model, val_loader, device)
         elif adaptive_method == WEIGHTED_LOSS:
             val_loss = lle_weighted_validation_loss(
@@ -443,7 +443,7 @@ def train_single_model(
     dt=config.DT,
     T=None,
     adaptive=False,
-    adaptive_method=ADAPTIVE_HORIZON,
+    adaptive_method=LYAPUNOV_BASED,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
@@ -616,7 +616,7 @@ def train_adaptive_models(
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    adaptive_method=ADAPTIVE_HORIZON,
+    adaptive_method=LYAPUNOV_BASED,
     max_T=config.MAX_TRAIN_T,
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
@@ -738,7 +738,7 @@ def main():
         "--fixed-dir",
         type=Path,
         default=None,
-        help="Fixed model directory used to read wall-clock budgets for budget-based adaptive-horizon training",
+        help="Fixed model directory used to read wall-clock budgets for the Lyapunov-based method",
     )
     parser.add_argument(
         "--max-T",
@@ -860,7 +860,7 @@ def main():
         if args.adaptive or not args.fixed:
             wall_time_budget = None
             budget_metadata = None
-            if args.budget_based and effective_adaptive_method == ADAPTIVE_HORIZON:
+            if args.budget_based and effective_adaptive_method == LYAPUNOV_BASED:
                 wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)
                 budget_metadata = {
                     "fixed_dir": str(budget_fixed_dir),

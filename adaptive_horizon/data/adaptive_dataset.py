@@ -25,11 +25,11 @@ from adaptive_horizon.utils import time_to_steps
 
 def default_adaptive_T_max(dt: float) -> int:
     """Default fixed rollout for weighted-loss training."""
-    return time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
+    return time_to_steps(config.DEFAULT_HORIZON, dt)
 
 
-class AdaptiveHorizonDataset(NormalizationStats, Dataset):
-    """Adaptive-horizon dataset sliced from one shared long trajectory."""
+class LyapunovBasedDataset(NormalizationStats, Dataset):
+    """Lyapunov-based dataset sliced from one shared long trajectory."""
 
     def __init__(
         self,
@@ -279,7 +279,7 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         return input_state, targets, torch.tensor(lambda_score, dtype=torch.float32)
 
 
-def collate_fn_adaptive_horizon(batch):
+def collate_fn_lyapunov_based(batch):
     inputs = torch.stack([item[0] for item in batch])
     T = torch.stack([item[2] for item in batch])
 
@@ -302,6 +302,3 @@ def collate_fn_weighted_loss(batch):
     targets = torch.stack([item[1] for item in batch])
     lambda_scores = torch.stack([item[2] for item in batch])
     return inputs, targets, lambda_scores
-
-
-collate_fn_adaptive = collate_fn_adaptive_horizon

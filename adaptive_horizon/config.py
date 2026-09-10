@@ -37,8 +37,8 @@ TRAJECTORY_STEPS = _config["trajectory"]["trajectory_steps"]
 RANDOM_SEED = _config["trajectory"]["random_seed"]
 TRAIN_FRACTION = _config["trajectory"]["train_fraction"]
 
-VARIANCE = _config["adaptive-horizon"]["variance"]
-DEFAULT_ADAPTIVE_HORIZON = _config["adaptive-horizon"]["default_adaptive_horizon"]
+VARIANCE = _config["lyapunov-based"]["variance"]
+DEFAULT_HORIZON = _config["lyapunov-based"]["default_horizon"]
 
 RHO = _config["weighted-loss"]["rho"]
 TEMPERATURE = _config["weighted-loss"]["temperature"]

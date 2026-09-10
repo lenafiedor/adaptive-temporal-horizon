@@ -29,9 +29,9 @@ trajectory_steps = 120000
 random_seed = 12345
 train_fraction = 0.8
 
-[adaptive-horizon]
+[lyapunov-based]
 variance = 1
-default_adaptive_horizon = 0.4
+default_horizon = 0.4
 
 [weighted-loss]
 rho = 1.0

@@ -3,16 +3,16 @@ from torch.utils.data import DataLoader
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.adaptive_dataset import (
-    AdaptiveHorizonDataset,
+    LyapunovBasedDataset,
     WeightedLossDataset,
-    collate_fn_adaptive_horizon,
+    collate_fn_lyapunov_based,
     collate_fn_weighted_loss,
 )
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
-    ADAPTIVE_HORIZON,
+    LYAPUNOV_BASED,
     CURRICULUM_HORIZON,
     WEIGHTED_LOSS,
 )
@@ -51,7 +51,7 @@ def create_model_and_loaders(
     device,
     dt,
     T=None,
-    adaptive_method=ADAPTIVE_HORIZON,
+    adaptive_method=LYAPUNOV_BASED,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
@@ -72,7 +72,7 @@ def create_model_and_loaders(
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
         ftle_window: Forward FTLE window for weighted-loss training
-        var: Variance of the adaptive horizon
+        var: Variance of the Lyapunov-based horizon
         debug: Whether adaptive datasets should write T values and Lyapunov exponents
         system_name: Name of the dynamical system
 
@@ -105,8 +105,8 @@ def create_model_and_loaders(
     }
 
     if adaptive:
-        if adaptive_method == ADAPTIVE_HORIZON:
-            train_dataset = AdaptiveHorizonDataset(
+        if adaptive_method == LYAPUNOV_BASED:
+            train_dataset = LyapunovBasedDataset(
                 dt=dt,
                 system=system.name,
                 seed=config.RANDOM_SEED,
@@ -116,7 +116,7 @@ def create_model_and_loaders(
                 split_gap=split_gap,
                 debug=debug,
             )
-            val_dataset = AdaptiveHorizonDataset(
+            val_dataset = LyapunovBasedDataset(
                 dt=dt,
                 system=system.name,
                 seed=config.RANDOM_SEED,
@@ -127,7 +127,7 @@ def create_model_and_loaders(
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
             )
-            collate_function = collate_fn_adaptive_horizon
+            collate_function = collate_fn_lyapunov_based
         elif adaptive_method == WEIGHTED_LOSS:
             train_dataset = WeightedLossDataset(
                 dt=dt,
@@ -153,7 +153,7 @@ def create_model_and_loaders(
             collate_function = collate_fn_weighted_loss
         elif adaptive_method == CURRICULUM_HORIZON:
             if T is None:
-                T = time_to_steps(config.DEFAULT_ADAPTIVE_HORIZON, dt)
+                T = time_to_steps(config.DEFAULT_HORIZON, dt)
             train_dataset = TrajectoryDataset(
                 T=T,
                 dt=dt,

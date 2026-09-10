@@ -1,12 +1,12 @@
 from typing import Optional
 
 ADAPTIVE_METHODS = {
-    "adaptive-horizon": "ah",
+    "lyapunov-based": "lb",
     "weighted-loss": "wl",
     "curriculum-horizon": "ch",
 }
 
-ADAPTIVE_HORIZON, WEIGHTED_LOSS, CURRICULUM_HORIZON = ADAPTIVE_METHODS.keys()
+LYAPUNOV_BASED, WEIGHTED_LOSS, CURRICULUM_HORIZON = ADAPTIVE_METHODS.keys()
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
 

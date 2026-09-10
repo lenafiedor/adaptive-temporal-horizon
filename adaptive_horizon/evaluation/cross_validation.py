@@ -9,11 +9,7 @@ from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
-from adaptive_horizon.visualization.plotting import (
-    plot_mse,
-    plot_mse_subplots,
-    plot_paired_deltas,
-)
+from adaptive_horizon.visualization.plotting import plot_mse
 from adaptive_horizon.evaluation.utils import (
     load_model,
     save_cross_validation_results,
@@ -123,6 +119,8 @@ def cross_validate_models(
     device=config.DEVICE,
     val_Ts: list[int] | None = None,
     system_name: str = config.DEFAULT_SYSTEM,
+    fixed_val_Ts: dict[int, dict[Path, list[int]]] | None = None,
+    adaptive_val_Ts: dict[Path, list[int]] | None = None,
 ):
     """
     Evaluate models across different validation horizons.
@@ -142,6 +140,8 @@ def cross_validate_models(
         val_Ts = train_Ts
     else:
         val_Ts = list(val_Ts)
+    fixed_val_Ts = fixed_val_Ts or {}
+    adaptive_val_Ts = adaptive_val_Ts or {}
     eval_loaders = {}
 
     def get_eval_loader(checkpoint):
@@ -164,6 +164,7 @@ def cross_validate_models(
         if model_paths:
             print(f"\nEvaluating fixed models trained with T={train_T}")
         for model_path in model_paths:
+            model_val_Ts = fixed_val_Ts.get(train_T, {}).get(model_path, val_Ts)
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
@@ -171,7 +172,7 @@ def cross_validate_models(
             wall_time = get_training_wall_time(checkpoint)
             model_records = []
 
-            for val_T in val_Ts:
+            for val_T in model_val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "fixed",
@@ -190,6 +191,7 @@ def cross_validate_models(
     if adaptive_paths:
         print("\nEvaluating adaptive models")
         for model_path in adaptive_paths:
+            model_val_Ts = adaptive_val_Ts.get(model_path, val_Ts)
             model, checkpoint = load_model(model_path)
             model = model.to(device)
             eval_loader = get_eval_loader(checkpoint)
@@ -198,7 +200,7 @@ def cross_validate_models(
             wall_time = get_training_wall_time(checkpoint)
             model_records = []
 
-            for val_T in val_Ts:
+            for val_T in model_val_Ts:
                 mse = validation_loss(model, eval_loader, val_T, device)
                 record = {
                     "model_type": "adaptive",
@@ -325,25 +327,6 @@ def cross_validation(
             system_name,
         )
     plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
-    plot_mse_subplots(
-        evaluation_records,
-        summary,
-        output_dir,
-        dt,
-        effective_max_train_T,
-        budget_based,
-        metric,
-    )
-    if summary["adaptive"] is not None:
-        plot_paired_deltas(
-            summary["deltas"],
-            val_Ts,
-            dt,
-            output_dir,
-            effective_max_train_T,
-            budget_based,
-            metric,
-        )
 
 
 def main():

@@ -1,13 +1,14 @@
 # Adaptive Temporal Horizon in Auto-Regressive Models
 
-This repository contains an extension of the ideas presented in [Adaptive Temporal Horizon in Auto-Regressive Models](https://arxiv.org/abs/2506.03889).
+This repository contains the source code for Master Thesis project "Adaptive Temporal Horizon in Auto-Regressive Models".
+It is an extension of the ideas presented in [Adaptive Temporal Horizon in Auto-Regressive Models](https://arxiv.org/abs/2506.03889). Specifically, we implement an Adaptive Temporal Horizon for training a multi-layer perceptron (MLP) to learn chaotic dynamical system trajectories such as Lorenz and Rossler.
 
-Specifically, we implement an adaptive temporal horizon for training a multi-layer perceptron (MLP) to learn chaotic dynamical-system trajectories such as Lorenz and Rossler.
 
 ## Requirements
 
 - Python 3.13
 - Poetry package manager
+
 
 ## Before you begin
 
@@ -45,64 +46,42 @@ Train MLPs to learn the selected dynamical system. By default, the command train
 
 ```bash
 poetry run train-mlp                            # Train MLPs with both fixed and adaptive training horizon
-poetry run train-mlp --single                   # Train a single model with T = 1
 poetry run train-mlp --single -T 10             # Train a single model with T = 10
 poetry run train-mlp --single --adaptive        # Train a single adaptive model
-poetry run train-mlp --fixed                    # Train only with fixed T
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
-poetry run train-mlp --adaptive                 # Train only with adaptive T using adaptive-horizon method
+poetry run train-mlp --adaptive                 # Train only with adaptive T using lyapunov-based method
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
-poetry run train-mlp --budget-based --adaptive --adaptive-method adaptive-horizon --max-T 6 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
-poetry run train-mlp --budget-based --adaptive --adaptive-method curriculum-horizon --early-stopping
-poetry run train-mlp --budget-based --adaptive --adaptive-method curriculum-horizon --cross-validation-early-stopping
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
-poetry run train-mlp --output-dir runs/demo     # Save this run under a custom model_root
-```
-
-Run all budget horizons through the unified script by selecting one method:
-
-```bash
-./scripts/train_budget_based.sh --method early-stopping --output-root experiments/lorenz/models/budget_based_dt_08_es
-./scripts/train_budget_based.sh --method cross-validation --output-root experiments/lorenz/models/budget_based_dt_08_cv
-./scripts/train_budget_based.sh --method adaptive-horizon --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed --output-root experiments/lorenz/models/budget_based_dt_08_ah_5
 ```
 
 **Args:**
 
-| Name                                | Description                                                           | Values                                                        | Default value        |
-|-------------------------------------|-----------------------------------------------------------------------|---------------------------------------------------------------|----------------------|
-| `--epochs` `-e`                     | Number of training epochs                                             | int                                                           | `config.EPOCHS`      |
-| `--single`                          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                 | false                |
-| `-T`                                | Training horizon for fixed `--single` mode                            | int                                                           | 1                    |
-| `--fixed`, `-f`                     | Train only fixed-horizon models                                       | true \| false                                                 | false                |
-| `--adaptive`, `-a`                  | Train only adaptive models                                            | true \| false                                                 | false                |
-| `--adaptive-method`                 | Adaptive training method                                              | `adaptive-horizon` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
-| `--fixed-dir`                       | Fixed model directory used for budget wall-clock metadata             | path                                                          | None                 |
-| `--max-T`                           | Maximum horizon used in aggregate training                            | int                                                           | `config.MAX_TRAIN_T` |
-| `--budget-based`                    | Train fixed and adaptive models under one budget                      | true \| false                                                 | false                |
-| `--epochs-per-T`                    | Budget mode epochs for each fixed horizon                             | int                                                           | 20                   |
-| `--n-seeds` `-s`                    | Number of seeds for aggregate training                                | int                                                           | `config.NUM_SEEDS`   |
-| `--dt`                              | Time step for the system simulation                                   | float                                                         | `config.DT`          |
-| `--system`                          | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                           | `config.SYSTEM`      |
-| `--batch-size`                      | Batch size for training and validation loaders                        | int                                                           | `config.BATCH_SIZE`  |
-| `--early-stopping`                  | Enable validation-loss patience for curriculum training               | true \| false                                                 | false                |
-| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping                    | true \| false                                                 | false                |
-| `--output-dir`                      | Directory to save models to; existing directories are reused          | path                                                          | None                 |
-| `--debug`                           | Save extra loss and gradient diagnostics                              | true \| false                                                 | false                |
+| Name                                | Description                                                           | Values                                                      | Default value        |
+|-------------------------------------|-----------------------------------------------------------------------|-------------------------------------------------------------|----------------------|
+| `--epochs` `-e`                     | Number of training epochs                                             | int                                                         | `config.EPOCHS`      |
+| `--single`                          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                               | false                |
+| `-T`                                | Training horizon for fixed `--single` mode                            | int                                                         | 1                    |
+| `--fixed`, `-f`                     | Train only fixed-horizon models                                       | true \| false                                               | false                |
+| `--adaptive`, `-a`                  | Train only adaptive models                                            | true \| false                                               | false                |
+| `--adaptive-method`                 | Adaptive training method                                              | `lyapunov-based` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
+| `--fixed-dir`                       | Fixed model directory used for budget wall-clock metadata             | path                                                        | None                 |
+| `--max-T`                           | Maximum horizon used in aggregate training                            | int                                                         | `config.MAX_TRAIN_T` |
+| `--budget-based`                    | Train fixed and adaptive models under one budget                      | true \| false                                               | false                |
+| `--epochs-per-T`                    | Budget mode epochs for each fixed horizon                             | int                                                         | 20                   |
+| `--n-seeds` `-s`                    | Number of seeds for aggregate training                                | int                                                         | `config.NUM_SEEDS`   |
+| `--dt`                              | Time step for the system simulation                                   | float                                                       | `config.DT`          |
+| `--system`                          | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                         | `config.SYSTEM`      |
+| `--batch-size`                      | Batch size for training and validation loaders                        | int                                                         | `config.BATCH_SIZE`  |
+| `--early-stopping`                  | Enable validation-loss patience for curriculum training               | true \| false                                               | false                |
+| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping                    | true \| false                                               | false                |
+| `--output-dir`                      | Directory to save models to; existing directories are reused          | path                                                        | None                 |
+| `--debug`                           | Save extra loss and gradient diagnostics                              | true \| false                                               | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
-- `--adaptive-method` defaults to `adaptive-horizon` outside budget mode and `curriculum-horizon` in budget mode.
+- `--adaptive-method` defaults to `lyapunov-based` outside budget mode and `curriculum-horizon` in budget mode.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
-- `-T` only affects fixed-horizon `--single` training.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
-- In `--budget-based` mode, fixed models train for `epochs_per_T` epochs and adaptive models train for `epochs_per_T * max_T` epochs.
-- With `--budget-based --adaptive-method adaptive-horizon`, adaptive training also stops when it reaches the summed mean fixed-model wall time for `T=1..max_T`, read from `--fixed-dir` or the current run's `fixed/` directory.
-- `--early-stopping` applies validation-loss patience and grace epochs to threshold-based curriculum training.
-- `--cross-validation-early-stopping` uses the historical linear curriculum. At each horizon boundary it evaluates all validation horizons, caches the model when median MSE improves, and restores the cached model when median MSE worsens.
-- The two early-stopping flags are mutually exclusive and apply only to curriculum-horizon adaptive training.
-- To permanently change default variables, edit `config.toml`.
-- Lorenz-96 uses `[lorenz96] dimension` and `forcing` from `config.toml`; the default is 10 variables and forcing 8. Use a smaller `dt` such as `0.01` for this system.
 
 ### Gradient Scaling
 
@@ -136,11 +115,8 @@ Evaluate fixed and adaptive models across validation horizons. The command saves
 
 ```bash
 poetry run cross-validation
-poetry run cross-validation --model-dir experiments/lorenz/models/dt_08_20260607_120000
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
-poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_ah_3 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed --max-train-T 6
-poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_ah_5 --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed
-poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08_20260607_120000.json
+poetry run cross-validation --cached experiments/lorenz/evaluation/mse_results_dt_08.json
 poetry run cross-validation --system rossler
 ```
 
@@ -162,29 +138,17 @@ Notes:
 - `--cached` requires a JSON path.
 - Cross-validation expects model directory to contain `fixed/` and `adaptive/` subdirectories (unless `--fixed-dir` is specified).
 - When `--model-dir` contains `budget_dt_*_T*/adaptive` run directories, cross-validation evaluates all runs and reuses matching fixed-model records between them.
-- Cross-validation always writes the JSON report, MSE plot, MSE seed-subplot plot, and paired-delta plot when fixed and adaptive records are present.
 
-### Budget Training
+### Budget Comparison and Aggregate MSE
 
-Budget training is now part of `train-mlp`; cross-validation stays in `cross-validation`.
-
-```bash
-poetry run train-mlp --budget-based --max-T 8 --epochs-per-T 20 --n-seeds 10
-poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
-```
-
-Notes:
-- Budget runs are saved under `models/budget_based_dt_*_T*/fixed` and `models/budget_based_dt_*_T*/adaptive`.
-- `models/last_run.txt` points at the budget run root, so `cross-validation` can be run without `--model-dir` immediately after budget training.
-
-### Budget Comparison
-
-Plot adaptive MSE and the best fixed-model MSE as a function of the budget run's `max_train_T`.
+The `budget-comparison` command plots adaptive MSE and the best fixed-model MSE as a function of the budget run's `max_train_T`.
 The helper reads generated `budget_mse_results_*.json` files and writes both a PNG plot and a CSV with the plotted values.
 
+The `aggregate-mse` command plots MSEs obtained from all fixed and adaptive subdirectories.
+
 ```bash
-poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_based
-poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_based --metric mean --eval-scope T1
+poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_based --scope single 1
+poetry run aggregate-mse --results-dir experiments/lorenz/evaluation --scope single 1
 ```
 
 **Args:**
@@ -198,12 +162,11 @@ poetry run budget-comparison --results-dir experiments/lorenz/evaluation/budget_
 
 Notes:
 - The default `overall` scope plots aggregate MSE across all validation horizons.
-- `--eval-scope T1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at validation horizon `T=1` (`0.08` when `dt=0.08`).
+- `--scope single 1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at a single validation horizon.
 
 ### Optimal Horizon by Epoch Budget
 
-Plot the fixed training horizon with the lowest cross-validation MSE for each
-epoch budget:
+Plot the fixed training horizon with the lowest cross-validation MSE for each epoch budget:
 
 ```bash
 poetry run optimal-horizon --results-dir experiments/lorenz/evaluation/budget_epochs
@@ -250,3 +213,27 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 | `--seed`            | Diagnostic trajectory seed                     | int                                 | `config.RANDOM_SEED`      |
 | `--microbatch-size` | Samples per local gradient-scaling estimate    | int                                 | 1                         |
 | `--regenerate`      | Regenerate the cached diagnostic trajectory    | true \| false                       | false                     |
+
+
+## Reproducing Thesis Results
+
+In the thesis, we followed the budget-based approach, meaning that the same computational resources were used to train fixed and adaptive models.
+
+We argue that when the task of finding an optimal horizon $T$ is considered as a function of computational resources, using adaptive mechanisms yields better results than a grid search on the temporal horizon parameter (training models with fixed $T$).
+
+### Training
+
+We train fixed and three types of adaptive models with mechanisms described below.
+
+Run all budget horizons through the unified script by selecting one method:
+
+```bash
+./scripts/train_budget_based.sh --method fixed --output-dir experiments/lorenz/models/budget_based_dt_08_fixed
+./scripts/train_budget_based.sh --method early-stopping --output-dir experiments/lorenz/models/budget_based_dt_08_es
+./scripts/train_budget_based.sh --method cross-validation --output-dir experiments/lorenz/models/budget_based_dt_08_cv
+./scripts/train_budget_based.sh --method lyapunov-based \
+  --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed \
+  --output-dir experiments/lorenz/models/budget_based_dt_08_lb_5
+```
+
+Met

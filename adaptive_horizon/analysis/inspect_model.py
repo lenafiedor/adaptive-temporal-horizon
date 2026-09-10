@@ -36,7 +36,7 @@ def summarize_checkpoint(checkpoint):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Inspect the saved structure and metadata of an adaptive_horizon .pt model."
+        description="Inspect the saved structure and metadata of a .pt model."
     )
     parser.add_argument("model", type=Path, help="Path to a saved .pt checkpoint")
     parser.add_argument(
