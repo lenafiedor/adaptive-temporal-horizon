@@ -12,6 +12,8 @@ from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
+    CROSS_VALIDATION,
+    EARLY_STOPPING,
     LYAPUNOV_BASED,
     LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
@@ -151,7 +153,7 @@ def create_model_and_loaders(
                 debug=debug,
             )
             collate_function = collate_fn_weighted_loss
-        elif adaptive_method == LINEAR_SCHEDULER:
+        elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             if T is None:
                 T = time_to_steps(config.DEFAULT_HORIZON, dt)
             train_dataset = TrajectoryDataset(
@@ -183,7 +185,7 @@ def create_model_and_loaders(
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = train_dataset.T_max
             metadata["adaptive"]["ftle_window"] = ftle_window
-        elif adaptive_method == LINEAR_SCHEDULER:
+        elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             metadata["adaptive"].update(
                 {
                     "T_max": T,

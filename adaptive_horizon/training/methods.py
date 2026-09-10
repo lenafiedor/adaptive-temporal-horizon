@@ -4,9 +4,13 @@ ADAPTIVE_METHODS = {
     "lyapunov-based": "lb",
     "weighted-loss": "wl",
     "linear-scheduler": "ls",
+    "early-stopping": "es",
+    "cross-validation": "cv",
 }
 
-LYAPUNOV_BASED, WEIGHTED_LOSS, LINEAR_SCHEDULER = ADAPTIVE_METHODS.keys()
+LYAPUNOV_BASED, WEIGHTED_LOSS, LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION = (
+    ADAPTIVE_METHODS.keys()
+)
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
 

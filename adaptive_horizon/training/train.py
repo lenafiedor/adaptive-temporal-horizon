@@ -25,6 +25,8 @@ from adaptive_horizon.visualization.plotting import (
 from adaptive_horizon.training.methods import (
     LYAPUNOV_BASED,
     ADAPTIVE_METHOD_CHOICES,
+    CROSS_VALIDATION,
+    EARLY_STOPPING,
     LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
@@ -87,8 +89,6 @@ def train(
     debug=False,
     save_dir=None,
     metadata=None,
-    early_stopping=False,
-    cross_validation_early_stopping=False,
     max_wall_time_seconds=None,
     system_name=config.DEFAULT_SYSTEM,
 ):
@@ -109,8 +109,6 @@ def train(
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
-        early_stopping: Enable early stopping based on validation loss
-        cross_validation_early_stopping: Enable historical cross-validation stopping
         max_wall_time_seconds: Optional training wall-clock budget
 
     Returns:
@@ -124,16 +122,7 @@ def train(
     if max_wall_time_seconds is not None and metadata is not None:
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
-    use_validation_early_stopping = (
-        early_stopping and adaptive and adaptive_method == LINEAR_SCHEDULER
-    )
-    use_cross_validation_early_stopping = (
-        cross_validation_early_stopping
-        and adaptive
-        and adaptive_method == LINEAR_SCHEDULER
-    )
-
-    if use_validation_early_stopping:
+    if adaptive and adaptive_method == EARLY_STOPPING:
         early_stop_best_loss = None
         early_stop_wait = 0
         stopped_early = False
@@ -151,7 +140,7 @@ def train(
                 "grace_epochs": config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS,
             }
 
-    if use_cross_validation_early_stopping:
+    if adaptive and adaptive_method == CROSS_VALIDATION:
         cv_val_Ts = list(range(1, config.MAX_EVAL_T + 1))
         cv_cached_state = None
         cv_cached_T = None
@@ -200,12 +189,14 @@ def train(
 
     epoch = 0
     final_T = None
-    while epoch < epochs or (use_validation_early_stopping and grace_active):
+    while epoch < epochs or (
+        adaptive and adaptive_method == EARLY_STOPPING and grace_active
+    ):
         model.train()
         epoch_loss = 0.0
-        if use_validation_early_stopping and grace_active:
+        if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
             current_T = grace_T
-        elif use_cross_validation_early_stopping:
+        elif adaptive and adaptive_method == CROSS_VALIDATION:
             current_T = linear_scheduler(epoch, epochs, T)
             if current_T != linear_scheduler_T:
                 print(
@@ -213,7 +204,11 @@ def train(
                     f"{linear_scheduler_T} -> {current_T}"
                 )
                 linear_scheduler_T = current_T
-        elif adaptive and adaptive_method == LINEAR_SCHEDULER:
+        elif adaptive and adaptive_method in (
+            LINEAR_SCHEDULER,
+            EARLY_STOPPING,
+            CROSS_VALIDATION,
+        ):
             current_T = linear_scheduler_T
         else:
             current_T = T
@@ -241,7 +236,11 @@ def train(
                         lambda_scores,
                         dt=dt,
                     )
-                elif adaptive_method == LINEAR_SCHEDULER:
+                elif adaptive_method in (
+                    LINEAR_SCHEDULER,
+                    EARLY_STOPPING,
+                    CROSS_VALIDATION,
+                ):
                     loss = batch_loss(
                         model,
                         inputs,
@@ -272,12 +271,18 @@ def train(
             val_loss = lle_weighted_validation_loss(
                 model, val_loader, dt=dt, device=device
             )
-        elif adaptive_method == LINEAR_SCHEDULER:
+        elif adaptive_method in (
+            LINEAR_SCHEDULER,
+            EARLY_STOPPING,
+            CROSS_VALIDATION,
+        ):
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
-        if use_cross_validation_early_stopping and linear_scheduler_boundary_reached(
-            epoch, epochs, current_T, T
+        if (
+            adaptive
+            and adaptive_method == CROSS_VALIDATION
+            and linear_scheduler_boundary_reached(epoch, epochs, current_T, T)
         ):
             cv_median, cv_losses_by_T = cross_validation_median_loss(
                 model,
@@ -316,7 +321,7 @@ def train(
             cv_cached_epoch = epoch + 1
             cv_cached_median = cv_median
 
-        if use_validation_early_stopping and grace_active:
+        if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
             improvement = (
                 early_stop_best_loss is None
                 or val_loss
@@ -332,7 +337,11 @@ def train(
                     f"epochs at T={current_T}"
                 )
                 break
-        elif use_validation_early_stopping and current_T >= early_stop_min_T:
+        elif (
+            adaptive
+            and adaptive_method == EARLY_STOPPING
+            and current_T >= early_stop_min_T
+        ):
             if (
                 early_stop_best_loss is None
                 or val_loss
@@ -354,9 +363,8 @@ def train(
 
         if (
             adaptive
-            and adaptive_method == LINEAR_SCHEDULER
-            and not use_cross_validation_early_stopping
-            and (not use_validation_early_stopping or not grace_active)
+            and adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING)
+            and (adaptive_method != EARLY_STOPPING or not grace_active)
         ):
             next_T, mean_val_loss = linear_scheduler_with_threshold(
                 epoch,
@@ -376,7 +384,11 @@ def train(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            if adaptive and adaptive_method in (LINEAR_SCHEDULER,):
+            if adaptive and adaptive_method in (
+                LINEAR_SCHEDULER,
+                EARLY_STOPPING,
+                CROSS_VALIDATION,
+            ):
                 message += f", T={current_T}/{T}"
             print(message)
             if debug:
@@ -402,7 +414,7 @@ def train(
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
-        if use_validation_early_stopping:
+        if adaptive and adaptive_method == EARLY_STOPPING:
             metadata["early_stopping"].update(
                 {
                     "stopped_early": stopped_early,
@@ -411,7 +423,7 @@ def train(
                     "final_T": final_T,
                 }
             )
-        elif use_cross_validation_early_stopping:
+        elif adaptive and adaptive_method == CROSS_VALIDATION:
             metadata["early_stopping"].update(
                 {
                     "stopped_early": cv_stopped_early,
@@ -449,8 +461,6 @@ def train_single_model(
     ftle_window=config.FTLE_WINDOW,
     var=config.VARIANCE,
     debug=False,
-    early_stopping=False,
-    cross_validation_early_stopping=False,
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
@@ -461,7 +471,10 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            T if adaptive_method == LINEAR_SCHEDULER else None if adaptive else T,
+            T
+            if adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+            or not adaptive
+            else None,
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -476,6 +489,8 @@ def train_single_model(
             metadata["budget"] = budget_metadata
         if adaptive_method in (
             LINEAR_SCHEDULER,
+            EARLY_STOPPING,
+            CROSS_VALIDATION,
             WEIGHTED_LOSS,
         ):
             T = metadata["adaptive"]["T_max"]
@@ -496,8 +511,6 @@ def train_single_model(
         debug=debug,
         save_dir=loss_save_dir,
         metadata=metadata,
-        early_stopping=early_stopping,
-        cross_validation_early_stopping=cross_validation_early_stopping,
         max_wall_time_seconds=max_wall_time_seconds,
         system_name=system_name,
     )
@@ -622,8 +635,6 @@ def train_adaptive_models(
     var=config.VARIANCE,
     append=False,
     debug=False,
-    early_stopping=False,
-    cross_validation_early_stopping=False,
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
@@ -664,7 +675,12 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=max_T if adaptive_method == LINEAR_SCHEDULER else None,
+            T=(
+                max_T
+                if adaptive_method
+                in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+                else None
+            ),
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -672,8 +688,6 @@ def train_adaptive_models(
             ftle_window=ftle_window,
             var=var,
             debug=debug,
-            early_stopping=early_stopping,
-            cross_validation_early_stopping=cross_validation_early_stopping,
             max_wall_time_seconds=max_wall_time_seconds,
             budget_metadata=budget_metadata,
             system_name=system_name,
@@ -729,10 +743,10 @@ def main():
         "--adaptive", "-a", action="store_true", help="Train only adaptive models"
     )
     parser.add_argument(
-        "--adaptive-method",
+        "--method",
         choices=ADAPTIVE_METHOD_CHOICES,
         default=None,
-        help="Adaptive training method used with --adaptive",
+        help="Adaptive method",
     )
     parser.add_argument(
         "--fixed-dir",
@@ -764,17 +778,6 @@ def main():
         default=config.BATCH_SIZE,
         help="Batch size for training and validation loaders",
     )
-    stopping_group = parser.add_mutually_exclusive_group()
-    stopping_group.add_argument(
-        "--early-stopping",
-        action="store_true",
-        help="Early stop linear-scheduler training using validation-loss patience",
-    )
-    stopping_group.add_argument(
-        "--cross-validation-early-stopping",
-        action="store_true",
-        help="Early stop a linear scheduler using median loss across validation horizons",
-    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -790,7 +793,14 @@ def main():
     args = parser.parse_args()
     train_Ts = get_train_Ts(args.max_T)
     system = get_system(args.system)
-    effective_adaptive_method = args.adaptive_method or LINEAR_SCHEDULER
+    if args.method is None:
+        train_fixed = args.fixed or not args.adaptive
+        train_adaptive = args.adaptive or not args.fixed
+        effective_adaptive_method = LINEAR_SCHEDULER
+    else:
+        train_fixed = False
+        train_adaptive = True
+        effective_adaptive_method = args.method
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
@@ -815,7 +825,7 @@ def main():
 
     if args.single:
         print(f"\n{'=' * 50}")
-        if args.adaptive:
+        if train_adaptive:
             print("Training single adaptive model")
         else:
             print(f"Training single model for T={args.T}")
@@ -824,26 +834,26 @@ def main():
             seed=0,
             epochs=args.epochs,
             device=device,
-            model_save_dir=adaptive_dir if args.adaptive else fixed_dir,
+            model_save_dir=adaptive_dir if train_adaptive else fixed_dir,
             loss_save_dir=loss_dir,
             dt=args.dt,
             T=(
                 args.max_T
-                if args.adaptive and effective_adaptive_method == LINEAR_SCHEDULER
+                if train_adaptive
+                and effective_adaptive_method
+                in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
                 else None
-                if args.adaptive
+                if train_adaptive
                 else args.T
             ),
-            adaptive=args.adaptive,
+            adaptive=train_adaptive,
             adaptive_method=effective_adaptive_method,
             batch_size=args.batch_size,
             debug=args.debug,
-            early_stopping=args.early_stopping,
-            cross_validation_early_stopping=args.cross_validation_early_stopping,
             system_name=args.system,
         )
     else:
-        if args.fixed or not args.adaptive:
+        if train_fixed:
             train_fixed_models(
                 train_Ts,
                 args.n_seeds,
@@ -857,7 +867,7 @@ def main():
                 debug=args.debug,
                 system_name=args.system,
             )
-        if args.adaptive or not args.fixed:
+        if train_adaptive:
             wall_time_budget = None
             budget_metadata = None
             if args.budget_based and effective_adaptive_method == LYAPUNOV_BASED:
@@ -882,8 +892,6 @@ def main():
                 max_T=args.max_T,
                 append=append,
                 debug=args.debug,
-                early_stopping=args.early_stopping,
-                cross_validation_early_stopping=args.cross_validation_early_stopping,
                 max_wall_time_seconds=wall_time_budget,
                 budget_metadata=budget_metadata,
                 system_name=args.system,

@@ -18,7 +18,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           fixed, early-stopping, cross-validation, or lyapunov-based"
+  echo "  --method METHOD           fixed, lyapunov-based, weighted-loss, linear-scheduler, early-stopping, or cross-validation"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -62,17 +62,23 @@ case "$METHOD" in
     method_args=(--fixed)
     ;;
   early-stopping)
-    method_args=(--adaptive --adaptive-method linear-scheduler --early-stopping)
+    method_args=(--method early-stopping)
     ;;
   cross-validation)
-    method_args=(--adaptive --adaptive-method linear-scheduler --cross-validation-early-stopping)
+    method_args=(--method cross-validation)
+    ;;
+  linear-scheduler)
+    method_args=(--method linear-scheduler)
+    ;;
+  weighted-loss)
+    method_args=(--method weighted-loss)
     ;;
   lyapunov-based)
     if [[ -z "$FIXED_DIR" ]]; then
       echo "--fixed-dir is required for lyapunov-based" >&2
       exit 1
     fi
-    method_args=(--adaptive --adaptive-method lyapunov-based)
+    method_args=(--method lyapunov-based)
     ;;
   *)
     echo "Unknown method: $METHOD" >&2
