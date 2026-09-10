@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import json
-import re
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
@@ -16,12 +15,31 @@ LAST_RUN_FILE = "last_run.txt"
 
 
 def get_dt_from_model_dir(model_dir: Path):
-    for path in (model_dir, *model_dir.parents):
-        match = re.search(r"dt_(\d+)(?:_|$)", path.name)
-        if match:
-            digits = match.group(1)
-            return float(digits) / (10 ** len(digits))
-    raise ValueError(f"Could not infer dt from model directory: {model_dir}")
+    model_dir = Path(model_dir)
+    checkpoint_paths = []
+    for directory in (model_dir, model_dir / "fixed", model_dir / "adaptive"):
+        checkpoint_paths.extend(sorted(directory.glob("*.pt")))
+
+    metadata_dts = []
+    for checkpoint_path in checkpoint_paths:
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location="cpu",
+            weights_only=False,
+        )
+        dt = checkpoint.get("metadata", {}).get("dt")
+        if dt is not None:
+            metadata_dts.append(float(dt))
+
+    if metadata_dts:
+        unique_dts = set(metadata_dts)
+        if len(unique_dts) > 1:
+            raise ValueError(
+                f"Conflicting dt values in model metadata for {model_dir}: "
+                f"{sorted(unique_dts)}"
+            )
+        return metadata_dts[0]
+    return None
 
 
 def get_last_run(save_dir):

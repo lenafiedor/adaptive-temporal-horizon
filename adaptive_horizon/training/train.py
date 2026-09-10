@@ -189,9 +189,7 @@ def train(
 
     epoch = 0
     final_T = None
-    while epoch < epochs or (
-        adaptive and adaptive_method == EARLY_STOPPING and grace_active
-    ):
+    while epoch < epochs:
         model.train()
         epoch_loss = 0.0
         if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
@@ -355,11 +353,7 @@ def train(
             if early_stop_wait >= config.LINEAR_SCHEDULER_EARLY_STOP_PATIENCE:
                 grace_active = True
                 grace_T = current_T
-                print(
-                    f"\tEarly stopping triggered at epoch {epoch + 1}, "
-                    f"T={current_T}; training {config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS} "
-                    "additional epochs at the same T"
-                )
+                print(f"\tEarly stopping triggered at epoch {epoch + 1}")
 
         if (
             adaptive
