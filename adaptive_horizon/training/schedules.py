@@ -1,13 +1,13 @@
 import adaptive_horizon.config as config
 
 
-def curriculum_horizon_with_threshold(
+def linear_scheduler_with_threshold(
     epoch: int,
     val_losses: list[float],
     current_T: int,
     T_max: int = config.MAX_TRAIN_T,
-    loss_threshold: float = config.CURRICULUM_LOSS_THRESHOLD,
-    update_frequency: int = config.CURRICULUM_UPDATE_FREQUENCY,
+    loss_threshold: float = config.LINEAR_SCHEDULER_LOSS_THRESHOLD,
+    update_frequency: int = config.LINEAR_SCHEDULER_UPDATE_FREQUENCY,
 ) -> tuple[int, float | None]:
     if update_frequency <= 0:
         raise ValueError("update_frequency must be positive")
@@ -26,13 +26,13 @@ def curriculum_horizon_with_threshold(
     return current_T, mean_val_loss
 
 
-def curriculum_horizon(
+def linear_scheduler(
     epoch: int,
     total_epochs: int,
     T_max: int = config.MAX_TRAIN_T,
     T_min: int = 1,
 ) -> int:
-    """Compute a deterministic linear curriculum horizon.
+    """Compute a deterministic linear scheduler horizon.
 
     Each horizon receives the same number of epochs when total_epochs is
     divisible by the number of horizons. Any remainder is assigned to T_max.

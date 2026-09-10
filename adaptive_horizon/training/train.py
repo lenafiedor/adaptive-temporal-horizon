@@ -25,7 +25,7 @@ from adaptive_horizon.visualization.plotting import (
 from adaptive_horizon.training.methods import (
     LYAPUNOV_BASED,
     ADAPTIVE_METHOD_CHOICES,
-    CURRICULUM_HORIZON,
+    LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.utils import (
@@ -38,8 +38,8 @@ from adaptive_horizon.training.utils import (
     save_model,
 )
 from adaptive_horizon.training.schedules import (
-    curriculum_horizon,
-    curriculum_horizon_with_threshold,
+    linear_scheduler,
+    linear_scheduler_with_threshold,
 )
 from adaptive_horizon.training.setup import create_model_and_loaders
 
@@ -59,10 +59,10 @@ def clone_model_state_dict(model):
     }
 
 
-def curriculum_boundary_reached(epoch, total_epochs, current_T, T_max):
+def linear_scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
     if epoch + 1 >= total_epochs:
         return True
-    return curriculum_horizon(epoch + 1, total_epochs, T_max) > current_T
+    return linear_scheduler(epoch + 1, total_epochs, T_max) > current_T
 
 
 def cross_validation_median_loss(model, val_loader, val_Ts, device):
@@ -125,19 +125,19 @@ def train(
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
     use_validation_early_stopping = (
-        early_stopping and adaptive and adaptive_method == CURRICULUM_HORIZON
+        early_stopping and adaptive and adaptive_method == LINEAR_SCHEDULER
     )
     use_cross_validation_early_stopping = (
         cross_validation_early_stopping
         and adaptive
-        and adaptive_method == CURRICULUM_HORIZON
+        and adaptive_method == LINEAR_SCHEDULER
     )
 
     if use_validation_early_stopping:
         early_stop_best_loss = None
         early_stop_wait = 0
         stopped_early = False
-        early_stop_min_T = min(T, config.CURRICULUM_EARLY_STOP_MIN_T)
+        early_stop_min_T = min(T, config.LINEAR_SCHEDULER_EARLY_STOP_MIN_T)
         grace_active = False
         grace_T = None
         grace_epochs_ran = 0
@@ -145,10 +145,10 @@ def train(
             metadata["early_stopping"] = {
                 "enabled": True,
                 "metric": "validation_loss",
-                "patience": config.CURRICULUM_EARLY_STOP_PATIENCE,
-                "min_delta": config.CURRICULUM_EARLY_STOP_MIN_DELTA,
+                "patience": config.LINEAR_SCHEDULER_EARLY_STOP_PATIENCE,
+                "min_delta": config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA,
                 "min_T": early_stop_min_T,
-                "grace_epochs": config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS,
+                "grace_epochs": config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS,
             }
 
     if use_cross_validation_early_stopping:
@@ -196,7 +196,7 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10]
 
-    curriculum_T = 1
+    linear_scheduler_T = 1
 
     epoch = 0
     final_T = None
@@ -206,15 +206,15 @@ def train(
         if use_validation_early_stopping and grace_active:
             current_T = grace_T
         elif use_cross_validation_early_stopping:
-            current_T = curriculum_horizon(epoch, epochs, T)
-            if current_T != curriculum_T:
+            current_T = linear_scheduler(epoch, epochs, T)
+            if current_T != linear_scheduler_T:
                 print(
                     f"\tEpoch {epoch + 1}/{epochs}, updating T: "
-                    f"{curriculum_T} -> {current_T}"
+                    f"{linear_scheduler_T} -> {current_T}"
                 )
-                curriculum_T = current_T
-        elif adaptive and adaptive_method == CURRICULUM_HORIZON:
-            current_T = curriculum_T
+                linear_scheduler_T = current_T
+        elif adaptive and adaptive_method == LINEAR_SCHEDULER:
+            current_T = linear_scheduler_T
         else:
             current_T = T
         final_T = current_T
@@ -241,7 +241,7 @@ def train(
                         lambda_scores,
                         dt=dt,
                     )
-                elif adaptive_method == CURRICULUM_HORIZON:
+                elif adaptive_method == LINEAR_SCHEDULER:
                     loss = batch_loss(
                         model,
                         inputs,
@@ -272,11 +272,11 @@ def train(
             val_loss = lle_weighted_validation_loss(
                 model, val_loader, dt=dt, device=device
             )
-        elif adaptive_method == CURRICULUM_HORIZON:
+        elif adaptive_method == LINEAR_SCHEDULER:
             val_loss = validation_loss(model, val_loader, current_T, device)
         val_losses.append(val_loss)
 
-        if use_cross_validation_early_stopping and curriculum_boundary_reached(
+        if use_cross_validation_early_stopping and linear_scheduler_boundary_reached(
             epoch, epochs, current_T, T
         ):
             cv_median, cv_losses_by_T = cross_validation_median_loss(
@@ -320,12 +320,12 @@ def train(
             improvement = (
                 early_stop_best_loss is None
                 or val_loss
-                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+                < early_stop_best_loss - config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA
             )
             if improvement:
                 early_stop_best_loss = float(val_loss)
             grace_epochs_ran += 1
-            if grace_epochs_ran >= config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS:
+            if grace_epochs_ran >= config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS:
                 stopped_early = True
                 print(
                     f"\tEarly stopping grace completed after {grace_epochs_ran} "
@@ -336,47 +336,47 @@ def train(
             if (
                 early_stop_best_loss is None
                 or val_loss
-                < early_stop_best_loss - config.CURRICULUM_EARLY_STOP_MIN_DELTA
+                < early_stop_best_loss - config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA
             ):
                 early_stop_best_loss = float(val_loss)
                 early_stop_wait = 0
             else:
                 early_stop_wait += 1
 
-            if early_stop_wait >= config.CURRICULUM_EARLY_STOP_PATIENCE:
+            if early_stop_wait >= config.LINEAR_SCHEDULER_EARLY_STOP_PATIENCE:
                 grace_active = True
                 grace_T = current_T
                 print(
                     f"\tEarly stopping triggered at epoch {epoch + 1}, "
-                    f"T={current_T}; training {config.CURRICULUM_EARLY_STOP_GRACE_EPOCHS} "
+                    f"T={current_T}; training {config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS} "
                     "additional epochs at the same T"
                 )
 
         if (
             adaptive
-            and adaptive_method == CURRICULUM_HORIZON
+            and adaptive_method == LINEAR_SCHEDULER
             and not use_cross_validation_early_stopping
             and (not use_validation_early_stopping or not grace_active)
         ):
-            next_T, mean_val_loss = curriculum_horizon_with_threshold(
+            next_T, mean_val_loss = linear_scheduler_with_threshold(
                 epoch,
                 [float(loss) for loss in val_losses],
-                curriculum_T,
+                linear_scheduler_T,
                 T,
             )
-            if next_T != curriculum_T:
+            if next_T != linear_scheduler_T:
                 print(
                     f"\tEpoch {epoch + 1}/{epochs}, increasing T={next_T}/{T} "
                     f"(mean val loss={mean_val_loss:.6f})"
                 )
-                curriculum_T = next_T
+                linear_scheduler_T = next_T
 
         if (epoch + 1) % 10 == 0:
             message = (
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            if adaptive and adaptive_method in (CURRICULUM_HORIZON,):
+            if adaptive and adaptive_method in (LINEAR_SCHEDULER,):
                 message += f", T={current_T}/{T}"
             print(message)
             if debug:
@@ -461,7 +461,7 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            T if adaptive_method == CURRICULUM_HORIZON else None if adaptive else T,
+            T if adaptive_method == LINEAR_SCHEDULER else None if adaptive else T,
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -475,7 +475,7 @@ def train_single_model(
         if budget_metadata is not None:
             metadata["budget"] = budget_metadata
         if adaptive_method in (
-            CURRICULUM_HORIZON,
+            LINEAR_SCHEDULER,
             WEIGHTED_LOSS,
         ):
             T = metadata["adaptive"]["T_max"]
@@ -664,7 +664,7 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=max_T if adaptive_method == CURRICULUM_HORIZON else None,
+            T=max_T if adaptive_method == LINEAR_SCHEDULER else None,
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -768,12 +768,12 @@ def main():
     stopping_group.add_argument(
         "--early-stopping",
         action="store_true",
-        help="Early stop curriculum-horizon training using validation-loss patience",
+        help="Early stop linear-scheduler training using validation-loss patience",
     )
     stopping_group.add_argument(
         "--cross-validation-early-stopping",
         action="store_true",
-        help="Early stop a linear curriculum using median loss across validation horizons",
+        help="Early stop a linear scheduler using median loss across validation horizons",
     )
     parser.add_argument(
         "--output-dir",
@@ -790,7 +790,7 @@ def main():
     args = parser.parse_args()
     train_Ts = get_train_Ts(args.max_T)
     system = get_system(args.system)
-    effective_adaptive_method = args.adaptive_method or CURRICULUM_HORIZON
+    effective_adaptive_method = args.adaptive_method or LINEAR_SCHEDULER
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
@@ -829,7 +829,7 @@ def main():
             dt=args.dt,
             T=(
                 args.max_T
-                if args.adaptive and effective_adaptive_method == CURRICULUM_HORIZON
+                if args.adaptive and effective_adaptive_method == LINEAR_SCHEDULER
                 else None
                 if args.adaptive
                 else args.T

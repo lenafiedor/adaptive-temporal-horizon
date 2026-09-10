@@ -13,7 +13,7 @@ from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     LYAPUNOV_BASED,
-    CURRICULUM_HORIZON,
+    LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.utils import resolve_burn_in_steps
@@ -151,7 +151,7 @@ def create_model_and_loaders(
                 debug=debug,
             )
             collate_function = collate_fn_weighted_loss
-        elif adaptive_method == CURRICULUM_HORIZON:
+        elif adaptive_method == LINEAR_SCHEDULER:
             if T is None:
                 T = time_to_steps(config.DEFAULT_HORIZON, dt)
             train_dataset = TrajectoryDataset(
@@ -183,7 +183,7 @@ def create_model_and_loaders(
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = train_dataset.T_max
             metadata["adaptive"]["ftle_window"] = ftle_window
-        elif adaptive_method == CURRICULUM_HORIZON:
+        elif adaptive_method == LINEAR_SCHEDULER:
             metadata["adaptive"].update(
                 {
                     "T_max": T,

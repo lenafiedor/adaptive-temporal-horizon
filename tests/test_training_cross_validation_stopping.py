@@ -1,10 +1,10 @@
 from adaptive_horizon.training import train as train_module
 
 
-def test_curriculum_boundary_reached_for_linear_schedule():
-    assert not train_module.curriculum_boundary_reached(8, 20, 1, 2)
-    assert train_module.curriculum_boundary_reached(9, 20, 1, 2)
-    assert train_module.curriculum_boundary_reached(19, 20, 2, 2)
+def test_boundary_reached_for_linear_schedule():
+    assert not train_module.linear_scheduler_boundary_reached(8, 20, 1, 2)
+    assert train_module.linear_scheduler_boundary_reached(9, 20, 1, 2)
+    assert train_module.linear_scheduler_boundary_reached(19, 20, 2, 2)
 
 
 def test_cross_validation_median_loss(monkeypatch):

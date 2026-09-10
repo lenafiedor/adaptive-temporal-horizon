@@ -62,10 +62,10 @@ case "$METHOD" in
     method_args=(--fixed)
     ;;
   early-stopping)
-    method_args=(--adaptive --adaptive-method curriculum-horizon --early-stopping)
+    method_args=(--adaptive --adaptive-method linear-scheduler --early-stopping)
     ;;
   cross-validation)
-    method_args=(--adaptive --adaptive-method curriculum-horizon --cross-validation-early-stopping)
+    method_args=(--adaptive --adaptive-method linear-scheduler --cross-validation-early-stopping)
     ;;
   lyapunov-based)
     if [[ -z "$FIXED_DIR" ]]; then

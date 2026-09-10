@@ -56,30 +56,30 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 
 **Args:**
 
-| Name                                | Description                                                           | Values                                                      | Default value        |
-|-------------------------------------|-----------------------------------------------------------------------|-------------------------------------------------------------|----------------------|
-| `--epochs` `-e`                     | Number of training epochs                                             | int                                                         | `config.EPOCHS`      |
-| `--single`                          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                               | false                |
-| `-T`                                | Training horizon for fixed `--single` mode                            | int                                                         | 1                    |
-| `--fixed`, `-f`                     | Train only fixed-horizon models                                       | true \| false                                               | false                |
-| `--adaptive`, `-a`                  | Train only adaptive models                                            | true \| false                                               | false                |
-| `--adaptive-method`                 | Adaptive training method                                              | `lyapunov-based` \| `weighted-loss` \| `curriculum-horizon` | see notes            |
-| `--fixed-dir`                       | Fixed model directory used for budget wall-clock metadata             | path                                                        | None                 |
-| `--max-T`                           | Maximum horizon used in aggregate training                            | int                                                         | `config.MAX_TRAIN_T` |
-| `--budget-based`                    | Train fixed and adaptive models under one budget                      | true \| false                                               | false                |
-| `--epochs-per-T`                    | Budget mode epochs for each fixed horizon                             | int                                                         | 20                   |
-| `--n-seeds` `-s`                    | Number of seeds for aggregate training                                | int                                                         | `config.NUM_SEEDS`   |
-| `--dt`                              | Time step for the system simulation                                   | float                                                       | `config.DT`          |
-| `--system`                          | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                         | `config.SYSTEM`      |
-| `--batch-size`                      | Batch size for training and validation loaders                        | int                                                         | `config.BATCH_SIZE`  |
-| `--early-stopping`                  | Enable validation-loss patience for curriculum training               | true \| false                                               | false                |
-| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping                    | true \| false                                               | false                |
-| `--output-dir`                      | Directory to save models to; existing directories are reused          | path                                                        | None                 |
-| `--debug`                           | Save extra loss and gradient diagnostics                              | true \| false                                               | false                |
+| Name                                | Description                                                           | Values                                                    | Default value        |
+|-------------------------------------|-----------------------------------------------------------------------|-----------------------------------------------------------|----------------------|
+| `--epochs` `-e`                     | Number of training epochs                                             | int                                                       | `config.EPOCHS`      |
+| `--single`                          | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                             | false                |
+| `-T`                                | Training horizon for fixed `--single` mode                            | int                                                       | 1                    |
+| `--fixed`, `-f`                     | Train only fixed-horizon models                                       | true \| false                                             | false                |
+| `--adaptive`, `-a`                  | Train only adaptive models                                            | true \| false                                             | false                |
+| `--adaptive-method`                 | Adaptive training method                                              | `lyapunov-based` \| `weighted-loss` \| `linear-scheduler` | see notes            |
+| `--fixed-dir`                       | Fixed model directory used for budget wall-clock metadata             | path                                                      | None                 |
+| `--max-T`                           | Maximum horizon used in aggregate training                            | int                                                       | `config.MAX_TRAIN_T` |
+| `--budget-based`                    | Train fixed and adaptive models under one budget                      | true \| false                                             | false                |
+| `--epochs-per-T`                    | Budget mode epochs for each fixed horizon                             | int                                                       | 20                   |
+| `--n-seeds` `-s`                    | Number of seeds for aggregate training                                | int                                                       | `config.NUM_SEEDS`   |
+| `--dt`                              | Time step for the system simulation                                   | float                                                     | `config.DT`          |
+| `--system`                          | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                       | `config.SYSTEM`      |
+| `--batch-size`                      | Batch size for training and validation loaders                        | int                                                       | `config.BATCH_SIZE`  |
+| `--early-stopping`                  | Enable validation-loss patience for linear-scheduler training         | true \| false                                             | false                |
+| `--cross-validation-early-stopping` | Enable historical median cross-validation stopping                    | true \| false                                             | false                |
+| `--output-dir`                      | Directory to save models to; existing directories are reused          | path                                                      | None                 |
+| `--debug`                           | Save extra loss and gradient diagnostics                              | true \| false                                             | false                |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
-- `--adaptive-method` defaults to `lyapunov-based` outside budget mode and `curriculum-horizon` in budget mode.
+- `--adaptive-method` defaults to `lyapunov-based` outside budget mode and `linear-scheduler` in budget mode.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
 
