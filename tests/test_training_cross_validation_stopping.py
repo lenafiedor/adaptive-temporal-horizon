@@ -1,7 +1,4 @@
-import pytest
-
 from adaptive_horizon.training import train as train_module
-from adaptive_horizon.training.methods import CURRICULUM_HORIZON
 
 
 def test_curriculum_boundary_reached_for_linear_schedule():

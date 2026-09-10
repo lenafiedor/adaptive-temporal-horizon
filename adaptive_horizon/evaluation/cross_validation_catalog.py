@@ -258,9 +258,7 @@ def missing_adaptive_paths(
             continue
         seed = info[1]
         missing_val_Ts = [
-            val_T
-            for val_T in val_Ts
-            if ("adaptive", seed, val_T) not in cached_records
+            val_T for val_T in val_Ts if ("adaptive", seed, val_T) not in cached_records
         ]
         if missing_val_Ts:
             missing[path] = missing_val_Ts

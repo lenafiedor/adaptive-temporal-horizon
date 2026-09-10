@@ -78,9 +78,7 @@ def load_method_results(results_dir: Path):
 def median_for_scope(summary, eval_scope: EvalScope):
     if eval_scope.mode == "overall":
         return float(summary["overall"]["median"])
-    return float(
-        summary_for_eval_T(summary["by_eval_T"], eval_scope.eval_T)["median"]
-    )
+    return float(summary_for_eval_T(summary["by_eval_T"], eval_scope.eval_T)["median"])
 
 
 def adaptive_median(result: MethodResult, eval_scope: EvalScope):
@@ -88,9 +86,7 @@ def adaptive_median(result: MethodResult, eval_scope: EvalScope):
     if summary is None:
         return None
     if eval_scope.mode == "overall":
-        metadata_value = result.payload.get("metadata", {}).get(
-            "adaptive_median_MSE"
-        )
+        metadata_value = result.payload.get("metadata", {}).get("adaptive_median_MSE")
         if metadata_value is not None:
             return float(metadata_value)
     return median_for_scope(summary, eval_scope)
@@ -103,15 +99,12 @@ def best_fixed_median(result: MethodResult, eval_scope: EvalScope):
         return None
 
     if eval_scope.mode == "overall":
-        metadata_value = result.payload.get("metadata", {}).get(
-            "best_fixed_median_MSE"
-        )
+        metadata_value = result.payload.get("metadata", {}).get("best_fixed_median_MSE")
         if metadata_value is not None:
             return float(metadata_value)
 
     return min(
-        median_for_scope(fixed_summary, eval_scope)
-        for fixed_summary in fixed_summaries
+        median_for_scope(fixed_summary, eval_scope) for fixed_summary in fixed_summaries
     )
 
 
@@ -155,9 +148,7 @@ def plot_aggregate(results, eval_scope: EvalScope, output_path: Path):
         if result in fixed_only_results
     ] or fixed_values
     baseline = baseline_candidates[0][1]
-    if not all(
-        np.isclose(baseline, value) for _, value in baseline_candidates[1:]
-    ):
+    if not all(np.isclose(baseline, value) for _, value in baseline_candidates[1:]):
         sources = ", ".join(
             f"{result.directory.name}={value:g}"
             for result, value in baseline_candidates
@@ -193,11 +184,7 @@ def plot_aggregate(results, eval_scope: EvalScope, output_path: Path):
 
 def default_output_path(results_dir: Path, eval_scope: EvalScope):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    scope_part = (
-        "overall"
-        if eval_scope.mode == "overall"
-        else f"T{eval_scope.eval_T}"
-    )
+    scope_part = "overall" if eval_scope.mode == "overall" else f"T{eval_scope.eval_T}"
     return results_dir / f"aggregate_mse_{scope_part}_{timestamp}.png"
 
 
