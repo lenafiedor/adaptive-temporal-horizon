@@ -1,103 +1,76 @@
-from torch.utils.data import DataLoader
 import argparse
 import json
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+from torch.utils.data import DataLoader
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
+from adaptive_horizon.evaluation.utils import (
+    get_checkpoint_normalization_stats,
+    get_dt_from_model_dir,
+    load_model,
+    save_cross_validation_results,
+    summarize_cross_validation,
+)
 from adaptive_horizon.training.loss import validation_loss
 from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_mse
-from adaptive_horizon.evaluation.utils import (
-    load_model,
-    save_cross_validation_results,
-    get_last_run,
-    summarize_cross_validation,
-    get_dt_from_model_dir,
-    get_checkpoint_normalization_stats,
-)
-
-
-def get_T_values(model_dir: Path) -> list[int]:
-    """Get unique train_T values from model files matching mlp_T{T}*.pt"""
-    model_files = list(model_dir.glob("mlp_T*.pt"))
-    train_Ts: set[int] = set()
-    for f in model_files:
-        info = model_info(f)
-        if info is not None and info[0] is not None:
-            train_Ts.add(info[0])
-    return sorted(train_Ts)
 
 
 def get_fixed_paths(
-    train_Ts: list[int], model_dir: Path = config.MODEL_DIR
+    train_Ts: list[int] | None = None,
+    model_dir: Path = config.MODEL_DIR,
 ) -> dict[int, list[Path]]:
-    """Get all model paths for each train_T."""
-    model_paths: dict[int, list[Path]] = {T: [] for T in train_Ts}
-    for f in sorted(model_dir.glob("mlp_T*.pt")):
-        info = model_info(f)
+    model_paths: dict[int, list[Path]] = {}
+    for model_path in sorted(model_dir.glob("mlp_T*.pt")):
+        info = model_info(model_path)
         if info is None or info[0] is None:
             continue
-        T, _ = info
-        if T in model_paths:
-            model_paths[T].append(f)
-    return model_paths
+        train_T = info[0]
+        if train_Ts is None or train_T in train_Ts:
+            model_paths.setdefault(train_T, []).append(model_path)
+
+    if train_Ts is None:
+        return dict(sorted(model_paths.items()))
+    return {train_T: model_paths.get(train_T, []) for train_T in train_Ts}
 
 
 def get_adaptive_paths(model_dir: Path = config.MODEL_DIR) -> list[Path]:
-    """Get all adaptive model paths."""
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
 
 def get_adaptive_method(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    adaptive_metadata = metadata.get("adaptive", {})
-    return adaptive_metadata.get("method")
+    return checkpoint.get("metadata", {}).get("adaptive", {}).get("method")
 
 
 def get_training_wall_time(checkpoint):
     metadata = checkpoint.get("metadata", {})
-    if "wall_time_seconds" not in metadata:
-        return {"wall_time_seconds": float(metadata["train_wall_clock_seconds"])}
-    return {"wall_time_seconds": float(metadata["wall_time_seconds"])}
-
-
-def filter_adaptive_paths(adaptive_paths, adaptive_method=None):
-    if adaptive_method is None:
-        return adaptive_paths
-
-    filtered_paths = []
-    for model_path in adaptive_paths:
-        _, checkpoint = load_model(model_path)
-        if get_adaptive_method(checkpoint) == adaptive_method:
-            filtered_paths.append(model_path)
-    return filtered_paths
+    key = "wall_time_seconds"
+    if key not in metadata:
+        key = "train_wall_clock_seconds"
+    return {"wall_time_seconds": float(metadata[key])}
 
 
 def make_eval_loader(
     max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM
 ):
-    burn_in_steps = resolve_burn_in_steps(dt)
-    split_gap = max(
-        config.MAX_TRAIN_T,
-        config.MAX_EVAL_T,
-        max_val_T,
-    )
-    eval_dataset = TrajectoryDataset(
+    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, max_val_T)
+    dataset = TrajectoryDataset(
         T=max_val_T,
         dt=dt,
         system=system_name,
         normalize=True,
         seed=config.RANDOM_SEED,
-        burn_in=burn_in_steps,
+        burn_in=resolve_burn_in_steps(dt),
         split="val",
         split_gap=split_gap,
         normalization_stats=normalization_stats,
     )
     return DataLoader(
-        eval_dataset,
+        dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=False,
         collate_fn=collate_fn,
@@ -107,9 +80,10 @@ def make_eval_loader(
 def eval_loader_cache_key(normalization_stats):
     if normalization_stats is None:
         return None
-    mean = tuple(float(value) for value in normalization_stats["mean"])
-    std = tuple(float(value) for value in normalization_stats["std"])
-    return mean, std
+    return tuple(
+        tuple(float(value) for value in normalization_stats[name])
+        for name in ("mean", "std")
+    )
 
 
 def cross_validate_models(
@@ -119,29 +93,9 @@ def cross_validate_models(
     device=config.DEVICE,
     val_Ts: list[int] | None = None,
     system_name: str = config.DEFAULT_SYSTEM,
-    fixed_val_Ts: dict[int, dict[Path, list[int]]] | None = None,
-    adaptive_val_Ts: dict[Path, list[int]] | None = None,
 ):
-    """
-    Evaluate models across different validation horizons.
-
-    Args:
-        fixed_paths: dict of {train_T: [list of model paths]}
-        adaptive_paths: list of adaptive model paths
-        dt: time step for simulation
-        device: CPU or GPU
-        val_Ts: list of validation horizon values
-
-    Returns:
-        evaluation_records: list of per-model, per-validation-horizon MSE records.
-    """
-    train_Ts = list(fixed_paths.keys())
-    if val_Ts is None:
-        val_Ts = train_Ts
-    else:
-        val_Ts = list(val_Ts)
-    fixed_val_Ts = fixed_val_Ts or {}
-    adaptive_val_Ts = adaptive_val_Ts or {}
+    train_Ts = list(fixed_paths)
+    val_Ts = list(val_Ts) if val_Ts is not None else train_Ts
     eval_loaders = {}
 
     def get_eval_loader(checkpoint):
@@ -157,66 +111,41 @@ def cross_validate_models(
             )
         return eval_loaders[key]
 
+    def evaluate(model_path, model_type, train_T, model_val_Ts):
+        model, checkpoint = load_model(model_path)
+        model = model.to(device)
+        eval_loader = get_eval_loader(checkpoint)
+        records = []
+        for val_T in model_val_Ts:
+            record = {
+                "model_type": model_type,
+                "seed": checkpoint.get("seed"),
+                "train_T": train_T,
+                "val_T": val_T,
+                "mse": validation_loss(model, eval_loader, val_T, device),
+                **get_training_wall_time(checkpoint),
+            }
+            if model_type == "adaptive":
+                record["adaptive_method"] = get_adaptive_method(checkpoint)
+            records.append(record)
+        print(
+            f"  Model {model_path.name}: mean MSE = "
+            f"{np.mean([record['mse'] for record in records]):.6f}"
+        )
+        return records
+
     evaluation_records = []
-
-    for train_T in train_Ts:
-        model_paths = fixed_paths.get(train_T, [])
-        if model_paths:
-            print(f"\nEvaluating fixed models trained with T={train_T}")
-        for model_path in model_paths:
-            model_val_Ts = fixed_val_Ts.get(train_T, {}).get(model_path, val_Ts)
-            model, checkpoint = load_model(model_path)
-            model = model.to(device)
-            eval_loader = get_eval_loader(checkpoint)
-            seed = checkpoint.get("seed")
-            wall_time = get_training_wall_time(checkpoint)
-            model_records = []
-
-            for val_T in model_val_Ts:
-                mse = validation_loss(model, eval_loader, val_T, device)
-                record = {
-                    "model_type": "fixed",
-                    "seed": seed,
-                    "train_T": train_T,
-                    "val_T": val_T,
-                    "mse": mse,
-                    **wall_time,
-                }
-                evaluation_records.append(record)
-                model_records.append(record)
-            print(
-                f"  Model {model_path.name}: mean MSE = {np.mean([record['mse'] for record in model_records]):.6f}"
-            )
-
+    if any(fixed_paths.values()):
+        print("\nEvaluating fixed models")
+        for train_T in train_Ts:
+            for model_path in fixed_paths[train_T]:
+                evaluation_records.extend(
+                    evaluate(model_path, "fixed", train_T, val_Ts)
+                )
     if adaptive_paths:
         print("\nEvaluating adaptive models")
         for model_path in adaptive_paths:
-            model_val_Ts = adaptive_val_Ts.get(model_path, val_Ts)
-            model, checkpoint = load_model(model_path)
-            model = model.to(device)
-            eval_loader = get_eval_loader(checkpoint)
-            seed = checkpoint.get("seed")
-            method = get_adaptive_method(checkpoint)
-            wall_time = get_training_wall_time(checkpoint)
-            model_records = []
-
-            for val_T in model_val_Ts:
-                mse = validation_loss(model, eval_loader, val_T, device)
-                record = {
-                    "model_type": "adaptive",
-                    "adaptive_method": method,
-                    "seed": seed,
-                    "train_T": None,
-                    "val_T": val_T,
-                    "mse": mse,
-                    **wall_time,
-                }
-                evaluation_records.append(record)
-                model_records.append(record)
-            print(
-                f"  Model {model_path.name}: mean MSE = {np.mean([record['mse'] for record in model_records]):.6f}"
-            )
-
+            evaluation_records.extend(evaluate(model_path, "adaptive", None, val_Ts))
     return evaluation_records
 
 
@@ -226,13 +155,12 @@ def load_cross_validation_results(cached: Path):
         raise FileNotFoundError(
             f"Cached cross-validation results not found: {results_file}"
         )
-
-    with open(results_file, "r") as f:
-        return json.load(f)
+    with results_file.open("r") as file:
+        return json.load(file)
 
 
 def cross_validation(
-    model_dir=None,
+    model_dir,
     fixed_dir=None,
     output_dir=None,
     max_train_T=None,
@@ -240,81 +168,59 @@ def cross_validation(
     cached=None,
     device=config.DEVICE,
     metric="median",
-    system_name=config.DEFAULT_SYSTEM,
+    system=config.DEFAULT_SYSTEM,
 ):
-    model_dir = Path(model_dir) if model_dir is not None else None
-    fixed_dir = Path(fixed_dir) if fixed_dir is not None else None
-    output_dir = Path(output_dir) if output_dir is not None else None
+    model_dir = Path(model_dir)
     cached = Path(cached) if cached is not None else None
 
     if cached:
         payload = load_cross_validation_results(cached)
-        dt = float(payload["metadata"]["dt"])
-        output_dir = Path(
-            config.system_path(
-                config.EVAL_DIR, payload["metadata"].get("system", system_name)
-            )
+        metadata = payload["metadata"]
+        dt = float(metadata["dt"])
+        output_dir = output_dir or Path(
+            config.system_path(config.EVAL_DIR, metadata.get("system", system))
         )
         budget_based = cached.name.startswith("budget")
-
-        train_Ts = list(range(1, payload["metadata"]["max_train_T"] + 1))
+        train_Ts = list(range(1, metadata["max_train_T"] + 1))
         if max_train_T is not None:
-            train_Ts = [T for T in train_Ts if T <= max_train_T]
+            train_Ts = [train_T for train_T in train_Ts if train_T <= max_train_T]
         if max_eval_T is None or budget_based:
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
-
-        fixed_records = [
+        evaluation_records = [
             record
             for record in payload["evaluation_records"]
-            if record["model_type"] == "fixed"
-            and record["train_T"] in train_Ts
-            and record["val_T"] in val_Ts
+            if record["val_T"] in val_Ts
+            and (record["model_type"] == "adaptive" or record["train_T"] in train_Ts)
         ]
-        adaptive_records = [
-            record
-            for record in payload["evaluation_records"]
-            if record["model_type"] == "adaptive" and record["val_T"] in val_Ts
-        ]
-
-        adaptive_dir = payload["metadata"].get("adaptive_dir", "cached")
-        fixed_dir = payload["metadata"].get("fixed_dir", "cached")
-        evaluation_records = fixed_records + adaptive_records
-
+        adaptive_dir = metadata.get("adaptive_dir", "cached")
+        fixed_dir = metadata.get("fixed_dir", "cached")
     else:
-        output_dir = output_dir or Path(
-            config.system_path(config.EVAL_DIR, system_name)
-        )
-        model_dir = model_dir or get_last_run(
-            config.system_path(config.MODEL_DIR, system_name)
-        )
-        fixed_dir = fixed_dir or model_dir / "fixed"
+        output_dir = output_dir or Path(config.system_path(config.EVAL_DIR, system))
+        fixed_dir = Path(fixed_dir) if fixed_dir is not None else model_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
         budget_based = model_dir.name.startswith("budget")
-
-        train_Ts = get_T_values(fixed_dir)
+        fixed_paths = get_fixed_paths(model_dir=fixed_dir)
+        train_Ts = sorted(fixed_paths)
         if max_train_T is not None:
-            train_Ts = [T for T in train_Ts if T <= max_train_T]
+            train_Ts = [train_T for train_T in train_Ts if train_T <= max_train_T]
+            fixed_paths = {train_T: fixed_paths[train_T] for train_T in train_Ts}
         if max_eval_T is None or budget_based:
-            max_eval_T = int(config.MAX_EVAL_T)
+            max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
-
-        fixed_paths = get_fixed_paths(train_Ts, fixed_dir)
-        adaptive_paths = get_adaptive_paths(adaptive_dir)
-
         evaluation_records = cross_validate_models(
             fixed_paths,
-            adaptive_paths,
+            get_adaptive_paths(adaptive_dir),
             dt=dt,
             device=device,
             val_Ts=val_Ts,
-            system_name=system_name,
+            system_name=system,
         )
 
     effective_max_train_T = max_train_T if max_train_T is not None else max(train_Ts)
     summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
-    if not cached:
+    if cached is None:
         save_cross_validation_results(
             evaluation_records,
             summary,
@@ -324,73 +230,25 @@ def cross_validation(
             fixed_dir,
             output_dir,
             budget_based,
-            system_name,
+            system,
         )
     plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model-dir", type=Path, required=True)
+    parser.add_argument("--fixed-dir", type=Path, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--max-train-T", type=int, default=None)
+    parser.add_argument("--max-eval-T", type=int, default=config.MAX_EVAL_T)
+    parser.add_argument("--cached", type=Path, default=None)
+    parser.add_argument("--metric", choices=("mean", "median"), default="median")
     parser.add_argument(
-        "--model-dir",
-        type=str,
-        default=None,
-        help="Run directory containing fixed/ and adaptive/ subdirectories (default: reads from models/last_run.txt)",
-    )
-    parser.add_argument(
-        "--fixed-dir",
-        type=str,
-        default=None,
-        help="Fixed model directory (default: reads from model_dir)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Directory for cross-validation JSON and plots (default: configured evaluation directory)",
-    )
-    parser.add_argument(
-        "--max-train-T",
-        type=int,
-        default=None,
-        help="Maximum fixed-model training horizon to include (default: all fixed T values found)",
-    )
-    parser.add_argument(
-        "--max-eval-T",
-        type=int,
-        default=config.MAX_EVAL_T,
-        help="Maximum validation horizon for cross-validation",
-    )
-    parser.add_argument(
-        "--cached",
-        type=str,
-        default=None,
-        help="Reuse records from cached cross-validation results",
-    )
-    parser.add_argument(
-        "--metric",
-        choices=("mean", "median"),
-        default="median",
-        help="Statistic to plot with 95%% CI intervals",
-    )
-    parser.add_argument(
-        "--system",
-        choices=SYSTEM_CHOICES,
-        default=config.DEFAULT_SYSTEM,
-        help="Dynamical system to evaluate",
+        "--system", choices=SYSTEM_CHOICES, default=config.DEFAULT_SYSTEM
     )
     args = parser.parse_args()
-
-    cross_validation(
-        model_dir=args.model_dir,
-        fixed_dir=args.fixed_dir,
-        output_dir=args.output_dir,
-        max_train_T=args.max_train_T,
-        max_eval_T=args.max_eval_T,
-        cached=args.cached,
-        metric=args.metric,
-        system_name=args.system,
-    )
+    cross_validation(**vars(args))
 
 
 if __name__ == "__main__":
