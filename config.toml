@@ -13,7 +13,7 @@ batch_size = 64
 optimizer = "adam"
 learning_rate = 3e-4
 weight_decay = 1e-2
-num_seeds = 10
+num_seeds = 20
 
 [system]
 default_system = "lorenz"

@@ -78,7 +78,7 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
 - `--method` selects one training method; `early-stopping` and `cross-validation` both use the linear scheduler.
-- `--max-T` controls aggregate fixed horizons and the maximum horizon available to adaptive methods.
+- `--max-T` controls aggregate fixed horizons and the maximum horizon for scheduler-based adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
 
 ### Gradient Scaling
@@ -215,7 +215,7 @@ We argue that when the task of finding an optimal horizon $T$ is considered as a
 
 ### Training
 
-We train fixed and four types of adaptive models with mechanisms described below.
+We train fixed and five types of adaptive models with mechanisms described below.
 
 Run all budget horizons through the unified script by selecting one method:
 
@@ -227,4 +227,7 @@ Run all budget horizons through the unified script by selecting one method:
 ./scripts/train_budget_based.sh --method lyapunov-based \
   --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed \
   --output-dir experiments/lorenz/models/budget_based_dt_08_lb
+./scripts/train_budget_based.sh --method weighted-loss \
+  --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed \
+  --output-dir experiments/lorenz/models/budget_based_dt_08_wl
 ```

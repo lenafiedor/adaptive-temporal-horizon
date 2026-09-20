@@ -26,7 +26,7 @@ usage() {
   echo "  --epochs-per-T VALUE      Epoch budget per horizon (default: $EPOCHS_PER_T)"
   echo "  --n-seeds VALUE           Total desired seed count (default: $N_SEEDS)"
   echo "  --system NAME             Dynamical system (default: $SYSTEM)"
-  echo "  --fixed-dir DIR           Fixed models used for lyapunov-based wall-time budgets"
+  echo "  --fixed-dir DIR           Fixed models used for wall-time budgets"
   echo "  -h, --help                Show this help"
 }
 
@@ -70,15 +70,12 @@ case "$METHOD" in
   linear-scheduler)
     method_args=(--method linear-scheduler)
     ;;
-  weighted-loss)
-    method_args=(--method weighted-loss)
-    ;;
-  lyapunov-based)
+  lyapunov-based|weighted-loss)
     if [[ -z "$FIXED_DIR" ]]; then
-      echo "--fixed-dir is required for lyapunov-based" >&2
+      echo "--fixed-dir is required for $METHOD" >&2
       exit 1
     fi
-    method_args=(--method lyapunov-based)
+    method_args=(--method "$METHOD")
     ;;
   *)
     echo "Unknown method: $METHOD" >&2

@@ -746,7 +746,7 @@ def main():
         "--fixed-dir",
         type=Path,
         default=None,
-        help="Fixed model directory used to read wall-clock budgets for the Lyapunov-based method",
+        help="Fixed model directory used to read wall-clock budget",
     )
     parser.add_argument(
         "--max-T",
@@ -864,7 +864,10 @@ def main():
         if train_adaptive:
             wall_time_budget = None
             budget_metadata = None
-            if args.budget_based and effective_adaptive_method == LYAPUNOV_BASED:
+            if args.budget_based and effective_adaptive_method in (
+                LYAPUNOV_BASED,
+                WEIGHTED_LOSS,
+            ):
                 wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)
                 budget_metadata = {
                     "fixed_dir": str(budget_fixed_dir),

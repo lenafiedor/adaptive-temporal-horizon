@@ -69,7 +69,7 @@ def create_model_and_loaders(
         adaptive: Whether to use adaptive temporal horizon
         device: CPU or GPU
         dt: Time step for simulation
-        T: Temporal horizon (ignored if adaptive=True)
+        T: Fixed or maximum rollout horizon
         adaptive_method: Adaptive training method
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
@@ -92,7 +92,7 @@ def create_model_and_loaders(
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
     burn_in_steps = resolve_burn_in_steps(dt)
-    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window)
+    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, T or 0)
     metadata = {
         "dt": dt,
         "system": system.name,

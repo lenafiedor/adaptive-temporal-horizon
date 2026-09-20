@@ -169,7 +169,6 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         self,
         dt: float = config.DT,
         system: str = config.DEFAULT_SYSTEM,
-        T_max: Optional[int] = None,
         ftle_window: int = config.FTLE_WINDOW,
         normalize: bool = True,
         seed: int = config.RANDOM_SEED,
@@ -182,14 +181,9 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         split_gap: int = 0,
         trajectory_path: Optional[str] = None,
     ):
-        if T_max is None:
-            T_max = default_adaptive_T_max(dt)
-        if T_max < 1:
-            raise ValueError(f"T_max must be at least 1, got {T_max}")
-
         self.system = get_system(system)
         self.system_name = self.system.name
-        self.T_max = int(T_max)
+        self.T_max = default_adaptive_T_max(dt)
         self.dt = dt
         self.ftle_window = int(ftle_window)
         self.normalize = normalize

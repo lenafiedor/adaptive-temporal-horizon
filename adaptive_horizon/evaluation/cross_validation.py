@@ -232,7 +232,8 @@ def cross_validation(
             budget_based,
             system,
         )
-    plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
+    if effective_max_train_T == max_eval_T:
+        plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
 
 
 def main():
