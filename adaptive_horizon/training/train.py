@@ -147,12 +147,9 @@ def train(
         cv_cached_epoch = None
         cv_cached_median = None
         cv_history = []
-        cv_stopped_early = False
-        cv_stop_epoch = None
-        cv_stop_T = None
         if metadata is not None:
             metadata["early_stopping"] = {
-                "enabled": True,
+                "enabled": False,
                 "metric": "median_validation_loss_over_T",
                 "val_Ts": cv_val_Ts,
                 "max_T": T,
@@ -301,23 +298,11 @@ def train(
                 f"T={current_T}: median MSE={cv_median:.6f}"
             )
 
-            if cv_cached_median is not None and cv_cached_median < cv_median:
-                model.load_state_dict(cv_cached_state)
-                cv_stopped_early = True
-                cv_stop_epoch = epoch + 1
-                cv_stop_T = int(current_T)
-                final_T = cv_cached_T
-                print(
-                    f"\tCross-validation early stopping selected cached "
-                    f"T={cv_cached_T} from epoch {cv_cached_epoch} "
-                    f"(median MSE={cv_cached_median:.6f})"
-                )
-                break
-
-            cv_cached_state = clone_model_state_dict(model)
-            cv_cached_T = int(current_T)
-            cv_cached_epoch = epoch + 1
-            cv_cached_median = cv_median
+            if cv_cached_median is None or cv_median < cv_cached_median:
+                cv_cached_state = clone_model_state_dict(model)
+                cv_cached_T = int(current_T)
+                cv_cached_epoch = epoch + 1
+                cv_cached_median = cv_median
 
         if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
             improvement = (
@@ -403,6 +388,13 @@ def train(
             epoch += 1
             break
         epoch += 1
+    if adaptive and adaptive_method == CROSS_VALIDATION and cv_cached_state is not None:
+        model.load_state_dict(cv_cached_state)
+        final_T = cv_cached_T
+        print(
+            f"\tCross-validation selected T={cv_cached_T} from epoch "
+            f"{cv_cached_epoch} (median MSE={cv_cached_median:.6f})"
+        )
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
@@ -420,14 +412,14 @@ def train(
         elif adaptive and adaptive_method == CROSS_VALIDATION:
             metadata["early_stopping"].update(
                 {
-                    "stopped_early": cv_stopped_early,
+                    "stopped_early": False,
                     "selected_T": cv_cached_T,
                     "selected_epoch": cv_cached_epoch,
                     "selected_median": cv_cached_median,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
-                    "stop_epoch": cv_stop_epoch,
-                    "stop_T": cv_stop_T,
+                    "stop_epoch": None,
+                    "stop_T": None,
                     "history": cv_history,
                 }
             )

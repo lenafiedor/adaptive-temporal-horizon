@@ -198,6 +198,8 @@ def cross_validation(
     else:
         output_dir = output_dir or Path(config.system_path(config.EVAL_DIR, system))
         fixed_dir = Path(fixed_dir) if fixed_dir is not None else model_dir / "fixed"
+        if (fixed_dir / "fixed").is_dir():
+            fixed_dir = fixed_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
         budget_based = model_dir.name.startswith("budget")
