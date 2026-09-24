@@ -46,22 +46,7 @@ WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
 ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
 FTLE_WINDOW = _config["weighted-loss"]["ftle_window"]
 
-LINEAR_SCHEDULER_LOSS_THRESHOLD = _config["linear-scheduler"][
-    "linear_scheduler_loss_threshold"
-]
-LINEAR_SCHEDULER_UPDATE_FREQUENCY = _config["linear-scheduler"][
-    "linear_scheduler_update_frequency"
-]
-LINEAR_SCHEDULER_EARLY_STOP_PATIENCE = _config["linear-scheduler"][
-    "early_stop_patience"
-]
-LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA = _config["linear-scheduler"][
-    "early_stop_min_delta"
-]
-LINEAR_SCHEDULER_EARLY_STOP_MIN_T = _config["linear-scheduler"]["early_stop_min_T"]
-LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS = _config["linear-scheduler"][
-    "early_stop_grace_epochs"
-]
+EARLY_STOP_PATIENCE = _config["early-stopping"]["patience"]
 
 LAYER_WIDTH = _config["model"]["layer_width"]
 

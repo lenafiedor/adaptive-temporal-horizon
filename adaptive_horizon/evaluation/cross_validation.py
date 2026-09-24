@@ -211,7 +211,32 @@ def cross_validation(
         if max_eval_T is None or budget_based:
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
-        evaluation_records = cross_validate_models(
+        cached_fixed_records = []
+        if budget_based and max_train_T is not None and max_train_T > 1:
+            previous_results = sorted(
+                Path(output_dir).glob(
+                    f"budget_mse_results_*_T{max_train_T - 1}_*.json"
+                )
+            )
+            if previous_results:
+                previous_result = previous_results[-1]
+                payload = load_cross_validation_results(previous_result)
+                cached_fixed_records = [
+                    record
+                    for record in payload["evaluation_records"]
+                    if record["model_type"] == "fixed"
+                    and record["train_T"] in train_Ts
+                    and record["val_T"] in val_Ts
+                ]
+                fixed_paths = {
+                    max_train_T: fixed_paths.get(max_train_T, [])
+                }
+                print(
+                    f"Reusing {len(cached_fixed_records)} fixed-model evaluation "
+                    f"records from {previous_result}"
+                )
+
+        evaluation_records = cached_fixed_records + cross_validate_models(
             fixed_paths,
             get_adaptive_paths(adaptive_dir),
             dt=dt,

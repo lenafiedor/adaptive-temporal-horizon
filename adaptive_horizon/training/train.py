@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
-from statistics import median
 from time import perf_counter
 
 import adaptive_horizon.config as config
@@ -41,7 +40,8 @@ from adaptive_horizon.training.utils import (
 )
 from adaptive_horizon.training.schedules import (
     linear_scheduler,
-    linear_scheduler_with_threshold,
+    proportional_horizon_epochs,
+    proportional_scheduler,
 )
 from adaptive_horizon.training.setup import create_model_and_loaders
 
@@ -61,18 +61,10 @@ def clone_model_state_dict(model):
     }
 
 
-def linear_scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
+def proportional_scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
     if epoch + 1 >= total_epochs:
         return True
-    return linear_scheduler(epoch + 1, total_epochs, T_max) > current_T
-
-
-def cross_validation_median_loss(model, val_loader, val_Ts, device):
-    losses_by_T = {
-        int(val_T): float(validation_loss(model, val_loader, val_T, device))
-        for val_T in val_Ts
-    }
-    return float(median(losses_by_T.values())), losses_by_T
+    return proportional_scheduler(epoch + 1, total_epochs, T_max) > current_T
 
 
 def train(
@@ -123,36 +115,30 @@ def train(
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
     if adaptive and adaptive_method == EARLY_STOPPING:
+        early_stop_best_state = None
         early_stop_best_loss = None
+        early_stop_best_T = None
+        early_stop_best_epoch = None
         early_stop_wait = 0
         stopped_early = False
-        early_stop_min_T = min(T, config.LINEAR_SCHEDULER_EARLY_STOP_MIN_T)
-        grace_active = False
-        grace_T = None
-        grace_epochs_ran = 0
         if metadata is not None:
             metadata["early_stopping"] = {
                 "enabled": True,
-                "metric": "validation_loss",
-                "patience": config.LINEAR_SCHEDULER_EARLY_STOP_PATIENCE,
-                "min_delta": config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA,
-                "min_T": early_stop_min_T,
-                "grace_epochs": config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS,
+                "metric": "validation_loss_T1",
+                "patience": config.EARLY_STOP_PATIENCE,
+                "epochs_by_T": proportional_horizon_epochs(epochs, T),
             }
 
     if adaptive and adaptive_method == CROSS_VALIDATION:
-        cv_val_Ts = list(range(1, config.MAX_EVAL_T + 1))
-        cv_cached_state = None
-        cv_cached_T = None
-        cv_cached_epoch = None
-        cv_cached_median = None
-        cv_history = []
+        cached_state = None
+        cached_T = None
+        cached_epoch = None
+        cached_val_loss = None
         if metadata is not None:
             metadata["early_stopping"] = {
                 "enabled": False,
-                "metric": "median_validation_loss_over_T",
-                "val_Ts": cv_val_Ts,
                 "max_T": T,
+                "epochs_by_T": proportional_horizon_epochs(epochs, T),
             }
 
     if debug:
@@ -189,9 +175,16 @@ def train(
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
-            current_T = grace_T
-        elif adaptive and adaptive_method == CROSS_VALIDATION:
+        if adaptive and adaptive_method in (EARLY_STOPPING, CROSS_VALIDATION):
+            current_T = proportional_scheduler(epoch, epochs, T)
+            if current_T != linear_scheduler_T:
+                print(
+                    f"\tEpoch {epoch + 1}/{epochs}, updating T: "
+                    f"{linear_scheduler_T} -> {current_T}"
+                )
+                optimizer.state.clear()
+                linear_scheduler_T = current_T
+        elif adaptive and adaptive_method == LINEAR_SCHEDULER:
             current_T = linear_scheduler(epoch, epochs, T)
             if current_T != linear_scheduler_T:
                 print(
@@ -199,12 +192,6 @@ def train(
                     f"{linear_scheduler_T} -> {current_T}"
                 )
                 linear_scheduler_T = current_T
-        elif adaptive and adaptive_method in (
-            LINEAR_SCHEDULER,
-            EARLY_STOPPING,
-            CROSS_VALIDATION,
-        ):
-            current_T = linear_scheduler_T
         else:
             current_T = T
         final_T = current_T
@@ -277,99 +264,52 @@ def train(
         if (
             adaptive
             and adaptive_method == CROSS_VALIDATION
-            and linear_scheduler_boundary_reached(epoch, epochs, current_T, T)
+            and proportional_scheduler_boundary_reached(
+                epoch, epochs, current_T, T
+            )
         ):
-            cv_median, cv_losses_by_T = cross_validation_median_loss(
-                model,
-                val_loader,
-                cv_val_Ts,
-                device,
-            )
-            cv_history.append(
-                {
-                    "epoch": epoch + 1,
-                    "train_T": int(current_T),
-                    "median": cv_median,
-                    "by_val_T": cv_losses_by_T,
-                }
-            )
-            print(
-                f"\tCross-validation check at epoch {epoch + 1}, "
-                f"T={current_T}: median MSE={cv_median:.6f}"
-            )
+            val_loss = float(validation_loss(model, val_loader, 1, device))
 
-            if cv_cached_median is None or cv_median < cv_cached_median:
-                cv_cached_state = clone_model_state_dict(model)
-                cv_cached_T = int(current_T)
-                cv_cached_epoch = epoch + 1
-                cv_cached_median = cv_median
+            if cached_val_loss is None or val_loss < cached_val_loss:
+                cached_state = clone_model_state_dict(model)
+                cached_T = int(current_T)
+                cached_epoch = epoch + 1
+                cached_val_loss = val_loss
 
-        if adaptive and adaptive_method == EARLY_STOPPING and grace_active:
-            improvement = (
-                early_stop_best_loss is None
-                or val_loss
-                < early_stop_best_loss - config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA
-            )
-            if improvement:
-                early_stop_best_loss = float(val_loss)
-            grace_epochs_ran += 1
-            if grace_epochs_ran >= config.LINEAR_SCHEDULER_EARLY_STOP_GRACE_EPOCHS:
-                stopped_early = True
-                print(
-                    f"\tEarly stopping grace completed after {grace_epochs_ran} "
-                    f"epochs at T={current_T}"
-                )
-                break
-        elif (
+        if (
             adaptive
             and adaptive_method == EARLY_STOPPING
-            and current_T >= early_stop_min_T
+            and proportional_scheduler_boundary_reached(
+                epoch, epochs, current_T, T
+            )
         ):
+            early_stop_val_loss = float(validation_loss(model, val_loader, 1, device))
             if (
                 early_stop_best_loss is None
-                or val_loss
-                < early_stop_best_loss - config.LINEAR_SCHEDULER_EARLY_STOP_MIN_DELTA
+                or early_stop_val_loss < early_stop_best_loss
             ):
-                early_stop_best_loss = float(val_loss)
+                early_stop_best_state = clone_model_state_dict(model)
+                early_stop_best_loss = early_stop_val_loss
+                early_stop_best_T = int(current_T)
+                early_stop_best_epoch = epoch + 1
                 early_stop_wait = 0
             else:
                 early_stop_wait += 1
 
-            if early_stop_wait >= config.LINEAR_SCHEDULER_EARLY_STOP_PATIENCE:
-                grace_active = True
-                grace_T = current_T
-                print(f"\tEarly stopping triggered at epoch {epoch + 1}")
-
-        if (
-            adaptive
-            and adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING)
-            and (adaptive_method != EARLY_STOPPING or not grace_active)
-        ):
-            next_T, mean_val_loss = linear_scheduler_with_threshold(
-                epoch,
-                [float(loss) for loss in val_losses],
-                linear_scheduler_T,
-                T,
+            print(
+                f"\tEarly-stopping check at epoch {epoch + 1}, T={current_T}: "
+                f"T=1 MSE={early_stop_val_loss:.6f}"
             )
-            if next_T != linear_scheduler_T:
-                print(
-                    f"\tEpoch {epoch + 1}/{epochs}, increasing T={next_T}/{T} "
-                    f"(mean val loss={mean_val_loss:.6f})"
-                )
-                linear_scheduler_T = next_T
+            if early_stop_wait >= config.EARLY_STOP_PATIENCE:
+                stopped_early = True
+                print(f"\tEarly stopping at epoch {epoch + 1}")
+                break
 
         if (epoch + 1) % 10 == 0:
-            message = (
+            print(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            if adaptive and adaptive_method in (
-                LINEAR_SCHEDULER,
-                EARLY_STOPPING,
-                CROSS_VALIDATION,
-            ):
-                message += f", T={current_T}/{T}"
-            print(message)
             if debug:
                 gradients = compute_g_T(
                     model, debug_loader, debug_T_vals, device=device, per_batch=True
@@ -388,12 +328,23 @@ def train(
             epoch += 1
             break
         epoch += 1
-    if adaptive and adaptive_method == CROSS_VALIDATION and cv_cached_state is not None:
-        model.load_state_dict(cv_cached_state)
-        final_T = cv_cached_T
+    if (
+        adaptive
+        and adaptive_method == EARLY_STOPPING
+        and early_stop_best_state is not None
+    ):
+        model.load_state_dict(early_stop_best_state)
+        final_T = early_stop_best_T
         print(
-            f"\tCross-validation selected T={cv_cached_T} from epoch "
-            f"{cv_cached_epoch} (median MSE={cv_cached_median:.6f})"
+            f"\tEarly stopping selected T={early_stop_best_T} from epoch "
+            f"{early_stop_best_epoch} (T=1 MSE={early_stop_best_loss:.6f})"
+        )
+    if adaptive and adaptive_method == CROSS_VALIDATION and cached_state is not None:
+        model.load_state_dict(cached_state)
+        final_T = cached_T
+        print(
+            f"\tCross-validation selected T={cached_T} from epoch "
+            f"{cached_epoch} (MSE={cached_val_loss:.6f})"
         )
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
@@ -405,6 +356,8 @@ def train(
                 {
                     "stopped_early": stopped_early,
                     "best_val_loss": early_stop_best_loss,
+                    "selected_T": early_stop_best_T,
+                    "selected_epoch": early_stop_best_epoch,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
                 }
@@ -413,14 +366,13 @@ def train(
             metadata["early_stopping"].update(
                 {
                     "stopped_early": False,
-                    "selected_T": cv_cached_T,
-                    "selected_epoch": cv_cached_epoch,
-                    "selected_median": cv_cached_median,
+                    "selected_T": cached_T,
+                    "selected_epoch": cached_epoch,
+                    "selected_loss": cached_val_loss,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
                     "stop_epoch": None,
                     "stop_T": None,
-                    "history": cv_history,
                 }
             )
         if max_wall_time_seconds is not None:

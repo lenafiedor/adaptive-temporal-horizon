@@ -120,16 +120,16 @@ poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --system
 
 **Args:**
 
-| Name            | Description                                               | Values                              | Default value                   |
-|-----------------|-----------------------------------------------------------|-------------------------------------|---------------------------------|
-| `--model-dir`   | Model directory containing `fixed/` and `adaptive/`       | str                                 | required                        |
-| `--fixed-dir`   | Directory with fixed models                               | str                                 | Inferred from `--model-dir`     |
-| `--output-dir`  | Directory for cross-validation JSON and plots             | str                                 | Configured evaluation directory |
-| `--max-train-T` | Maximum fixed training horizon to include                 | int                                 | Max fixed T found               |
-| `--max-eval-T`  | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
-| `--cached`      | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
-| `--metric`      | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
-| `--system`      | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+| Name             | Description                                               | Values                              | Default value                   |
+|------------------|-----------------------------------------------------------|-------------------------------------|---------------------------------|
+| `--model-dir`    | Model directory containing `fixed/` and `adaptive/`       | str                                 | required                        |
+| `--fixed-dir`    | Directory with fixed models                               | str                                 | Inferred from `--model-dir`     |
+| `--output-dir`   | Directory for cross-validation JSON and plots             | str                                 | Configured evaluation directory |
+| `--max-train-T`  | Maximum fixed training horizon to include                 | int                                 | Max fixed T found               |
+| `--max-eval-T`   | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
+| `--cached`       | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
+| `--metric`       | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
+| `--system`       | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
 
 ### Budget Comparison and Aggregate MSE
 

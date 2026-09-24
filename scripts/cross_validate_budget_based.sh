@@ -119,7 +119,6 @@ while IFS=$'\t' read -r max_train_T run_dir; do
     for candidate in "$cache_dir"/budget_mse_results_*_T"$max_train_T"_*.json; do
       if [[ -f "$candidate" ]]; then
         cached_file="$candidate"
-        break
       fi
     done
   fi
