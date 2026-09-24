@@ -214,9 +214,7 @@ def cross_validation(
         cached_fixed_records = []
         if budget_based and max_train_T is not None and max_train_T > 1:
             previous_results = sorted(
-                Path(output_dir).glob(
-                    f"budget_mse_results_*_T{max_train_T - 1}_*.json"
-                )
+                Path(output_dir).glob(f"budget_mse_results_*_T{max_train_T - 1}_*.json")
             )
             if previous_results:
                 previous_result = previous_results[-1]
@@ -228,9 +226,7 @@ def cross_validation(
                     and record["train_T"] in train_Ts
                     and record["val_T"] in val_Ts
                 ]
-                fixed_paths = {
-                    max_train_T: fixed_paths.get(max_train_T, [])
-                }
+                fixed_paths = {max_train_T: fixed_paths.get(max_train_T, [])}
                 print(
                     f"Reusing {len(cached_fixed_records)} fixed-model evaluation "
                     f"records from {previous_result}"

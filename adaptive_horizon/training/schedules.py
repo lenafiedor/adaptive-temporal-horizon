@@ -23,10 +23,7 @@ def proportional_horizon_epochs(
         raise ValueError("total_epochs must allow at least one epoch per horizon")
 
     total_weight = sum(horizons)
-    allocations = {
-        T: total_epochs * T // total_weight
-        for T in horizons
-    }
+    allocations = {T: total_epochs * T // total_weight for T in horizons}
     remaining = total_epochs - sum(allocations.values())
     remainders = sorted(
         horizons,

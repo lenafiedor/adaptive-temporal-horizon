@@ -264,9 +264,7 @@ def train(
         if (
             adaptive
             and adaptive_method == CROSS_VALIDATION
-            and proportional_scheduler_boundary_reached(
-                epoch, epochs, current_T, T
-            )
+            and proportional_scheduler_boundary_reached(epoch, epochs, current_T, T)
         ):
             val_loss = float(validation_loss(model, val_loader, 1, device))
 
@@ -279,9 +277,7 @@ def train(
         if (
             adaptive
             and adaptive_method == EARLY_STOPPING
-            and proportional_scheduler_boundary_reached(
-                epoch, epochs, current_T, T
-            )
+            and proportional_scheduler_boundary_reached(epoch, epochs, current_T, T)
         ):
             early_stop_val_loss = float(validation_loss(model, val_loader, 1, device))
             if (
