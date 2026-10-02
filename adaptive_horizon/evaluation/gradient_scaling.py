@@ -75,7 +75,7 @@ def main():
         help="Maximum T for evaluation",
     )
     parser.add_argument(
-        "--dt", type=float, default=config.DT, help="Time step for simulation"
+        "--dt", type=float, default=config.DT, help="Model prediction step"
     )
     parser.add_argument(
         "--system",

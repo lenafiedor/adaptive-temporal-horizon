@@ -4,22 +4,30 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from adaptive_horizon.dynamics.integrators import rk4_step
+from adaptive_horizon.dynamics.integrators import rk4_step, resolve_integration_substeps
 from adaptive_horizon.dynamics.systems import DynamicsSystem, get_system
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.config import DEFAULT_SYSTEM
+from adaptive_horizon.config import DEFAULT_SYSTEM, INTEGRATION_DT
 
 
 def simulate_trajectory(
-    system: str | DynamicsSystem, initial_state, dt, steps, burn_in=0
+    system: str | DynamicsSystem,
+    initial_state,
+    dt,
+    steps,
+    burn_in=0,
+    integration_dt=None,
 ):
     """Simulate a trajectory for the selected dynamical system."""
     system = get_system(system)
+    integration_dt = dt if integration_dt is None else integration_dt
+    substeps = resolve_integration_substeps(dt, integration_dt)
     states = [initial_state]
     current_state = np.array(initial_state, dtype=np.float64)
 
     for _ in range(steps + burn_in):
-        current_state = rk4_step(system.rhs, current_state, dt)
+        for _ in range(substeps):
+            current_state = rk4_step(system.rhs, current_state, integration_dt)
         states.append(current_state)
 
     return states[burn_in:]
@@ -40,6 +48,7 @@ def get_trajectory(
     seed: int,
     path,
     regenerate=False,
+    integration_dt=INTEGRATION_DT,
 ):
     """Load a cached long trajectory or generate it once."""
     system = get_system(system)
@@ -54,6 +63,7 @@ def get_trajectory(
             saved_burn_in = int(bundle.get("burn_in", burn_in))
             saved_seed = int(bundle.get("seed", seed))
             saved_dt = float(bundle.get("dt", dt))
+            saved_integration_dt = float(bundle.get("integration_dt", saved_dt))
             saved_system = bundle.get("system", DEFAULT_SYSTEM)
             saved_parameters = bundle.get("system_parameters", {})
             metadata_matches = (
@@ -61,6 +71,7 @@ def get_trajectory(
                 and saved_burn_in == int(burn_in)
                 and saved_seed == int(seed)
                 and np.isclose(saved_dt, dt)
+                and np.isclose(saved_integration_dt, integration_dt)
                 and saved_system == system.name
                 and saved_parameters == dict(system.parameters)
             )
@@ -78,6 +89,7 @@ def get_trajectory(
         dt=dt,
         steps=steps,
         burn_in=burn_in,
+        integration_dt=integration_dt,
     )
     trajectory = torch.tensor(np.array(trajectory), dtype=torch.float32)
     torch.save(
@@ -86,6 +98,7 @@ def get_trajectory(
             "system": system.name,
             "system_parameters": dict(system.parameters),
             "dt": dt,
+            "integration_dt": integration_dt,
             "steps": steps,
             "burn_in": burn_in,
             "seed": seed,

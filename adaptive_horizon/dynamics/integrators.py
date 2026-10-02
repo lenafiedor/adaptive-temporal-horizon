@@ -1,6 +1,17 @@
 import numpy as np
 
 
+def resolve_integration_substeps(dt, integration_dt):
+    """Return the number of fixed solver steps in one sampled interval."""
+    ratio = dt / integration_dt
+    substeps = round(ratio)
+    if substeps < 1 or not np.isclose(ratio, substeps):
+        raise ValueError(
+            f"dt={dt} must be an integer multiple of integration_dt={integration_dt}"
+        )
+    return substeps
+
+
 def rk4_step(f, x, dt, *args):
     k1 = f(x, *args)
     k2 = f(x + 0.5 * dt * k1, *args)

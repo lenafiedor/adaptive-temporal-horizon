@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Optional
 
 import numpy as np
 
@@ -27,7 +27,7 @@ class DynamicsSystem:
     jacobian: Callable[..., np.ndarray]
     sample_initial_state: Callable[..., np.ndarray]
     parameters: Mapping[str, float] = field(default_factory=dict)
-    display_name: str | None = None
+    display_name: Optional[str] = None
 
     @property
     def label(self):
@@ -63,7 +63,7 @@ lorenz96_rhs, lorenz96_jacobian, lorenz96_sample_initial_state = (
 )
 SYSTEMS["lorenz96"] = DynamicsSystem(
     name="lorenz96",
-    display_name="Lorenz-96",
+    display_name="Lorenz96",
     dim=config.LORENZ96_DIMENSION,
     rhs=lorenz96_rhs,
     jacobian=lorenz96_jacobian,

@@ -18,7 +18,10 @@ from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
+    mean_horizon,
+    time_horizon,
 )
+from adaptive_horizon.training.methods import LYAPUNOV_BASED, LYAPUNOV_TIME
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.utils import time_to_steps
 
@@ -38,7 +41,9 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         normalize: bool = True,
         seed: int = config.RANDOM_SEED,
         burn_in: Optional[int] = None,
+        max_T: int = config.MAX_TRAIN_T,
         var: int = config.VARIANCE,
+        adaptive_method: str = LYAPUNOV_BASED,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
         split: str = "train",
@@ -51,14 +56,19 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         self.system_name = self.system.name
         self.normalize = normalize
         self.burn_in: int = resolve_burn_in_steps(dt, burn_in)
-        self.var = var
+        self.dt = dt
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
+        self.var = var
         self.base_T = default_adaptive_T_max(dt)
-        self.min_T = max(1, self.base_T - self.var)
-        self.max_T = min(self.base_T + self.var, config.MAX_TRAIN_T)
+        if adaptive_method == LYAPUNOV_TIME:
+            self.min_T = 1
+            self.max_T = max_T
+        else:
+            self.min_T = max(1, self.base_T - self.var)
+            self.max_T = min(self.base_T + self.var, config.MAX_TRAIN_T)
 
         self.trajectory_path = trajectory_path or default_trajectory_path(
             self.system.name,
@@ -86,12 +96,19 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         self.lles = []
         self.horizons = []
 
-        lles = compute_local_lyapunov(traj_np, dt=dt, system=self.system)
+        lles = compute_local_lyapunov(
+            traj_np,
+            dt=dt,
+            system=self.system,
+            integration_dt=config.INTEGRATION_DT,
+        )
         lle_max = lles[:, 0]
         self.lles.append(lle_max)
-        self.horizons.append(
-            self._lle_to_horizon(lle_max, self.base_T, self.min_T, self.max_T)
-        )
+        if adaptive_method == LYAPUNOV_TIME:
+            horizons = time_horizon(lle_max, self.dt, self.min_T, self.max_T)
+        else:
+            horizons = mean_horizon(lle_max, self.base_T, self.min_T, self.max_T)
+        self.horizons.append(horizons)
 
         self.trajectories = trajectory.unsqueeze(0)
         apply_normalization(self, normalization_stats)
@@ -142,17 +159,6 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
                     file.write(
                         f"{self.lles[traj_idx][i]},{self.horizons[traj_idx][i]}\n"
                     )
-
-    @staticmethod
-    def _lle_to_horizon(lambda_max, base_T, min_T, max_T):
-        lambda_mean = float(np.mean(lambda_max))
-        lambda_std = float(np.std(lambda_max)) + 1e-8
-        z_scores = (lambda_max - lambda_mean) / lambda_std
-
-        half_range = max(1.0, (max_T - min_T) / 2.0)
-        T = base_T - z_scores * half_range
-        T = np.clip(np.round(T), min_T, max_T)
-        return T.astype(int)
 
     def __len__(self):
         return len(self.samples)
@@ -221,6 +227,7 @@ class WeightedLossDataset(NormalizationStats, Dataset):
                 dt=dt,
                 window=self.ftle_window,
                 system=self.system,
+                integration_dt=config.INTEGRATION_DT,
             )
         ]
 

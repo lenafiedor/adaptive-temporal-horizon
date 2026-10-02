@@ -18,7 +18,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           fixed, lyapunov-based, weighted-loss, linear-scheduler, early-stopping, or cross-validation"
+  echo "  --method METHOD           fixed, lyapunov-based, lyapunov-time, weighted-loss, linear-scheduler, early-stopping, or cross-validation"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -70,7 +70,7 @@ case "$METHOD" in
   linear-scheduler)
     method_args=(--method linear-scheduler)
     ;;
-  lyapunov-based|weighted-loss)
+  lyapunov-based|lyapunov-time|weighted-loss)
     if [[ -z "$FIXED_DIR" ]]; then
       echo "--fixed-dir is required for $METHOD" >&2
       exit 1

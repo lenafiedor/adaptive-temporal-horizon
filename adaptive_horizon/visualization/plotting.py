@@ -57,8 +57,8 @@ def save_losses(
     print(f"\nLoss plot saved to {loss_path}.png")
 
     with open(f"{loss_path}.txt", "w") as f:
-        f.write("mean_train_loss,mean_val_loss\n")
-        f.write(f"{train_losses.mean().item()},{val_losses.mean().item()}")
+        f.write("train_loss,val_loss\n")
+        f.write(f"{train_losses[-1].item()},{val_losses[-1].item()}")
     print(f"Loss values saved to {loss_path}.txt")
 
 

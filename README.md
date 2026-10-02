@@ -49,7 +49,7 @@ poetry run train-mlp                            # Train MLPs with both fixed and
 poetry run train-mlp --single -T 10             # Train a single model with T = 10
 poetry run train-mlp --single --adaptive        # Train a single adaptive model
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
-poetry run train-mlp --method lyapunov-based    # Train only with the Lyapunov-based method
+poetry run train-mlp --method lyapunov-based    # Train adaptive models with the Lyapunov-based method
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
 ```
@@ -63,13 +63,13 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 | `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                 | 1                       |
 | `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                       | false                   |
 | `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                       | false                   |
-| `--method`         | Adaptive training method                                              | `lyapunov-based` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
+| `--method`         | Adaptive training method                                              | `lyapunov-based` \| `lyapunov-time` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
 | `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                | None                    |
 | `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                 | `config.MAX_TRAIN_T`    |
 | `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                       | false                   |
 | `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                 | 20                      |
 | `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                 | `config.NUM_SEEDS`      |
-| `--dt`             | Time step for the system simulation                                   | float                                                                                               | `config.DT`             |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                               | `config.DT`             |
 | `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                 | `config.DEFAULT_SYSTEM` |
 | `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                 | `config.BATCH_SIZE`     |
 | `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                | None                    |
@@ -101,7 +101,7 @@ poetry run gradient-scaling --model path/to/trained/model.pt --system rossler --
 |-----------------|-------------------------------------------|-------------------------------------|-------------------------|
 | `--model`, `-m` | Path to the trained model                 | str                                 | required                |
 | `--max-eval-T`  | Maximum evaluation horizon                | int                                 | `config.MAX_EVAL_T`     |
-| `--dt`          | Time step for the system simulation       | float                               | `config.DT`             |
+| `--dt`          | Model prediction/sampling step            | float                               | `config.DT`             |
 | `--system`      | Dynamical system to evaluate              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM` |
 | `--per-batch`   | Compute per-batch gradient scaling ratios | true \| false                       | false                   |
 
@@ -199,7 +199,7 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 |---------------------|------------------------------------------------|-------------------------------------|---------------------------|
 | `--model`, `-m`     | Path to the trained model                      | str                                 | required                  |
 | `--T-val`           | Evaluation horizon                             | int                                 | `config.MAX_EVAL_T`       |
-| `--dt`              | Time step for the diagnostic simulation        | float                               | `config.DT`               |
+| `--dt`              | Model prediction/sampling step                  | float                               | `config.DT`               |
 | `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`   |
 | `--steps`           | Post-burn-in diagnostic trajectory length      | int                                 | `config.TRAJECTORY_STEPS` |
 | `--seed`            | Diagnostic trajectory seed                     | int                                 | `config.RANDOM_SEED`      |

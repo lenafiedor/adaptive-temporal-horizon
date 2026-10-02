@@ -15,6 +15,7 @@ from adaptive_horizon.training.methods import (
     CROSS_VALIDATION,
     EARLY_STOPPING,
     LYAPUNOV_BASED,
+    LYAPUNOV_TIME,
     LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
@@ -57,7 +58,6 @@ def create_model_and_loaders(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
-    var=config.VARIANCE,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
 ):
@@ -74,7 +74,6 @@ def create_model_and_loaders(
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
         ftle_window: Forward FTLE window for weighted-loss training
-        var: Variance of the Lyapunov-based horizon
         debug: Whether adaptive datasets should write T values and Lyapunov exponents
         system_name: Name of the dynamical system
 
@@ -95,6 +94,7 @@ def create_model_and_loaders(
     split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, T or 0)
     metadata = {
         "dt": dt,
+        "integration_dt": config.INTEGRATION_DT,
         "system": system.name,
         "system_parameters": dict(system.parameters),
         "burn_in_time": config.BURN_IN_TIME,
@@ -107,13 +107,14 @@ def create_model_and_loaders(
     }
 
     if adaptive:
-        if adaptive_method == LYAPUNOV_BASED:
+        if adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
             train_dataset = LyapunovBasedDataset(
                 dt=dt,
                 system=system.name,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
-                var=var,
+                max_T=T or config.MAX_TRAIN_T,
+                adaptive_method=adaptive_method,
                 split="train",
                 split_gap=split_gap,
                 debug=debug,
@@ -123,7 +124,8 @@ def create_model_and_loaders(
                 system=system.name,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
-                var=var,
+                max_T=T or config.MAX_TRAIN_T,
+                adaptive_method=adaptive_method,
                 split="val",
                 split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
@@ -194,12 +196,19 @@ def create_model_and_loaders(
         else:
             metadata["adaptive"].update(
                 {
-                    "variance": var,
-                    "base_T": train_dataset.base_T,
                     "min_T": train_dataset.min_T,
                     "max_T": train_dataset.max_T,
+                    "horizon_mapping": (
+                        "lyapunov_time"
+                        if adaptive_method == LYAPUNOV_TIME
+                        else "lyapunov_mean"
+                    ),
                 }
             )
+            if adaptive_method == LYAPUNOV_BASED:
+                metadata["adaptive"].update(
+                    {"variance": train_dataset.var, "base_T": train_dataset.base_T}
+                )
     else:
         train_dataset = TrajectoryDataset(
             T=T,

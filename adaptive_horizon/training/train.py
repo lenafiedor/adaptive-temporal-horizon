@@ -23,6 +23,7 @@ from adaptive_horizon.visualization.plotting import (
 )
 from adaptive_horizon.training.methods import (
     LYAPUNOV_BASED,
+    LYAPUNOV_TIME,
     ADAPTIVE_METHOD_CHOICES,
     CROSS_VALIDATION,
     EARLY_STOPPING,
@@ -38,11 +39,7 @@ from adaptive_horizon.training.utils import (
     resolve_dirs,
     save_model,
 )
-from adaptive_horizon.training.schedules import (
-    linear_scheduler,
-    proportional_horizon_epochs,
-    proportional_scheduler,
-)
+from adaptive_horizon.training.schedules import stepped_scheduler
 from adaptive_horizon.training.setup import create_model_and_loaders
 
 
@@ -61,10 +58,12 @@ def clone_model_state_dict(model):
     }
 
 
-def proportional_scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
+def scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
     if epoch + 1 >= total_epochs:
         return True
-    return proportional_scheduler(epoch + 1, total_epochs, T_max) > current_T
+    if current_T == T_max and (epoch + 1) % 10 == 0:
+        return True
+    return stepped_scheduler(epoch + 1, T_max) > current_T
 
 
 def train(
@@ -126,7 +125,6 @@ def train(
                 "enabled": True,
                 "metric": "validation_loss_T1",
                 "patience": config.EARLY_STOP_PATIENCE,
-                "epochs_by_T": proportional_horizon_epochs(epochs, T),
             }
 
     if adaptive and adaptive_method == CROSS_VALIDATION:
@@ -138,7 +136,6 @@ def train(
             metadata["early_stopping"] = {
                 "enabled": False,
                 "max_T": T,
-                "epochs_by_T": proportional_horizon_epochs(epochs, T),
             }
 
     if debug:
@@ -175,22 +172,18 @@ def train(
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method in (EARLY_STOPPING, CROSS_VALIDATION):
-            current_T = proportional_scheduler(epoch, epochs, T)
+        if adaptive and adaptive_method in (
+            LINEAR_SCHEDULER,
+            EARLY_STOPPING,
+            CROSS_VALIDATION,
+        ):
+            current_T = stepped_scheduler(epoch, T)
             if current_T != linear_scheduler_T:
                 print(
                     f"\tEpoch {epoch + 1}/{epochs}, updating T: "
                     f"{linear_scheduler_T} -> {current_T}"
                 )
                 optimizer.state.clear()
-                linear_scheduler_T = current_T
-        elif adaptive and adaptive_method == LINEAR_SCHEDULER:
-            current_T = linear_scheduler(epoch, epochs, T)
-            if current_T != linear_scheduler_T:
-                print(
-                    f"\tEpoch {epoch + 1}/{epochs}, updating T: "
-                    f"{linear_scheduler_T} -> {current_T}"
-                )
                 linear_scheduler_T = current_T
         else:
             current_T = T
@@ -201,7 +194,7 @@ def train(
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             if adaptive:
-                if adaptive_method == LYAPUNOV_BASED:
+                if adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
                     T_values = rest[0].to(device) if rest else None
                     loss = adaptive_batch_loss(
                         model,
@@ -232,14 +225,16 @@ def train(
                 else:
                     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
             else:
-                loss = batch_loss(
-                    model,
-                    inputs,
-                    targets,
-                    T,
-                )
+                loss = batch_loss(model, inputs, targets, T)
             loss.backward()
             optimizer.step()
+            if adaptive and adaptive_method in (
+                LINEAR_SCHEDULER,
+                EARLY_STOPPING,
+                CROSS_VALIDATION,
+            ):
+                with torch.no_grad():
+                    loss = batch_loss(model, inputs, targets[:, :1], 1)
             epoch_loss += loss.item()
 
         avg_loss = epoch_loss / len(train_loader)
@@ -247,7 +242,7 @@ def train(
 
         if not adaptive:
             val_loss = validation_loss(model, val_loader, T, device)
-        elif adaptive_method == LYAPUNOV_BASED:
+        elif adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
             val_loss = adaptive_validation_loss(model, val_loader, device)
         elif adaptive_method == WEIGHTED_LOSS:
             val_loss = lle_weighted_validation_loss(
@@ -258,16 +253,14 @@ def train(
             EARLY_STOPPING,
             CROSS_VALIDATION,
         ):
-            val_loss = validation_loss(model, val_loader, current_T, device)
+            val_loss = validation_loss(model, val_loader, 1, device)
         val_losses.append(val_loss)
 
         if (
             adaptive
             and adaptive_method == CROSS_VALIDATION
-            and proportional_scheduler_boundary_reached(epoch, epochs, current_T, T)
+            and scheduler_boundary_reached(epoch, epochs, current_T, T)
         ):
-            val_loss = float(validation_loss(model, val_loader, 1, device))
-
             if cached_val_loss is None or val_loss < cached_val_loss:
                 cached_state = clone_model_state_dict(model)
                 cached_T = int(current_T)
@@ -277,9 +270,9 @@ def train(
         if (
             adaptive
             and adaptive_method == EARLY_STOPPING
-            and proportional_scheduler_boundary_reached(epoch, epochs, current_T, T)
+            and scheduler_boundary_reached(epoch, epochs, current_T, T)
         ):
-            early_stop_val_loss = float(validation_loss(model, val_loader, 1, device))
+            early_stop_val_loss = float(val_loss)
             if (
                 early_stop_best_loss is None
                 or early_stop_val_loss < early_stop_best_loss
@@ -306,12 +299,12 @@ def train(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            if debug:
-                gradients = compute_g_T(
-                    model, debug_loader, debug_T_vals, device=device, per_batch=True
-                )
-                gradient_history.append((epoch, gradients))
-                plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
+            # if debug:
+                # gradients = compute_g_T(
+                #     model, debug_loader, debug_T_vals, device=device, per_batch=True
+                # )
+                # gradient_history.append((epoch, gradients))
+                # plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
 
         if (
             max_wall_time_seconds is not None
@@ -342,8 +335,8 @@ def train(
             f"\tCross-validation selected T={cached_T} from epoch "
             f"{cached_epoch} (MSE={cached_val_loss:.6f})"
         )
-    if debug:
-        plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
+    # if debug:
+    #     plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
@@ -393,7 +386,6 @@ def train_single_model(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
-    var=config.VARIANCE,
     debug=False,
     max_wall_time_seconds=None,
     budget_metadata=None,
@@ -406,14 +398,14 @@ def train_single_model(
             device,
             dt,
             T
-            if adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+            if adaptive_method
+            in (LYAPUNOV_TIME, LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
             or not adaptive
             else None,
             adaptive_method,
             optimizer_name,
             batch_size,
             ftle_window,
-            var,
             debug,
             system_name,
         )
@@ -566,7 +558,6 @@ def train_adaptive_models(
     adaptive_method=LYAPUNOV_BASED,
     max_T=config.MAX_TRAIN_T,
     ftle_window=config.FTLE_WINDOW,
-    var=config.VARIANCE,
     append=False,
     debug=False,
     max_wall_time_seconds=None,
@@ -612,7 +603,12 @@ def train_adaptive_models(
             T=(
                 max_T
                 if adaptive_method
-                in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+                in (
+                    LYAPUNOV_TIME,
+                    LINEAR_SCHEDULER,
+                    EARLY_STOPPING,
+                    CROSS_VALIDATION,
+                )
                 else None
             ),
             adaptive=True,
@@ -620,7 +616,6 @@ def train_adaptive_models(
             optimizer_name=optimizer_name,
             batch_size=batch_size,
             ftle_window=ftle_window,
-            var=var,
             debug=debug,
             max_wall_time_seconds=max_wall_time_seconds,
             budget_metadata=budget_metadata,
@@ -698,7 +693,7 @@ def main():
         "--n-seeds", "-s", type=int, default=config.NUM_SEEDS, help="Number of seeds"
     )
     parser.add_argument(
-        "--dt", type=float, default=config.DT, help="Time step for simulation"
+        "--dt", type=float, default=config.DT, help="Model prediction step"
     )
     parser.add_argument(
         "--system",
@@ -730,16 +725,17 @@ def main():
     if args.method is None:
         train_fixed = args.fixed or not args.adaptive
         train_adaptive = args.adaptive or not args.fixed
-        effective_adaptive_method = LINEAR_SCHEDULER
+        adaptive_method = LINEAR_SCHEDULER
     else:
         train_fixed = False
         train_adaptive = True
-        effective_adaptive_method = args.method
+        adaptive_method = args.method
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
     print(f"Dynamical system: {system.label}")
-    print(f"Time step: {args.dt}")
+    print(f"Prediction step: {args.dt}")
+    print(f"Integration step: {config.INTEGRATION_DT}")
     print(
         f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
         f"({config.BURN_IN_TIME:g} time units)"
@@ -749,7 +745,7 @@ def main():
 
     model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file, append = resolve_dirs(
         args.dt,
-        args.max_T,
+        args.T if args.single and not train_adaptive else args.max_T,
         args.debug,
         args.budget_based,
         args.system,
@@ -774,14 +770,19 @@ def main():
             T=(
                 args.max_T
                 if train_adaptive
-                and effective_adaptive_method
-                in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+                and adaptive_method
+                in (
+                    LYAPUNOV_TIME,
+                    LINEAR_SCHEDULER,
+                    EARLY_STOPPING,
+                    CROSS_VALIDATION,
+                )
                 else None
                 if train_adaptive
                 else args.T
             ),
             adaptive=train_adaptive,
-            adaptive_method=effective_adaptive_method,
+            adaptive_method=adaptive_method,
             batch_size=args.batch_size,
             debug=args.debug,
             system_name=args.system,
@@ -804,8 +805,9 @@ def main():
         if train_adaptive:
             wall_time_budget = None
             budget_metadata = None
-            if args.budget_based and effective_adaptive_method in (
+            if args.budget_based and adaptive_method in (
                 LYAPUNOV_BASED,
+                LYAPUNOV_TIME,
                 WEIGHTED_LOSS,
             ):
                 wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)
@@ -825,7 +827,7 @@ def main():
                 loss_dir,
                 dt=args.dt,
                 batch_size=args.batch_size,
-                adaptive_method=effective_adaptive_method,
+                adaptive_method=adaptive_method,
                 max_T=args.max_T,
                 append=append,
                 debug=args.debug,

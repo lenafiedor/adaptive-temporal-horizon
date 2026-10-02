@@ -18,6 +18,7 @@ num_seeds = 20
 [system]
 default_system = "lorenz"
 dt = 0.08
+integration_dt = 0.01
 burn_in_time = 10.0
 
 [lorenz96]
@@ -41,7 +42,7 @@ anchor_alpha = 0.25
 ftle_window = 5
 
 [early-stopping]
-patience = 2
+patience = 3
 
 [model]
 layer_width = 10
