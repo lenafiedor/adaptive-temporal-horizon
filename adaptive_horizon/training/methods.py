@@ -1,7 +1,7 @@
 from typing import Optional
 
 ADAPTIVE_METHODS = {
-    "lyapunov-based": "lb",
+    "lyapunov-mean": "lm",
     "lyapunov-time": "lt",
     "weighted-loss": "wl",
     "linear-scheduler": "ls",
@@ -10,7 +10,7 @@ ADAPTIVE_METHODS = {
 }
 
 (
-    LYAPUNOV_BASED,
+    LYAPUNOV_MEAN,
     LYAPUNOV_TIME,
     WEIGHTED_LOSS,
     LINEAR_SCHEDULER,

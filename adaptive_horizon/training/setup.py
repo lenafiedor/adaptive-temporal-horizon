@@ -14,7 +14,7 @@ from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     CROSS_VALIDATION,
     EARLY_STOPPING,
-    LYAPUNOV_BASED,
+    LYAPUNOV_MEAN,
     LYAPUNOV_TIME,
     LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
@@ -54,7 +54,7 @@ def create_model_and_loaders(
     device,
     dt,
     T=None,
-    adaptive_method=LYAPUNOV_BASED,
+    adaptive_method=LYAPUNOV_MEAN,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
@@ -107,7 +107,7 @@ def create_model_and_loaders(
     }
 
     if adaptive:
-        if adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
+        if adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
             train_dataset = LyapunovBasedDataset(
                 dt=dt,
                 system=system.name,
@@ -205,7 +205,7 @@ def create_model_and_loaders(
                     ),
                 }
             )
-            if adaptive_method == LYAPUNOV_BASED:
+            if adaptive_method == LYAPUNOV_MEAN:
                 metadata["adaptive"].update(
                     {"variance": train_dataset.var, "base_T": train_dataset.base_T}
                 )

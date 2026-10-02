@@ -22,7 +22,7 @@ from adaptive_horizon.visualization.plotting import (
     save_losses,
 )
 from adaptive_horizon.training.methods import (
-    LYAPUNOV_BASED,
+    LYAPUNOV_MEAN,
     LYAPUNOV_TIME,
     ADAPTIVE_METHOD_CHOICES,
     CROSS_VALIDATION,
@@ -75,7 +75,7 @@ def train(
     device=config.DEVICE,
     T=None,
     adaptive=False,
-    adaptive_method=LYAPUNOV_BASED,
+    adaptive_method=LYAPUNOV_MEAN,
     dt=config.DT,
     debug=False,
     save_dir=None,
@@ -194,7 +194,7 @@ def train(
             inputs, targets = inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             if adaptive:
-                if adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
+                if adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
                     T_values = rest[0].to(device) if rest else None
                     loss = adaptive_batch_loss(
                         model,
@@ -242,7 +242,7 @@ def train(
 
         if not adaptive:
             val_loss = validation_loss(model, val_loader, T, device)
-        elif adaptive_method in (LYAPUNOV_BASED, LYAPUNOV_TIME):
+        elif adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
             val_loss = adaptive_validation_loss(model, val_loader, device)
         elif adaptive_method == WEIGHTED_LOSS:
             val_loss = lle_weighted_validation_loss(
@@ -299,12 +299,12 @@ def train(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
                 f"Val Loss: {val_loss:.6f}"
             )
-            # if debug:
-                # gradients = compute_g_T(
-                #     model, debug_loader, debug_T_vals, device=device, per_batch=True
-                # )
-                # gradient_history.append((epoch, gradients))
-                # plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
+            if debug:
+                gradients = compute_g_T(
+                    model, debug_loader, debug_T_vals, device=device, per_batch=True
+                )
+                gradient_history.append((epoch, gradients))
+                plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
 
         if (
             max_wall_time_seconds is not None
@@ -335,8 +335,8 @@ def train(
             f"\tCross-validation selected T={cached_T} from epoch "
             f"{cached_epoch} (MSE={cached_val_loss:.6f})"
         )
-    # if debug:
-    #     plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
+    if debug:
+        plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
@@ -382,7 +382,7 @@ def train_single_model(
     dt=config.DT,
     T=None,
     adaptive=False,
-    adaptive_method=LYAPUNOV_BASED,
+    adaptive_method=LYAPUNOV_MEAN,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     ftle_window=config.FTLE_WINDOW,
@@ -555,7 +555,7 @@ def train_adaptive_models(
     dt=config.DT,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    adaptive_method=LYAPUNOV_BASED,
+    adaptive_method=LYAPUNOV_MEAN,
     max_T=config.MAX_TRAIN_T,
     ftle_window=config.FTLE_WINDOW,
     append=False,
@@ -806,7 +806,7 @@ def main():
             wall_time_budget = None
             budget_metadata = None
             if args.budget_based and adaptive_method in (
-                LYAPUNOV_BASED,
+                LYAPUNOV_MEAN,
                 LYAPUNOV_TIME,
                 WEIGHTED_LOSS,
             ):

@@ -90,9 +90,7 @@ def compute_local_lyapunov(
     for i in range(len(trajectory) - 1):
         x = trajectory[i]
         for _ in range(substeps):
-            x, Q = rk4_step_coupled(
-                x, Q, integration_dt, system.rhs, system.jacobian
-            )
+            x, Q = rk4_step_coupled(x, Q, integration_dt, system.rhs, system.jacobian)
         Q, R = np.linalg.qr(Q)
         lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
 

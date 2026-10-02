@@ -21,7 +21,7 @@ from adaptive_horizon.dynamics.lyapunov import (
     mean_horizon,
     time_horizon,
 )
-from adaptive_horizon.training.methods import LYAPUNOV_BASED, LYAPUNOV_TIME
+from adaptive_horizon.training.methods import LYAPUNOV_MEAN, LYAPUNOV_TIME
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.utils import time_to_steps
 
@@ -32,8 +32,6 @@ def default_adaptive_T_max(dt: float) -> int:
 
 
 class LyapunovBasedDataset(NormalizationStats, Dataset):
-    """Lyapunov-based dataset sliced from one shared long trajectory."""
-
     def __init__(
         self,
         dt: float = config.DT,
@@ -43,7 +41,7 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         burn_in: Optional[int] = None,
         max_T: int = config.MAX_TRAIN_T,
         var: int = config.VARIANCE,
-        adaptive_method: str = LYAPUNOV_BASED,
+        adaptive_method: str = LYAPUNOV_MEAN,
         normalization_stats: Optional[dict] = None,
         debug: bool = False,
         split: str = "train",

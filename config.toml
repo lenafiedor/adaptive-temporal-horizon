@@ -30,7 +30,7 @@ trajectory_steps = 120000
 random_seed = 12345
 train_fraction = 0.8
 
-[lyapunov-based]
+[lyapunov-mean]
 variance = 1
 default_horizon = 0.4
 
