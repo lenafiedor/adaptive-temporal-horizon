@@ -3,10 +3,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 from torch.utils.data import DataLoader
 
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
@@ -15,7 +17,7 @@ from adaptive_horizon.evaluation.utils import (
     save_cross_validation_results,
     summarize_cross_validation,
 )
-from adaptive_horizon.training.loss import validation_loss
+from adaptive_horizon.training.loss import rollout_predictions, validation_loss
 from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_mse
 
@@ -51,13 +53,40 @@ def get_training_wall_time(checkpoint):
     key = "wall_time_seconds"
     if key not in metadata:
         key = "train_wall_clock_seconds"
-    return {"wall_time_seconds": float(metadata[key])}
+    return {
+        "wall_time_seconds": float(metadata[key]),
+        **{
+            name: metadata[name]
+            for name in ("epochs_requested", "epochs_ran")
+            if name in metadata
+        },
+    }
 
 
 def make_eval_loader(
-    max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM
+    max_val_T,
+    dt,
+    normalization_stats=None,
+    system_name=config.DEFAULT_SYSTEM,
+    data_path=None,
+    observed_metadata=None,
 ):
     split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, max_val_T)
+    observed_data = None
+    if system_name == SANTAFE:
+        if dt != 1 or not observed_metadata:
+            raise ValueError(
+                "Santa Fe evaluation requires dt=1 and observed-data checkpoint metadata"
+            )
+        observed_data = load_santafe(
+            data_path or observed_metadata["path"],
+            max_val_T,
+            metadata=observed_metadata,
+        )
+        if normalization_stats != observed_data["metadata"]["normalization_stats"]:
+            raise ValueError(
+                "Santa Fe normalization does not match checkpoint metadata"
+            )
     dataset = TrajectoryDataset(
         T=max_val_T,
         dt=dt,
@@ -65,9 +94,10 @@ def make_eval_loader(
         normalize=True,
         seed=config.RANDOM_SEED,
         burn_in=resolve_burn_in_steps(dt),
-        split="val",
+        split="test" if observed_data is not None else "val",
         split_gap=split_gap,
         normalization_stats=normalization_stats,
+        observed_data=observed_data,
     )
     return DataLoader(
         dataset,
@@ -93,21 +123,60 @@ def cross_validate_models(
     device=config.DEVICE,
     val_Ts: list[int] | None = None,
     system_name: str = config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     train_Ts = list(fixed_paths)
     val_Ts = list(val_Ts) if val_Ts is not None else train_Ts
     eval_loaders = {}
+    laser_signature = None
 
     def get_eval_loader(checkpoint):
+        nonlocal laser_signature
+        checkpoint_dt = checkpoint.get("metadata", {}).get("dt")
+        if checkpoint_dt is not None and float(checkpoint_dt) != float(dt):
+            raise ValueError(
+                f"Checkpoint dt={checkpoint_dt} does not match evaluation dt={dt}"
+            )
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
         checkpoint_system = checkpoint.get("metadata", {}).get("system") or system_name
         key = (checkpoint_system, eval_loader_cache_key(normalization_stats))
+        observed_kwargs = {}
+        if checkpoint_system == SANTAFE:
+            observed_metadata = checkpoint["metadata"].get("observed_data")
+            if not observed_metadata:
+                raise ValueError(
+                    "Santa Fe checkpoint is missing observed-data metadata"
+                )
+            signature = json.dumps(
+                {
+                    name: observed_metadata[name]
+                    for name in (
+                        "checksum",
+                        "history_length",
+                        "split_bounds",
+                        "normalization_stats",
+                        "sample_time",
+                    )
+                },
+                sort_keys=True,
+            )
+            if laser_signature is not None and signature != laser_signature:
+                raise ValueError(
+                    "Santa Fe models must use identical data, splits and history windows"
+                )
+            laser_signature = signature
+            key += (signature,)
+            observed_kwargs = {
+                "data_path": data_path,
+                "observed_metadata": observed_metadata,
+            }
         if key not in eval_loaders:
             eval_loaders[key] = make_eval_loader(
                 max(val_Ts),
                 dt,
                 normalization_stats,
                 system_name=checkpoint_system,
+                **observed_kwargs,
             )
         return eval_loaders[key]
 
@@ -115,16 +184,52 @@ def cross_validate_models(
         model, checkpoint = load_model(model_path)
         model = model.to(device)
         eval_loader = get_eval_loader(checkpoint)
+        laser_mse = None
+        if checkpoint.get("metadata", {}).get("system") == SANTAFE:
+            if not model.delay_window:
+                raise ValueError("Santa Fe checkpoint requires a delay-window model")
+            sums = torch.zeros(max(val_Ts), device=device)
+            count = 0
+            with torch.no_grad():
+                for inputs, targets in eval_loader:
+                    predictions = rollout_predictions(
+                        model, inputs.to(device), max(val_Ts)
+                    )
+                    errors = (
+                        predictions[..., -1] - targets.to(device)[..., -1]
+                    ).square()
+                    sums += errors.sum(dim=0)
+                    count += len(inputs)
+            laser_mse = (sums / count).cpu().tolist()
         records = []
         for val_T in model_val_Ts:
             record = {
                 "model_type": model_type,
+                "system": checkpoint.get("metadata", {}).get("system") or system_name,
                 "seed": checkpoint.get("seed"),
                 "train_T": train_T,
                 "val_T": val_T,
-                "mse": validation_loss(model, eval_loader, val_T, device),
+                "mse": (
+                    laser_mse[val_T - 1]
+                    if laser_mse is not None
+                    else validation_loss(model, eval_loader, val_T, device)
+                ),
                 **get_training_wall_time(checkpoint),
             }
+            if laser_mse is not None:
+                std = get_checkpoint_normalization_stats(checkpoint)["std"][0]
+                record.update(
+                    {
+                        "normalized_mse": record["mse"],
+                        "mse": record["mse"] * (std + 1e-8) ** 2,
+                        "split": "test",
+                        "metric": "intensity_mse",
+                        "system": SANTAFE,
+                        "data_checksum": checkpoint["metadata"]["observed_data"][
+                            "checksum"
+                        ],
+                    }
+                )
             if model_type == "adaptive":
                 record["adaptive_method"] = get_adaptive_method(checkpoint)
             records.append(record)
@@ -169,6 +274,7 @@ def cross_validation(
     device=config.DEVICE,
     metric="median",
     system=config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     model_dir = Path(model_dir)
     cached = Path(cached) if cached is not None else None
@@ -188,7 +294,7 @@ def cross_validation(
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
         evaluation_records = [
-            record
+            {"system": metadata.get("system", system), **record}
             for record in payload["evaluation_records"]
             if record["val_T"] in val_Ts
             and (record["model_type"] == "adaptive" or record["train_T"] in train_Ts)
@@ -212,15 +318,30 @@ def cross_validation(
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
         cached_fixed_records = []
-        if budget_based and max_train_T is not None and max_train_T > 1:
+        if (
+            system != SANTAFE
+            and budget_based
+            and max_train_T is not None
+            and max_train_T > 1
+        ):
             previous_results = sorted(
                 Path(output_dir).glob(f"budget_mse_results_*_T{max_train_T - 1}_*.json")
             )
             if previous_results:
                 previous_result = previous_results[-1]
                 payload = load_cross_validation_results(previous_result)
+                previous_metadata = payload["metadata"]
+                if (
+                    float(previous_metadata["dt"]) != float(dt)
+                    or Path(previous_metadata["fixed_dir"]).resolve()
+                    != fixed_dir.resolve()
+                ):
+                    raise ValueError(
+                        f"Cached fixed results in {previous_result} use a different "
+                        "timestep or fixed-model directory"
+                    )
                 cached_fixed_records = [
-                    record
+                    {"system": previous_metadata.get("system", system), **record}
                     for record in payload["evaluation_records"]
                     if record["model_type"] == "fixed"
                     and record["train_T"] in train_Ts
@@ -239,10 +360,42 @@ def cross_validation(
             device=device,
             val_Ts=val_Ts,
             system_name=system,
+            data_path=data_path,
         )
 
-    effective_max_train_T = max_train_T if max_train_T is not None else max(train_Ts)
-    summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
+    systems = {record["system"] for record in evaluation_records if record.get("system")}
+    if len(systems) > 1:
+        raise ValueError(f"Cannot combine evaluation results for systems {sorted(systems)}")
+    if systems:
+        system = systems.pop()
+    effective_max_train_T = (
+        max_train_T if max_train_T is not None else max(train_Ts, default=max_eval_T)
+    )
+    methods = {
+        record.get("adaptive_method")
+        for record in evaluation_records
+        if record["model_type"] == "adaptive"
+    }
+    if system == SANTAFE and len(methods) > 1:
+        fixed_records = [
+            record for record in evaluation_records if record["model_type"] == "fixed"
+        ]
+        summary = summarize_cross_validation(fixed_records, train_Ts, val_Ts)
+        summary["adaptive_by_method"] = {
+            method: summarize_cross_validation(
+                fixed_records
+                + [
+                    record
+                    for record in evaluation_records
+                    if record.get("adaptive_method") == method
+                ],
+                train_Ts,
+                val_Ts,
+            )
+            for method in sorted(methods)
+        }
+    else:
+        summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
     if cached is None:
         save_cross_validation_results(
             evaluation_records,
@@ -255,8 +408,18 @@ def cross_validation(
             budget_based,
             system,
         )
-    if effective_max_train_T == max_eval_T:
-        plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
+    if effective_max_train_T == max_eval_T and summary["fixed"]:
+        plots = summary.get("adaptive_by_method", {None: summary})
+        for method, method_summary in plots.items():
+            plot_mse(
+                method_summary,
+                Path(output_dir) / method if method else output_dir,
+                dt,
+                effective_max_train_T,
+                budget_based,
+                metric,
+                evaluation_split="test" if system == SANTAFE else "val",
+            )
 
 
 def main():
@@ -269,7 +432,12 @@ def main():
     parser.add_argument("--cached", type=Path, default=None)
     parser.add_argument("--metric", choices=("mean", "median"), default="median")
     parser.add_argument(
-        "--system", choices=SYSTEM_CHOICES, default=config.DEFAULT_SYSTEM
+        "--system", choices=(*SYSTEM_CHOICES, SANTAFE), default=config.DEFAULT_SYSTEM
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        help="Override the checkpoint's local Santa Fe recording path",
     )
     args = parser.parse_args()
     cross_validation(**vars(args))

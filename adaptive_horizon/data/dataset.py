@@ -1,13 +1,15 @@
-import torch
-from torch.utils.data import Dataset
 from typing import Optional
 
+import torch
+from torch.utils.data import Dataset
+
 import adaptive_horizon.config as config
+from adaptive_horizon.data.santafe import observed_trajectory
 from adaptive_horizon.data.utils import (
+    NormalizationStats,
     apply_normalization,
     default_trajectory_path,
     get_trajectory,
-    NormalizationStats,
     split_trajectory,
 )
 from adaptive_horizon.dynamics.systems import get_system
@@ -31,6 +33,7 @@ class TrajectoryDataset(NormalizationStats, Dataset):
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
         trajectory_path: Optional[str] = None,
+        observed_data=None,
     ):
         """
         Args:
@@ -48,33 +51,43 @@ class TrajectoryDataset(NormalizationStats, Dataset):
             trajectory_path: Optional path for the cached trajectory file
         """
         self.T = T
-        self.system = get_system(system)
-        self.system_name = self.system.name
+        self.system = None if observed_data is not None else get_system(system)
+        self.system_name = system if self.system is None else self.system.name
         self.normalize = normalize
-        self.burn_in = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in = (
+            0 if observed_data is not None else resolve_burn_in_steps(dt, burn_in)
+        )
         self.split = split
-        self.trajectory_path = trajectory_path or default_trajectory_path(
-            self.system.name,
-            config.system_path(config.DATA_DIR, self.system.name),
+        self.trajectory_path = (
+            observed_data["metadata"]["path"]
+            if observed_data is not None
+            else trajectory_path
+        ) or default_trajectory_path(
+            self.system_name,
+            config.system_path(config.DATA_DIR, self.system_name),
             dt,
             trajectory_steps,
             seed,
         )
 
-        full_trajectory = get_trajectory(
-            self.system,
-            dt=dt,
-            steps=trajectory_steps,
-            burn_in=self.burn_in,
-            seed=seed,
-            path=self.trajectory_path,
-        )
-        trajectory, self.split_bounds = split_trajectory(
-            full_trajectory,
-            split=split,
-            train_fraction=train_fraction,
-            gap=split_gap,
-        )
+        if observed_data is not None:
+            trajectory = observed_trajectory(self, observed_data, split)
+            normalization_stats = observed_data["metadata"]["normalization_stats"]
+        else:
+            full_trajectory = get_trajectory(
+                self.system,
+                dt=dt,
+                steps=trajectory_steps,
+                burn_in=self.burn_in,
+                seed=seed,
+                path=self.trajectory_path,
+            )
+            trajectory, self.split_bounds = split_trajectory(
+                full_trajectory,
+                split=split,
+                train_fraction=train_fraction,
+                gap=split_gap,
+            )
         self.trajectories = trajectory.unsqueeze(0)
         apply_normalization(self, normalization_stats)
 

@@ -1,11 +1,13 @@
-import torch
-from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
 from time import perf_counter
 
+import torch
+from torch.utils.data import DataLoader
+
 import adaptive_horizon.config as config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
@@ -16,31 +18,31 @@ from adaptive_horizon.training.loss import (
     lle_weighted_validation_loss,
     validation_loss,
 )
+from adaptive_horizon.training.methods import (
+    ADAPTIVE_METHOD_CHOICES,
+    CROSS_VALIDATION,
+    EARLY_STOPPING,
+    LINEAR_SCHEDULER,
+    LYAPUNOV_MEAN,
+    LYAPUNOV_TIME,
+    WEIGHTED_LOSS,
+)
+from adaptive_horizon.training.schedules import stepped_scheduler
+from adaptive_horizon.training.setup import create_model_and_loaders
+from adaptive_horizon.training.utils import (
+    fixed_budget_wall_time,
+    get_existing_adaptive_model_seeds,
+    get_existing_fixed_model_seeds,
+    get_train_Ts,
+    resolve_burn_in_steps,
+    resolve_dirs,
+    save_model,
+)
 from adaptive_horizon.visualization.plotting import (
     plot_gradient_history,
     plot_gradients_histogram,
     save_losses,
 )
-from adaptive_horizon.training.methods import (
-    LYAPUNOV_MEAN,
-    LYAPUNOV_TIME,
-    ADAPTIVE_METHOD_CHOICES,
-    CROSS_VALIDATION,
-    EARLY_STOPPING,
-    LINEAR_SCHEDULER,
-    WEIGHTED_LOSS,
-)
-from adaptive_horizon.training.utils import (
-    resolve_burn_in_steps,
-    get_existing_adaptive_model_seeds,
-    get_existing_fixed_model_seeds,
-    get_train_Ts,
-    fixed_budget_wall_time,
-    resolve_dirs,
-    save_model,
-)
-from adaptive_horizon.training.schedules import stepped_scheduler
-from adaptive_horizon.training.setup import create_model_and_loaders
 
 
 def padded_mean_loss(losses_by_seed):
@@ -109,6 +111,12 @@ def train(
     train_losses = []
     val_losses = []
     gradient_history = []
+    select_laser_best = system_name == SANTAFE and not (
+        adaptive and adaptive_method in (EARLY_STOPPING, CROSS_VALIDATION)
+    )
+    laser_best_state = None
+    laser_best_loss = float("inf")
+    laser_best_epoch = None
     wall_time_start = perf_counter()
     if max_wall_time_seconds is not None and metadata is not None:
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
@@ -156,6 +164,11 @@ def train(
             split="val",
             split_gap=split_gap,
             normalization_stats=getattr(model, "normalization_stats", None),
+            observed_data=(
+                load_santafe(metadata["observed_data"]["path"], config.MAX_EVAL_T)
+                if system_name == SANTAFE
+                else None
+            ),
         )
         debug_loader = DataLoader(
             debug_dataset,
@@ -255,6 +268,10 @@ def train(
         ):
             val_loss = validation_loss(model, val_loader, 1, device)
         val_losses.append(val_loss)
+        if select_laser_best and val_loss < laser_best_loss:
+            laser_best_loss = float(val_loss)
+            laser_best_epoch = epoch + 1
+            laser_best_state = clone_model_state_dict(model)
 
         if (
             adaptive
@@ -335,6 +352,13 @@ def train(
             f"\tCross-validation selected T={cached_T} from epoch "
             f"{cached_epoch} (MSE={cached_val_loss:.6f})"
         )
+    if select_laser_best and laser_best_state is not None:
+        model.load_state_dict(laser_best_state)
+        if metadata is not None:
+            metadata["validation_selection"] = {
+                "selected_epoch": laser_best_epoch,
+                "selected_loss": laser_best_loss,
+            }
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
@@ -390,6 +414,7 @@ def train_single_model(
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -401,6 +426,7 @@ def train_single_model(
             if adaptive_method
             in (LYAPUNOV_TIME, LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
             or not adaptive
+            or system_name == SANTAFE
             else None,
             adaptive_method,
             optimizer_name,
@@ -408,8 +434,10 @@ def train_single_model(
             ftle_window,
             debug,
             system_name,
+            data_path,
         )
     )
+    metadata["epochs_requested"] = epochs
     if adaptive:
         if budget_metadata is not None:
             metadata["budget"] = budget_metadata
@@ -441,6 +469,7 @@ def train_single_model(
         system_name=system_name,
     )
 
+    metadata["epochs_ran"] = len(train_losses)
     model_path = save_model(
         model,
         mlp_config,
@@ -476,6 +505,7 @@ def train_fixed_models(
     append=False,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
@@ -533,6 +563,7 @@ def train_fixed_models(
                 batch_size=batch_size,
                 debug=debug,
                 system_name=system_name,
+                data_path=data_path,
             )
             train_losses.append(train_loss)
             val_losses.append(val_loss)
@@ -563,6 +594,7 @@ def train_adaptive_models(
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
@@ -602,7 +634,8 @@ def train_adaptive_models(
             dt,
             T=(
                 max_T
-                if adaptive_method
+                if system_name == SANTAFE
+                or adaptive_method
                 in (
                     LYAPUNOV_TIME,
                     LINEAR_SCHEDULER,
@@ -620,6 +653,7 @@ def train_adaptive_models(
             max_wall_time_seconds=max_wall_time_seconds,
             budget_metadata=budget_metadata,
             system_name=system_name,
+            data_path=data_path,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -693,13 +727,19 @@ def main():
         "--n-seeds", "-s", type=int, default=config.NUM_SEEDS, help="Number of seeds"
     )
     parser.add_argument(
-        "--dt", type=float, default=config.DT, help="Model prediction step"
+        "--dt",
+        type=float,
+        default=None,
+        help="Model prediction step (Santa Fe: 1 sample)",
     )
     parser.add_argument(
         "--system",
-        choices=SYSTEM_CHOICES,
+        choices=(*SYSTEM_CHOICES, SANTAFE),
         default=config.DEFAULT_SYSTEM,
         help="Dynamical system to train on",
+    )
+    parser.add_argument(
+        "--data-path", type=Path, help="Local Santa Fe intensity recording"
     )
     parser.add_argument(
         "--batch-size",
@@ -720,8 +760,19 @@ def main():
     )
 
     args = parser.parse_args()
+    args.dt = (
+        args.dt
+        if args.dt is not None
+        else (1.0 if args.system == SANTAFE else config.DT)
+    )
     train_Ts = get_train_Ts(args.max_T)
-    system = get_system(args.system)
+    system = None if args.system == SANTAFE else get_system(args.system)
+    if args.system == SANTAFE:
+        if args.dt != 1:
+            parser.error("Santa Fe --dt must be 1 (one recorded sample)")
+        load_santafe(args.data_path, max(args.max_T, args.T, config.MAX_EVAL_T))
+    elif args.data_path is not None:
+        parser.error("--data-path is only supported for santafe-laser")
     if args.method is None:
         train_fixed = args.fixed or not args.adaptive
         train_adaptive = args.adaptive or not args.fixed
@@ -733,13 +784,16 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
-    print(f"Dynamical system: {system.label}")
-    print(f"Prediction step: {args.dt}")
-    print(f"Integration step: {config.INTEGRATION_DT}")
     print(
-        f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
-        f"({config.BURN_IN_TIME:g} time units)"
+        f"Dynamical system: {system.label if system is not None else 'Santa Fe laser'}"
     )
+    print(f"Prediction step: {args.dt}")
+    if system is not None:
+        print(f"Integration step: {config.INTEGRATION_DT}")
+        print(
+            f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
+            f"({config.BURN_IN_TIME:g} time units)"
+        )
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
 
@@ -770,12 +824,15 @@ def main():
             T=(
                 args.max_T
                 if train_adaptive
-                and adaptive_method
-                in (
-                    LYAPUNOV_TIME,
-                    LINEAR_SCHEDULER,
-                    EARLY_STOPPING,
-                    CROSS_VALIDATION,
+                and (
+                    args.system == SANTAFE
+                    or adaptive_method
+                    in (
+                        LYAPUNOV_TIME,
+                        LINEAR_SCHEDULER,
+                        EARLY_STOPPING,
+                        CROSS_VALIDATION,
+                    )
                 )
                 else None
                 if train_adaptive
@@ -786,6 +843,7 @@ def main():
             batch_size=args.batch_size,
             debug=args.debug,
             system_name=args.system,
+            data_path=args.data_path,
         )
     else:
         if train_fixed:
@@ -801,6 +859,7 @@ def main():
                 append=append,
                 debug=args.debug,
                 system_name=args.system,
+                data_path=args.data_path,
             )
         if train_adaptive:
             wall_time_budget = None
@@ -834,12 +893,14 @@ def main():
                 max_wall_time_seconds=wall_time_budget,
                 budget_metadata=budget_metadata,
                 system_name=args.system,
+                data_path=args.data_path,
             )
 
     print(f"\nModels saved to {model_root}")
     print("\n" + "=" * 50)
     print("Training Complete")
     print("=" * 50 + "\n")
+    last_run_file.parent.mkdir(parents=True, exist_ok=True)
     last_run_file.write_text(str(model_root))
 
 

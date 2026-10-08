@@ -1,5 +1,3 @@
-import torch
-import torch.nn as nn
 import json
 from datetime import datetime
 from math import sqrt
@@ -7,9 +5,12 @@ from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any
 
+import torch
+import torch.nn as nn
+
+import adaptive_horizon.config as config
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.utils import format_dt
-import adaptive_horizon.config as config
 
 LAST_RUN_FILE = "last_run.txt"
 
@@ -64,6 +65,7 @@ def load_model(model_path):
         layer_widths=cfg["layer_widths"],
         residual_connections=cfg["residual_connections"],
         k=cfg.get("k"),
+        delay_window=cfg.get("delay_window", False),
         activation=nn.ReLU(),
     )
 
@@ -119,6 +121,11 @@ def save_cross_validation_results(
     )
     summary_metadata = summarize_metadata(summary)
     wall_time_metadata = summarize_wall_time(evaluation_records)
+    fixed_epochs = {
+        record.get("epochs_requested")
+        for record in evaluation_records
+        if record["model_type"] == "fixed"
+    }
 
     payload = {
         "metadata": {
@@ -128,6 +135,12 @@ def save_cross_validation_results(
             "adaptive_dir": str(adaptive_dir),
             "fixed_dir": str(fixed_dir or adaptive_dir),
             "max_train_T": max_train_T,
+            "fixed_epochs_per_horizon": next(iter(fixed_epochs))
+            if len(fixed_epochs) == 1
+            else None,
+            "fixed_epochs_source": "checkpoint"
+            if len(fixed_epochs) == 1 and None not in fixed_epochs
+            else "not_recorded",
             **summary_metadata,
             **wall_time_metadata,
         },
@@ -301,8 +314,9 @@ def summarize_cross_validation(
         "overall": adaptive_overall,
         "by_eval_T": summarize_by_eval_T(adaptive_records, val_Ts),
     }
-    summary["deltas"] = summarize_paired_deltas(
-        evaluation_records, train_Ts, val_Ts, num_seeds
-    )
+    if train_Ts:
+        summary["deltas"] = summarize_paired_deltas(
+            evaluation_records, train_Ts, val_Ts, num_seeds
+        )
 
     return summary

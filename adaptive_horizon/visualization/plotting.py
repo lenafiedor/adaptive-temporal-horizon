@@ -290,6 +290,7 @@ def plot_mse(
     max_train_T=config.MAX_TRAIN_T,
     budget_based=False,
     metric="median",
+    evaluation_split="val",
 ):
     """
     Plot MSE summaries for each validation T as separate lines.
@@ -351,15 +352,18 @@ def plot_mse(
             )
 
     ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
-    ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
-    title = "Cross-Validation MSE"
+    split_label = "Test" if evaluation_split == "test" else "Validation"
+    ax.set_ylabel(f"{split_label} MSE ({metric} +/- 95% CI)")
+    title = (
+        "Test Intensity MSE" if evaluation_split == "test" else "Cross-Validation MSE"
+    )
     if adaptive_summary is not None:
         title += " (dashed = adaptive model)"
     ax.set_title(title)
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.legend(
-        title="Validation Horizon",
+        title=f"{split_label} Horizon",
         loc="center left",
         bbox_to_anchor=(1.02, 0.5),
         borderaxespad=0.0,

@@ -56,30 +56,70 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 
 **Args:**
 
-| Name               | Description                                                           | Values                                                                                              | Default value           |
-|--------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|-------------------------|
-| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                 | `config.EPOCHS`         |
-| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                       | false                   |
-| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                 | 1                       |
-| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                       | false                   |
-| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                       | false                   |
+| Name               | Description                                                           | Values                                                                                                                | Default value           |
+|--------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------|
+| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                                   | `config.EPOCHS`         |
+| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                                         | false                   |
+| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                                   | 1                       |
+| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                                         | false                   |
+| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                                         | false                   |
 | `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `lyapunov-time` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
-| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                | None                    |
-| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                 | `config.MAX_TRAIN_T`    |
-| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                       | false                   |
-| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                 | 20                      |
-| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                 | `config.NUM_SEEDS`      |
-| `--dt`             | Model prediction/sampling step                                        | float                                                                                               | `config.DT`             |
-| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                 | `config.DEFAULT_SYSTEM` |
-| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                 | `config.BATCH_SIZE`     |
-| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                | None                    |
-| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                       | false                   |
+| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                                  | None                    |
+| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                                   | `config.MAX_TRAIN_T`    |
+| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                                         | false                   |
+| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                                   | 20                      |
+| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                                   | `config.NUM_SEEDS`      |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                                                 | `config.DT`; laser: 1   |
+| `--system`         | System or recording to train on                                       | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser`                                                                | `config.DEFAULT_SYSTEM` |
+| `--data-path`      | Local Santa Fe intensity recording                                    | path                                                                                                                  | Required for laser      |
+| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                                   | `config.BATCH_SIZE`     |
+| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                                  | None                    |
+| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                                         | false                   |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
 - `--method` selects one training method; `early-stopping` and `cross-validation` both use the linear scheduler.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon for scheduler-based adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
+
+### Santa Fe laser benchmark
+
+Obtain the measured [Santa Fe laser recording](https://reservoirpy.readthedocs.io/en/stable/api/generated/reservoirpy.datasets.santafe_laser.html)
+manually and save it as a text file with one intensity value per line. The documented
+full recording has 10,093 samples; shorter recordings are accepted if all splits
+have enough history, targets, and distinct neighbours.
+
+```bash
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --fixed --output-dir experiments/santafe-laser/run
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --method weighted-loss --output-dir experiments/santafe-laser/run
+poetry run cross-validation --system santafe-laser --model-dir experiments/santafe-laser/run --max-eval-T 10
+```
+
+All six adaptive methods are supported through `--method`. The laser uses `dt=1`
+(one recorded sample), eight consecutive past intensities, a maximum horizon of
+10 by default, and a base horizon of 5 for `lyapunov-mean`. Raw samples are split
+70%/15%/15% into training/validation/test before history windows are constructed.
+Every split uses the scalar training mean and standard deviation. The MLP predicts
+only the next intensity and shifts the remaining history deterministically;
+training losses score only newly predicted intensity values.
+
+Lyapunov methods use an offline **neighbour-divergence proxy**, not an exact FTLE:
+five distinct nearest training states, a 50-sample Theiler exclusion, and distance
+growth over five samples. Validation neighbours and score standardization use
+training data only. Forward observations supply offline labels, never forecast
+inputs. The recording and computed scores are reused across methods and seeds
+within one process.
+
+For laser checkpoints, `cross-validation` evaluates the held-out **test** block
+without computing instability scores. Each `val_T` result is the intensity MSE
+at that forecast step, in original intensity units, with `normalized_mse` also
+saved. All horizons share the same forecast origins. Checkpoints record the
+file checksum, split bounds, normalization, history, and estimator settings;
+evaluation reconstructs preprocessing from them. Use `--data-path` during
+evaluation only if the recording has moved; its checksum must still match.
+Use validation to select models; test results are final benchmark results.
+When a run contains several adaptive methods, JSON summaries are separated under
+`adaptive_by_method`; their errors are not pooled into one adaptive result.
 
 ### Gradient Scaling
 
@@ -120,16 +160,17 @@ poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --system
 
 **Args:**
 
-| Name             | Description                                               | Values                              | Default value                   |
-|------------------|-----------------------------------------------------------|-------------------------------------|---------------------------------|
-| `--model-dir`    | Model directory containing `fixed/` and `adaptive/`       | str                                 | required                        |
-| `--fixed-dir`    | Directory with fixed models                               | str                                 | Inferred from `--model-dir`     |
-| `--output-dir`   | Directory for cross-validation JSON and plots             | str                                 | Configured evaluation directory |
-| `--max-train-T`  | Maximum fixed training horizon to include                 | int                                 | Max fixed T found               |
-| `--max-eval-T`   | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
-| `--cached`       | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
-| `--metric`       | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
-| `--system`       | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+| Name            | Description                                               | Values                                                 | Default value                   |
+|-----------------|-----------------------------------------------------------|--------------------------------------------------------|---------------------------------|
+| `--model-dir`   | Model directory containing `fixed/` and `adaptive/`       | str                                                    | required                        |
+| `--fixed-dir`   | Directory with fixed models                               | str                                                    | Inferred from `--model-dir`     |
+| `--output-dir`  | Directory for cross-validation JSON and plots             | str                                                    | Configured evaluation directory |
+| `--max-train-T` | Maximum fixed training horizon to include                 | int                                                    | Max fixed T found               |
+| `--max-eval-T`  | Maximum validation horizon to evaluate                    | int                                                    | `config.MAX_EVAL_T`             |
+| `--cached`      | Reuse a saved cross-validation JSON to replot the results | str                                                    | None                            |
+| `--metric`      | Statistic shown in plots                                  | `mean` \| `median`                                     | `median`                        |
+| `--system`      | System or recording to evaluate                           | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser` | `config.DEFAULT_SYSTEM`         |
+| `--data-path`   | Override the laser recording path saved in checkpoints    | path                                                   | Checkpoint path                 |
 
 ### Budget Comparison and Aggregate MSE
 
@@ -199,7 +240,7 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 |---------------------|------------------------------------------------|-------------------------------------|---------------------------|
 | `--model`, `-m`     | Path to the trained model                      | str                                 | required                  |
 | `--T-val`           | Evaluation horizon                             | int                                 | `config.MAX_EVAL_T`       |
-| `--dt`              | Model prediction/sampling step                  | float                               | `config.DT`               |
+| `--dt`              | Model prediction/sampling step                 | float                               | `config.DT`               |
 | `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`   |
 | `--steps`           | Post-burn-in diagnostic trajectory length      | int                                 | `config.TRAJECTORY_STEPS` |
 | `--seed`            | Diagnostic trajectory seed                     | int                                 | `config.RANDOM_SEED`      |

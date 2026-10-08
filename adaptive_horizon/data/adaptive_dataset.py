@@ -7,20 +7,21 @@ import torch
 from torch.utils.data import Dataset
 
 import adaptive_horizon.config as config
+from adaptive_horizon.data.santafe import observed_trajectory
 from adaptive_horizon.data.utils import (
+    NormalizationStats,
     apply_normalization,
     default_trajectory_path,
     get_trajectory,
-    NormalizationStats,
     split_trajectory,
 )
-from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
     mean_horizon,
     time_horizon,
 )
+from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.training.methods import LYAPUNOV_MEAN, LYAPUNOV_TIME
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.utils import time_to_steps
@@ -49,63 +50,87 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
         trajectory_path: Optional[str] = None,
+        observed_data=None,
     ):
-        self.system = get_system(system)
-        self.system_name = self.system.name
+        self.system = None if observed_data is not None else get_system(system)
+        self.system_name = system if self.system is None else self.system.name
         self.normalize = normalize
-        self.burn_in: int = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in: int = (
+            0 if observed_data is not None else resolve_burn_in_steps(dt, burn_in)
+        )
         self.dt = dt
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
         self.var = var
-        self.base_T = default_adaptive_T_max(dt)
+        self.base_T = (
+            min(5, max_T) if observed_data is not None else default_adaptive_T_max(dt)
+        )
         if adaptive_method == LYAPUNOV_TIME:
             self.min_T = 1
             self.max_T = max_T
         else:
             self.min_T = max(1, self.base_T - self.var)
-            self.max_T = min(self.base_T + self.var, config.MAX_TRAIN_T)
+            self.max_T = min(
+                self.base_T + self.var,
+                max_T if observed_data is not None else config.MAX_TRAIN_T,
+            )
 
-        self.trajectory_path = trajectory_path or default_trajectory_path(
-            self.system.name,
-            config.system_path(config.DATA_DIR, self.system.name),
+        self.trajectory_path = (
+            observed_data["metadata"]["path"]
+            if observed_data is not None
+            else trajectory_path
+        ) or default_trajectory_path(
+            self.system_name,
+            config.system_path(config.DATA_DIR, self.system_name),
             dt,
             trajectory_steps,
             seed,
         )
-        full_trajectory = get_trajectory(
-            self.system,
-            dt=dt,
-            steps=trajectory_steps,
-            burn_in=self.burn_in,
-            seed=seed,
-            path=self.trajectory_path,
-        )
-        trajectory, self.split_bounds = split_trajectory(
-            full_trajectory,
-            split=split,
-            train_fraction=train_fraction,
-            gap=split_gap,
-        )
+        if observed_data is not None:
+            trajectory = observed_trajectory(self, observed_data, split)
+            normalization_stats = observed_data["metadata"]["normalization_stats"]
+        else:
+            full_trajectory = get_trajectory(
+                self.system,
+                dt=dt,
+                steps=trajectory_steps,
+                burn_in=self.burn_in,
+                seed=seed,
+                path=self.trajectory_path,
+            )
+            trajectory, self.split_bounds = split_trajectory(
+                full_trajectory,
+                split=split,
+                train_fraction=train_fraction,
+                gap=split_gap,
+            )
 
         traj_np = trajectory.numpy()
         self.lles = []
         self.horizons = []
 
-        lles = compute_local_lyapunov(
-            traj_np,
-            dt=dt,
-            system=self.system,
-            integration_dt=config.INTEGRATION_DT,
-        )
-        lle_max = lles[:, 0]
+        if observed_data is not None:
+            lle_max = observed_data["scores"][split]
+        else:
+            lles = compute_local_lyapunov(
+                traj_np,
+                dt=dt,
+                system=self.system,
+                integration_dt=config.INTEGRATION_DT,
+            )
+            lle_max = lles[:, 0]
         self.lles.append(lle_max)
         if adaptive_method == LYAPUNOV_TIME:
             horizons = time_horizon(lle_max, self.dt, self.min_T, self.max_T)
         else:
-            horizons = mean_horizon(lle_max, self.base_T, self.min_T, self.max_T)
+            score_stats = (
+                observed_data["score_stats"] if observed_data is not None else {}
+            )
+            horizons = mean_horizon(
+                lle_max, self.base_T, self.min_T, self.max_T, **score_stats
+            )
         self.horizons.append(horizons)
 
         self.trajectories = trajectory.unsqueeze(0)
@@ -115,7 +140,7 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._write_t_values(
-                config.system_path(config.EVAL_DIR, self.system.name)
+                config.system_path(config.EVAL_DIR, self.system_name)
                 / f"t_values_{timestamp}.txt"
             )
 
@@ -151,7 +176,8 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
             for value, count in zip(unique_t_values, counts):
                 file.write(f"T={int(value)} count={int(count)}\n")
 
-            file.write("\n# LLE and T value per sample\n")
+            score_label = "neighbour_divergence" if self.system is None else "LLE"
+            file.write(f"\n# {score_label} and T value per sample\n")
             for traj_idx in range(len(self.horizons)):
                 for i in range(len(self.horizons[traj_idx])):
                     file.write(
@@ -184,43 +210,59 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
         trajectory_path: Optional[str] = None,
+        observed_data=None,
+        T_max=None,
     ):
-        self.system = get_system(system)
-        self.system_name = self.system.name
-        self.T_max = default_adaptive_T_max(dt)
+        self.system = None if observed_data is not None else get_system(system)
+        self.system_name = system if self.system is None else self.system.name
+        self.T_max = T_max or (
+            10 if observed_data is not None else default_adaptive_T_max(dt)
+        )
         self.dt = dt
         self.ftle_window = int(ftle_window)
         self.normalize = normalize
-        self.burn_in: int = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in: int = (
+            0 if observed_data is not None else resolve_burn_in_steps(dt, burn_in)
+        )
         self.split = split
         self.mean: Optional[torch.Tensor] = None
         self.std: Optional[torch.Tensor] = None
 
-        self.trajectory_path = trajectory_path or default_trajectory_path(
-            self.system.name,
-            config.system_path(config.DATA_DIR, self.system.name),
+        self.trajectory_path = (
+            observed_data["metadata"]["path"]
+            if observed_data is not None
+            else trajectory_path
+        ) or default_trajectory_path(
+            self.system_name,
+            config.system_path(config.DATA_DIR, self.system_name),
             dt,
             trajectory_steps,
             seed,
         )
-        full_trajectory = get_trajectory(
-            self.system,
-            dt=dt,
-            steps=trajectory_steps,
-            burn_in=self.burn_in,
-            seed=seed,
-            path=self.trajectory_path,
-        )
-        trajectory, self.split_bounds = split_trajectory(
-            full_trajectory,
-            split=split,
-            train_fraction=train_fraction,
-            gap=split_gap,
-        )
+        if observed_data is not None:
+            trajectory = observed_trajectory(self, observed_data, split)
+            normalization_stats = observed_data["metadata"]["normalization_stats"]
+        else:
+            full_trajectory = get_trajectory(
+                self.system,
+                dt=dt,
+                steps=trajectory_steps,
+                burn_in=self.burn_in,
+                seed=seed,
+                path=self.trajectory_path,
+            )
+            trajectory, self.split_bounds = split_trajectory(
+                full_trajectory,
+                split=split,
+                train_fraction=train_fraction,
+                gap=split_gap,
+            )
 
         traj_np = trajectory.numpy()
         self.lambda_scores = [
-            compute_forward_ftle(
+            observed_data["scores"][split]
+            if observed_data is not None
+            else compute_forward_ftle(
                 traj_np,
                 dt=dt,
                 window=self.ftle_window,
@@ -236,7 +278,7 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         if debug:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._write_lambda_values(
-                config.system_path(config.EVAL_DIR, self.system.name)
+                config.system_path(config.EVAL_DIR, self.system_name)
                 / f"lambda_values_{timestamp}.txt"
             )
 

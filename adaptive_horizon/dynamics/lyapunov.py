@@ -1,19 +1,19 @@
 import numpy as np
 
 from adaptive_horizon import config
+from adaptive_horizon.config import DEFAULT_SYSTEM, FTLE_WINDOW, SIMULATION_STEPS
 from adaptive_horizon.dynamics.integrators import (
     resolve_integration_substeps,
     rk4_step_coupled,
 )
 from adaptive_horizon.dynamics.systems import get_system
-from adaptive_horizon.config import FTLE_WINDOW, DEFAULT_SYSTEM, SIMULATION_STEPS
 from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
-def mean_horizon(lambda_max, base_T, min_T, max_T):
+def mean_horizon(lambda_max, base_T, min_T, max_T, mean=None, std=None):
     """Map standardized Lyapunov exponents to horizons around the base horizon."""
-    lambda_mean = float(np.mean(lambda_max))
-    lambda_std = float(np.std(lambda_max)) + 1e-8
+    lambda_mean = float(np.mean(lambda_max)) if mean is None else mean
+    lambda_std = (float(np.std(lambda_max)) if std is None else std) + 1e-8
     z_scores = (lambda_max - lambda_mean) / lambda_std
 
     half_range = max(1.0, (max_T - min_T) / 2.0)

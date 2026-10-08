@@ -1,9 +1,10 @@
+import math
+import re
 from datetime import datetime
 from pathlib import Path
-import re
-import torch
-import math
 from statistics import mean
+
+import torch
 
 import adaptive_horizon.config as config
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
@@ -160,6 +161,7 @@ def save_model(
             "layer_widths": cfg.layer_widths,
             "residual_connections": cfg.residual_connections,
             "k": cfg.k,
+            "delay_window": cfg.delay_window,
         },
     }
     if metadata is not None:

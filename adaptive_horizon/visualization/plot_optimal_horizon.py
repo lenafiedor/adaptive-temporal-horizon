@@ -30,9 +30,9 @@ class OptimalHorizon:
 
 
 def infer_epochs(fixed_dir: str, budget_epochs: int) -> int:
-    match = re.search(r"_(\d+)_epochs(?:/|$)", fixed_dir)
+    match = re.search(r"(?:_(\d+)_epochs|_fixed_(\d+))(?:/|$)", fixed_dir)
     if match:
-        return int(match.group(1))
+        return int(match.group(1) or match.group(2))
     if "budget_based_" in fixed_dir:
         return budget_epochs
     raise ValueError(f"Could not infer epoch budget from fixed directory: {fixed_dir}")
@@ -69,7 +69,9 @@ def load_optimal_horizon(
 
     metadata = payload.get("metadata", {})
     fixed_dir = str(metadata.get("fixed_dir", ""))
-    epochs = infer_epochs(fixed_dir, budget_epochs)
+    epochs = metadata.get("fixed_epochs_per_horizon")
+    if epochs is None:
+        epochs = infer_epochs(fixed_dir, budget_epochs)
     best = select_fixed_result(payload["summary"], metric, eval_scope)
     if eval_scope.mode == "single":
         mse = next(

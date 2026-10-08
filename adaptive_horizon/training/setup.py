@@ -9,14 +9,15 @@ from adaptive_horizon.data.adaptive_dataset import (
     collate_fn_weighted_loss,
 )
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     CROSS_VALIDATION,
     EARLY_STOPPING,
+    LINEAR_SCHEDULER,
     LYAPUNOV_MEAN,
     LYAPUNOV_TIME,
-    LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.utils import resolve_burn_in_steps
@@ -60,6 +61,7 @@ def create_model_and_loaders(
     ftle_window=config.FTLE_WINDOW,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
+    data_path=None,
 ):
     """
     Create model, data loaders, optimizer, and config for training.
@@ -80,24 +82,45 @@ def create_model_and_loaders(
     Returns:
         model, train_loader, val_loader, optimizer, config, metadata
     """
-    system = get_system(system_name)
+    observed_data = None
+    if system_name == SANTAFE:
+        if dt != 1:
+            raise ValueError("Santa Fe dt must be 1 (one recorded sample)")
+        observed_data = load_santafe(
+            data_path,
+            max(T or 10, config.MAX_EVAL_T),
+            compute_scores=adaptive
+            and adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME, WEIGHTED_LOSS),
+        )
+    system = None if observed_data is not None else get_system(system_name)
+    dimension = (
+        observed_data["metadata"]["history_length"]
+        if observed_data is not None
+        else system.dim
+    )
+    observed_kwargs = (
+        {"observed_data": observed_data} if observed_data is not None else {}
+    )
     mlp_config = MLPConfig(
-        input_size=system.dim,
-        output_size=system.dim,
+        input_size=dimension,
+        output_size=1 if observed_data is not None else dimension,
+        delay_window=observed_data is not None,
         layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
         residual_connections=True,
         k=1,
         activation=torch.nn.ReLU(),
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
-    burn_in_steps = resolve_burn_in_steps(dt)
+    burn_in_steps = 0 if observed_data is not None else resolve_burn_in_steps(dt)
     split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, T or 0)
     metadata = {
         "dt": dt,
-        "integration_dt": config.INTEGRATION_DT,
-        "system": system.name,
-        "system_parameters": dict(system.parameters),
-        "burn_in_time": config.BURN_IN_TIME,
+        "integration_dt": None if observed_data is not None else config.INTEGRATION_DT,
+        "system": system_name,
+        "system_parameters": {}
+        if observed_data is not None
+        else dict(system.parameters),
+        "burn_in_time": 0 if observed_data is not None else config.BURN_IN_TIME,
         "trajectory": {
             "steps": config.TRAJECTORY_STEPS,
             "seed": config.RANDOM_SEED,
@@ -105,12 +128,20 @@ def create_model_and_loaders(
             "split_gap": split_gap,
         },
     }
+    if observed_data is not None:
+        metadata["observed_data"] = observed_data["metadata"]
+        metadata["trajectory"] = {
+            "steps": observed_data["metadata"]["samples"] - 1,
+            "train_fraction": 0.7,
+            "split_gap": 0,
+        }
 
     if adaptive:
         if adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
             train_dataset = LyapunovBasedDataset(
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 max_T=T or config.MAX_TRAIN_T,
@@ -121,7 +152,8 @@ def create_model_and_loaders(
             )
             val_dataset = LyapunovBasedDataset(
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 max_T=T or config.MAX_TRAIN_T,
@@ -135,7 +167,9 @@ def create_model_and_loaders(
         elif adaptive_method == WEIGHTED_LOSS:
             train_dataset = WeightedLossDataset(
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
+                T_max=(T or 10) if observed_data is not None else None,
                 ftle_window=ftle_window,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
@@ -145,7 +179,9 @@ def create_model_and_loaders(
             )
             val_dataset = WeightedLossDataset(
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
+                T_max=(T or 10) if observed_data is not None else None,
                 ftle_window=ftle_window,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
@@ -157,11 +193,16 @@ def create_model_and_loaders(
             collate_function = collate_fn_weighted_loss
         elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             if T is None:
-                T = time_to_steps(config.DEFAULT_HORIZON, dt)
+                T = (
+                    5
+                    if observed_data is not None
+                    else time_to_steps(config.DEFAULT_HORIZON, dt)
+                )
             train_dataset = TrajectoryDataset(
                 T=T,
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 split="train",
@@ -170,7 +211,8 @@ def create_model_and_loaders(
             val_dataset = TrajectoryDataset(
                 T=config.MAX_EVAL_T,
                 dt=dt,
-                system=system.name,
+                system=system_name,
+                **observed_kwargs,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 split="val",
@@ -186,7 +228,11 @@ def create_model_and_loaders(
         }
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = train_dataset.T_max
-            metadata["adaptive"]["ftle_window"] = ftle_window
+            metadata["adaptive"]["ftle_window"] = (
+                observed_data["metadata"]["estimator"]["window"]
+                if observed_data is not None
+                else ftle_window
+            )
         elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             metadata["adaptive"].update(
                 {
@@ -213,7 +259,8 @@ def create_model_and_loaders(
         train_dataset = TrajectoryDataset(
             T=T,
             dt=dt,
-            system=system.name,
+            system=system_name,
+            **observed_kwargs,
             seed=config.RANDOM_SEED,
             burn_in=burn_in_steps,
             split="train",
@@ -222,7 +269,8 @@ def create_model_and_loaders(
         val_dataset = TrajectoryDataset(
             T=T,
             dt=dt,
-            system=system.name,
+            system=system_name,
+            **observed_kwargs,
             seed=config.RANDOM_SEED,
             burn_in=burn_in_steps,
             split="val",
