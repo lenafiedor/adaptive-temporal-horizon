@@ -4,6 +4,13 @@ from adaptive_horizon import config
 from adaptive_horizon.model.mlp import MLP
 
 
+def loss_components(model, preds, targets):
+    """Score only newly predicted observations for delay-window models."""
+    if getattr(model, "delay_window", False):
+        return preds[..., -1:], targets[..., -1:]
+    return preds, targets
+
+
 def rollout_predictions(
     model: MLP,
     inputs: torch.Tensor,
@@ -43,6 +50,7 @@ def batch_loss(
         float: average loss
     """
     preds = rollout_predictions(model, inputs, T)
+    preds, targets = loss_components(model, preds, targets)
     total_loss = 0.0
 
     for tau in range(T):
@@ -61,6 +69,7 @@ def adaptive_batch_loss(
     max_T = int(T.max().item())
 
     preds = rollout_predictions(model, inputs, max_T)
+    preds, targets = loss_components(model, preds, targets)
 
     step_mse = torch.nn.functional.mse_loss(
         preds, targets[:, :max_T], reduction="none"
@@ -100,7 +109,8 @@ def error_truncated_batch_loss(
 
     for tau in range(T_max):
         current = model(current)
-        step_mse = (current - targets[:, tau]).square().mean(dim=1)
+        pred, target = loss_components(model, current, targets[:, tau])
+        step_mse = (pred - target).square().mean(dim=1)
         weight = active.to(step_mse.dtype)
         loss_sum = loss_sum + step_mse * weight
         horizon = horizon + weight
@@ -167,6 +177,7 @@ def lle_weighted_batch_loss(
 
     T_max = targets.shape[1]
     preds = rollout_predictions(model, inputs, T_max)
+    preds, targets = loss_components(model, preds, targets)
 
     step_mse = torch.nn.functional.mse_loss(preds, targets, reduction="none").mean(
         dim=2

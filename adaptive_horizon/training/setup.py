@@ -9,6 +9,7 @@ from adaptive_horizon.data.adaptive_dataset import (
     collate_fn_lyapunov_based,
 )
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.data.utils import default_split_gap
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
@@ -21,11 +22,20 @@ from adaptive_horizon.training.methods import (
 )
 
 
-def model_config(system_name):
-    system = get_system(system_name)
+def model_config(system_name, history_length=None):
+    if system_name == SANTAFE:
+        # Delay-window model: a history of intensities in, one new intensity out.
+        input_size = history_length or load_santafe(config.SANTAFE_DATA_PATH)[
+            "metadata"
+        ]["history_length"]
+        output_size = 1
+    else:
+        system = get_system(system_name)
+        input_size = output_size = system.dim
     return MLPConfig(
-        input_size=system.dim,
-        output_size=system.dim,
+        input_size=input_size,
+        output_size=output_size,
+        delay_window=system_name == SANTAFE,
         layer_widths=list(config.LAYER_WIDTHS),
         residual_connections=True,
         k=1,
@@ -184,9 +194,24 @@ def create_model_and_loaders(
     random_horizons=False,
     invert_horizons=False,
 ):
+    if system_name == SANTAFE:
+        return _create_observed_model_and_loaders(
+            seed,
+            adaptive,
+            device,
+            dt,
+            T,
+            adaptive_method,
+            optimizer_name,
+            batch_size,
+            debug,
+            base_T,
+            random_horizons,
+            invert_horizons,
+        )
+
     system = get_system(system_name)
-    mlp_config = model_config(system)
-    model = MLP(mlp_config, random_seed=seed).to(device)
+    mlp_config = model_config(system.name)
     split_gap = default_split_gap(T or 0)
     metadata = {
         "dt": dt,
@@ -209,6 +234,106 @@ def create_model_and_loaders(
         "burn_in": resolve_burn_in_steps(dt),
         "split_gap": split_gap,
     }
+    return _finish_setup(
+        seed,
+        adaptive,
+        device,
+        dt,
+        T,
+        adaptive_method,
+        optimizer_name,
+        batch_size,
+        debug,
+        base_T,
+        random_horizons,
+        invert_horizons,
+        mlp_config,
+        metadata,
+        common,
+    )
+
+
+def _create_observed_model_and_loaders(
+    seed,
+    adaptive,
+    device,
+    dt,
+    T,
+    adaptive_method,
+    optimizer_name,
+    batch_size,
+    debug,
+    base_T,
+    random_horizons,
+    invert_horizons,
+):
+    """Santa Fe laser: measured data, one recorded sample per model step."""
+    if dt != 1:
+        raise ValueError("Santa Fe dt must be 1 (one recorded sample)")
+    observed_data = load_santafe(
+        config.SANTAFE_DATA_PATH,
+        max(T or 1, config.MAX_TRAIN_T, config.MAX_EVAL_T),
+        compute_scores=adaptive
+        and adaptive_method in (*LYAPUNOV_METHODS, WEIGHTED_LOSS),
+    )
+    observed_metadata = observed_data["metadata"]
+    mlp_config = model_config(SANTAFE, observed_metadata["history_length"])
+    bounds = observed_metadata["split_bounds"]
+    metadata = {
+        "dt": dt,
+        "integration_dt": None,
+        "system": SANTAFE,
+        "system_parameters": {},
+        "burn_in_time": 0,
+        "observed_data": observed_metadata,
+        "trajectory": {
+            "steps": observed_metadata["samples"] - 1,
+            "train_fraction": bounds["train"][1] / observed_metadata["samples"],
+            "split_gap": 0,
+        },
+    }
+    common = {
+        "dt": dt,
+        "system": SANTAFE,
+        "observed_data": observed_data,
+    }
+    return _finish_setup(
+        seed,
+        adaptive,
+        device,
+        dt,
+        T,
+        adaptive_method,
+        optimizer_name,
+        batch_size,
+        debug,
+        base_T,
+        random_horizons,
+        invert_horizons,
+        mlp_config,
+        metadata,
+        common,
+    )
+
+
+def _finish_setup(
+    seed,
+    adaptive,
+    device,
+    dt,
+    T,
+    adaptive_method,
+    optimizer_name,
+    batch_size,
+    debug,
+    base_T,
+    random_horizons,
+    invert_horizons,
+    mlp_config,
+    metadata,
+    common,
+):
+    model = MLP(mlp_config, random_seed=seed).to(device)
     train_dataset, val_dataset, collate_function, T = _build_datasets(
         adaptive,
         adaptive_method,

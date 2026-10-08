@@ -3,9 +3,11 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from adaptive_horizon import config
 from adaptive_horizon.data.dataset import make_val_loader
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.dynamics.lyapunov import compute_global_lyapunov
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.evaluation.metrics import (
@@ -51,6 +53,42 @@ def eval_loader_cache_key(normalization_stats):
     )
 
 
+OBSERVED_SIGNATURE_FIELDS = (
+    "checksum",
+    "history_length",
+    "split_bounds",
+    "normalization_stats",
+    "sample_time",
+)
+
+
+def observed_metadata(checkpoint):
+    metadata = checkpoint.get("metadata", {}).get("observed_data")
+    if not metadata:
+        raise ValueError("Santa Fe checkpoint is missing observed-data metadata")
+    return metadata
+
+
+def load_observed_test_data(checkpoint, max_T, data_path=None, compute_scores=False):
+    """Reload the checkpoint's recording, verifying it is the same data."""
+    metadata = observed_metadata(checkpoint)
+    return load_santafe(
+        data_path or metadata["path"],
+        max_T,
+        compute_scores=compute_scores,
+        metadata=metadata,
+    )
+
+
+def observed_lyapunov_exponent(model_paths, data_path=None):
+    """Mean training neighbour-divergence rate (per sample) of the recording."""
+    for model_path in model_paths:
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        data = load_observed_test_data(checkpoint, 1, data_path, compute_scores=True)
+        return float(data["score_stats"]["mean"])
+    return None
+
+
 def cross_validate_models(
     fixed_paths: dict[int, list[Path]],
     adaptive_paths: list[Path],
@@ -59,19 +97,55 @@ def cross_validate_models(
     val_Ts: list[int] | None = None,
     system_name: str = config.DEFAULT_SYSTEM,
     vpt_thresholds=DEFAULT_VPT_THRESHOLDS,
+    data_path=None,
 ):
     train_Ts = list(fixed_paths)
     val_Ts = list(val_Ts) if val_Ts is not None else train_Ts
     eval_loaders = {}
+    observed_signature = None
 
     def get_eval_loader(checkpoint):
+        nonlocal observed_signature
+        checkpoint_dt = checkpoint.get("metadata", {}).get("dt")
+        if checkpoint_dt is not None and float(checkpoint_dt) != float(dt):
+            raise ValueError(
+                f"Checkpoint dt={checkpoint_dt} does not match evaluation dt={dt}"
+            )
         normalization_stats = get_checkpoint_normalization_stats(checkpoint)
         checkpoint_system = checkpoint.get("metadata", {}).get("system") or system_name
         key = (checkpoint_system, eval_loader_cache_key(normalization_stats))
-        if key not in eval_loaders:
-            eval_loaders[key] = make_val_loader(
-                checkpoint_system, dt, max(val_Ts), normalization_stats
+        if checkpoint_system == SANTAFE:
+            # All compared models must share data, splits and history windows.
+            metadata = observed_metadata(checkpoint)
+            signature = json.dumps(
+                {name: metadata[name] for name in OBSERVED_SIGNATURE_FIELDS},
+                sort_keys=True,
             )
+            if observed_signature not in (None, signature):
+                raise ValueError(
+                    "Santa Fe models must use identical data, splits and "
+                    "history windows"
+                )
+            observed_signature = signature
+            key += (signature,)
+        if key not in eval_loaders:
+            if checkpoint_system == SANTAFE:
+                observed_data = load_observed_test_data(
+                    checkpoint, max(val_Ts), data_path
+                )
+                # Measured data has a held-out test split; report on it.
+                eval_loaders[key] = make_val_loader(
+                    checkpoint_system,
+                    dt,
+                    max(val_Ts),
+                    normalization_stats,
+                    observed_data=observed_data,
+                    split="test",
+                )
+            else:
+                eval_loaders[key] = make_val_loader(
+                    checkpoint_system, dt, max(val_Ts), normalization_stats
+                )
         return eval_loaders[key]
 
     def evaluate(model_path, model_type, train_T, model_val_Ts):
@@ -81,12 +155,22 @@ def cross_validate_models(
         metrics = evaluate_metrics(
             model, eval_loader, model_val_Ts, vpt_thresholds, device
         )
+        metadata = checkpoint.get("metadata", {})
+        model_system = metadata.get("system") or system_name
+        extra = {"system": model_system, "split": eval_loader.dataset.split}
+        if "epochs_requested" in metadata:
+            extra["epochs_requested"] = metadata["epochs_requested"]
+        if model_type == "adaptive":
+            extra["adaptive_method"] = metadata.get("adaptive", {}).get("method")
+        if model_system == SANTAFE:
+            extra["data_checksum"] = metadata["observed_data"]["checksum"]
         records = [
             {
                 "model_type": model_type,
                 "seed": checkpoint.get("seed"),
                 "train_T": train_T,
                 "val_T": val_T,
+                **extra,
                 **metrics[val_T],
             }
             for val_T in model_val_Ts
@@ -161,6 +245,7 @@ def cross_validation(
     system=config.DEFAULT_SYSTEM,
     error_metric="mse",
     vpt_thresholds=DEFAULT_VPT_THRESHOLDS,
+    data_path=None,
 ):
     model_dir = Path(model_dir)
     cached = Path(cached) if cached is not None else None
@@ -194,9 +279,19 @@ def cross_validation(
         if dt is None:
             dt = get_dt_from_model_dir(fixed_dir) or config.DT
         budget_based = model_dir.name.startswith("budget")
-        lyapunov_exponent = float(
-            compute_global_lyapunov(dt=config.INTEGRATION_DT, system=system)
-        )
+        if system == SANTAFE:
+            lyapunov_exponent = observed_lyapunov_exponent(
+                [
+                    *(path for paths in get_fixed_paths(model_dir=fixed_dir).values()
+                      for path in paths),
+                    *get_adaptive_paths(adaptive_dir),
+                ],
+                data_path,
+            )
+        else:
+            lyapunov_exponent = float(
+                compute_global_lyapunov(dt=config.INTEGRATION_DT, system=system)
+            )
         run_metadata = {
             "dt": dt,
             "system": system,
@@ -235,10 +330,41 @@ def cross_validation(
             val_Ts=val_Ts,
             system_name=system,
             vpt_thresholds=vpt_thresholds,
+            data_path=data_path,
         )
+        systems = {record["system"] for record in evaluation_records}
+        if systems - {system}:
+            raise ValueError(
+                f"Models in {model_dir} were trained on {sorted(systems)}, "
+                f"not --system {system}"
+            )
 
     effective_max_train_T = max_train_T or max(train_Ts, default=0)
     summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
+    methods = sorted(
+        {
+            record.get("adaptive_method")
+            for record in evaluation_records
+            if record["model_type"] == "adaptive" and record.get("adaptive_method")
+        }
+    )
+    if len(methods) > 1:
+        # Several adaptive methods in one directory: compare each separately.
+        fixed_records = [r for r in evaluation_records if r["model_type"] == "fixed"]
+        summary["adaptive_by_method"] = {
+            method: summarize_cross_validation(
+                fixed_records
+                + [r for r in evaluation_records if r.get("adaptive_method") == method],
+                train_Ts,
+                val_Ts,
+            )
+            for method in methods
+        }
+    evaluation_split = (
+        "test"
+        if any(record.get("split") == "test" for record in evaluation_records)
+        else "val"
+    )
     if cached is None:
         save_cross_validation_results(
             evaluation_records,
@@ -252,17 +378,20 @@ def cross_validation(
     if not summary["fixed"]:
         print("No fixed models evaluated; skipping plots")
         return
-    plot_mse(
-        summary,
-        output_dir,
-        dt,
-        effective_max_train_T,
-        budget_based,
-        metric,
-        error_metric,
-    )
-    if lyapunov_exponent is not None:
-        plot_vpt(summary, output_dir, dt, lyapunov_exponent, metric)
+    for method, method_summary in summary.get("adaptive_by_method", {None: summary}).items():
+        method_dir = Path(output_dir) / method if method else output_dir
+        plot_mse(
+            method_summary,
+            method_dir,
+            dt,
+            effective_max_train_T,
+            budget_based,
+            metric,
+            error_metric,
+            evaluation_split=evaluation_split,
+        )
+        if lyapunov_exponent is not None:
+            plot_vpt(method_summary, method_dir, dt, lyapunov_exponent, metric)
 
 
 def main():
@@ -276,7 +405,13 @@ def main():
     parser.add_argument("--metric", choices=("mean", "median"), default="median")
     parser.add_argument("--error-metric", choices=ERROR_METRICS, default="mse")
     parser.add_argument(
-        "--system", choices=SYSTEM_CHOICES, default=config.DEFAULT_SYSTEM
+        "--system", choices=(*SYSTEM_CHOICES, SANTAFE), default=config.DEFAULT_SYSTEM
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        default=None,
+        help="Override the checkpoints' local Santa Fe recording path",
     )
     args = parser.parse_args()
     cross_validation(**vars(args))

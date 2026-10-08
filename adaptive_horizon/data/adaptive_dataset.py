@@ -36,6 +36,35 @@ def lyapunov_center_and_ftle(
     return lambda_estimate, base_T, ftle
 
 
+def observed_center_and_scores(
+    observed_data, split, dt, lambda_estimate, lyapunov_fraction, max_T, base_T=None
+):
+    """Measured-data analogue of ``lyapunov_center_and_ftle``.
+
+    Per-sample scores are offline neighbour-divergence rates (no model of the
+    dynamics is available), and the global estimate is their training mean.
+    Scores are standardized with training statistics on every split.
+    """
+    if "scores" not in observed_data or split not in observed_data["scores"]:
+        raise ValueError(f"Observed data has no divergence scores for {split!r}")
+    if base_T is not None and not 1 <= base_T <= max_T:
+        raise ValueError(f"base_T must be between 1 and {max_T}, got {base_T}")
+    score_stats = observed_data["score_stats"]
+    if lambda_estimate is None:
+        lambda_estimate = score_stats["mean"]
+    lambda_estimate = float(lambda_estimate)
+    if base_T is None:
+        base_T = lyapunov_center_horizon(lambda_estimate, dt, lyapunov_fraction, max_T)
+    window = observed_data["metadata"]["estimator"]["window"]
+    return (
+        lambda_estimate,
+        base_T,
+        observed_data["scores"][split],
+        window,
+        dict(score_stats),
+    )
+
+
 class LyapunovBasedDataset(BaseTrajectoryDataset):
     def __init__(
         self,
@@ -63,16 +92,36 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         self.scores = []
         self.horizons = []
 
-        self.lambda_estimate, self.base_T, sample_scores = lyapunov_center_and_ftle(
-            traj_np,
-            self.dt,
-            self.system,
-            lambda_estimate,
-            self.lyapunov_fraction,
-            max_T,
-            base_T=base_T,
-        )
-        self.ftle_window = self.base_T
+        score_stats = {}
+        if self.observed_data is not None:
+            (
+                self.lambda_estimate,
+                self.base_T,
+                sample_scores,
+                self.ftle_window,
+                score_stats,
+            ) = observed_center_and_scores(
+                self.observed_data,
+                self.split,
+                self.dt,
+                lambda_estimate,
+                self.lyapunov_fraction,
+                max_T,
+                base_T,
+            )
+        else:
+            self.lambda_estimate, self.base_T, sample_scores = (
+                lyapunov_center_and_ftle(
+                    traj_np,
+                    self.dt,
+                    self.system,
+                    lambda_estimate,
+                    self.lyapunov_fraction,
+                    max_T,
+                    base_T=base_T,
+                )
+            )
+            self.ftle_window = self.base_T
         self.scores.append(sample_scores)
 
         self.min_T = max(1, self.base_T - self.spread)
@@ -83,6 +132,7 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
             self.min_T,
             self.max_T,
             invert=invert_horizons,
+            **score_stats,
         )
         if random_horizons:
             horizons = np.random.default_rng(horizon_seed).permutation(horizons)
@@ -124,7 +174,8 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
             for value, count in self.horizon_counts().items():
                 file.write(f"T={value} count={count}\n")
 
-            file.write("\n# FTLE score and T value per sample\n")
+            score_label = "FTLE" if self.observed_data is None else "Neighbour divergence"
+            file.write(f"\n# {score_label} score and T value per sample\n")
             for traj_idx in range(len(self.horizons)):
                 for i in range(len(self.horizons[traj_idx])):
                     file.write(
@@ -157,16 +208,29 @@ class WeightedLossDataset(BaseTrajectoryDataset):
         super().__init__(**kwargs)
         self.lyapunov_fraction = float(lyapunov_fraction)
 
-        self.lambda_estimate, self.base_T, ftle = lyapunov_center_and_ftle(
-            self.raw_trajectory.numpy(),
-            self.dt,
-            self.system,
-            lambda_estimate,
-            self.lyapunov_fraction,
-            config.MAX_TRAIN_T,
-            base_T=base_T,
-        )
-        self.ftle_window = self.base_T
+        if self.observed_data is not None:
+            self.lambda_estimate, self.base_T, ftle, self.ftle_window, _ = (
+                observed_center_and_scores(
+                    self.observed_data,
+                    self.split,
+                    self.dt,
+                    lambda_estimate,
+                    self.lyapunov_fraction,
+                    config.MAX_TRAIN_T,
+                    base_T,
+                )
+            )
+        else:
+            self.lambda_estimate, self.base_T, ftle = lyapunov_center_and_ftle(
+                self.raw_trajectory.numpy(),
+                self.dt,
+                self.system,
+                lambda_estimate,
+                self.lyapunov_fraction,
+                config.MAX_TRAIN_T,
+                base_T=base_T,
+            )
+            self.ftle_window = self.base_T
         self.T_max = self.base_T
         self.lambda_scores = [ftle]
 

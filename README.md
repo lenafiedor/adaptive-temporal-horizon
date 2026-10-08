@@ -69,8 +69,9 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 | `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                      | false                   |
 | `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                | 20                      |
 | `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                | `config.NUM_SEEDS`      |
-| `--dt`             | Model prediction/sampling step                                        | float                                                                                              | `config.DT`             |
-| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                | `config.DEFAULT_SYSTEM` |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                              | `config.DT`; laser: 1   |
+| `--system`         | System or recording to train on                                       | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser`                                             | `config.DEFAULT_SYSTEM` |
+| `--data-path`      | Local Santa Fe intensity recording                                    | path                                                                                               | Required for laser      |
 | `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                | `config.BATCH_SIZE`     |
 | `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                               | None                    |
 | `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                      | false                   |
@@ -80,6 +81,48 @@ Notes:
 - `--method` selects one training method. Both scheduled methods grow T by one per stage, starting at 1, and keep Adam state across T changes.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon for scheduler-based adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
+
+### Santa Fe laser benchmark
+
+Obtain the measured [Santa Fe laser recording](https://reservoirpy.readthedocs.io/en/stable/api/generated/reservoirpy.datasets.santafe_laser.html)
+manually and save it as a text file with one intensity value per line. The documented
+full recording has 10,093 samples; shorter recordings are accepted if all splits
+have enough history, targets, and distinct neighbours.
+
+```bash
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --fixed --output-dir experiments/santafe-laser/run
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --method lyapunov-mean --output-dir experiments/santafe-laser/run
+poetry run cross-validation --system santafe-laser --model-dir experiments/santafe-laser/run --max-eval-T 10
+```
+
+All adaptive methods are supported through `--method` (`--tolerance-from-fsle`
+needs a simulated system). The laser uses `dt=1` (one recorded sample) and eight
+consecutive past intensities as the model input. Raw samples are split
+70%/15%/15% into training/validation/test before history windows are constructed,
+and every split uses the scalar training mean and standard deviation. The MLP
+predicts only the next intensity and shifts the remaining history
+deterministically; losses and metrics score only newly predicted intensities.
+Training keeps the epoch with the lowest validation loss (`cross-validation`
+keeps its own selected checkpoint). Budget mode sizes the fixed sweep from the
+recording's training split.
+
+Lyapunov methods use an offline **neighbour-divergence proxy** instead of FTLEs:
+five distinct nearest training states, a 50-sample Theiler exclusion, and distance
+growth over five samples. The training mean of this rate replaces the global
+Lyapunov exponent in the `lyapunov_fraction` center-horizon rule, and scores are
+standardized with training statistics on every split. Forward observations supply
+offline labels, never forecast inputs.
+
+For laser checkpoints, `cross-validation` evaluates the held-out **test** block.
+Besides the usual metrics, records contain `physical_mse` (MSE in intensity
+units; plot it with `--error-metric physical_mse`). VPT is expressed in units of
+the neighbour-divergence rate. Checkpoints record the file checksum, split
+bounds, normalization, history and estimator settings; evaluation rebuilds
+preprocessing from them. Use `--data-path` during evaluation only if the
+recording has moved; its checksum must still match. Use validation to select
+models; test results are final benchmark results. When a run contains several
+adaptive methods, summaries and plots are separated per method under
+`adaptive_by_method`.
 
 ### Gradient Scaling
 
@@ -127,8 +170,9 @@ poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --max-ev
 | `--max-eval-T`        | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
 | `--cached`            | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
 | `--metric`            | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
-| `--error-metric`      | Error shown in the cross-validation plot                  | `mse` \| `nrmse` \| `smape`         | `mse`                           |
-| `--system`            | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+| `--error-metric`      | Error shown in the cross-validation plot                  | `mse` \| `nrmse` \| `smape` \| `physical_mse` | `mse`                |
+| `--system`            | System or recording to evaluate                           | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser` | `config.DEFAULT_SYSTEM` |
+| `--data-path`         | Override the laser recording path saved in checkpoints    | path                                | Checkpoint path                 |
 
 For a true state $x$ and prediction $\hat{x}$ with $D$ coordinates, per-step errors are:
 
