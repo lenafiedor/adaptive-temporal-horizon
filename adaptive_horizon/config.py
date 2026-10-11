@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import tomllib
@@ -70,3 +71,10 @@ def system_path(path, system_name=DEFAULT_SYSTEM):
         return Path(*parts)
 
     return path.parent / system_name / path.name
+
+
+def resolve_burn_in_steps(dt=DT, burn_in_time=BURN_IN_TIME, burn_in_steps=None):
+    """Return the burn-in length in steps (an explicit step count wins)."""
+    if burn_in_steps is not None:
+        return int(burn_in_steps)
+    return math.ceil(burn_in_time / dt)

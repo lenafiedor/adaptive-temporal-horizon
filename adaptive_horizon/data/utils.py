@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from adaptive_horizon import config
 from adaptive_horizon.config import DEFAULT_SYSTEM, INTEGRATION_DT
 from adaptive_horizon.dynamics.integrators import resolve_integration_substeps, rk4_step
 from adaptive_horizon.dynamics.systems import DynamicsSystem, get_system
@@ -30,6 +31,10 @@ def simulate_trajectory(
         states.append(current_state)
 
     return states[burn_in:]
+
+
+def default_split_gap(*horizons):
+    return max(config.MAX_TRAIN_T, config.MAX_EVAL_T, *horizons)
 
 
 def default_trajectory_path(system_name, data_dir, dt, steps, seed):

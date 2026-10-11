@@ -24,8 +24,8 @@ def test_cross_validate_models_falls_back_to_requested_system(monkeypatch):
     )
     monkeypatch.setattr(cross_validation, "validation_loss", Mock(return_value=0.0))
 
-    make_eval_loader = Mock(return_value=object())
-    monkeypatch.setattr(cross_validation, "make_eval_loader", make_eval_loader)
+    make_val_loader = Mock(return_value=object())
+    monkeypatch.setattr(cross_validation, "make_val_loader", make_val_loader)
 
     cross_validation.cross_validate_models(
         fixed_paths={1: [Path("mlp_T1_seed1.pt")]},
@@ -35,7 +35,7 @@ def test_cross_validate_models_falls_back_to_requested_system(monkeypatch):
         system_name="rossler",
     )
 
-    assert make_eval_loader.call_args.kwargs["system_name"] == "rossler"
+    assert make_val_loader.call_args.args[0] == "rossler"
 
 
 def test_summarize_cross_validation_allows_fixed_only_records():

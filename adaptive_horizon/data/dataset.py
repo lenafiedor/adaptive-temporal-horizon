@@ -1,57 +1,44 @@
+from pathlib import Path
+
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 from adaptive_horizon import config
+from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.utils import (
     NormalizationStats,
     apply_normalization,
+    default_split_gap,
     default_trajectory_path,
     get_trajectory,
     split_trajectory,
 )
 from adaptive_horizon.dynamics.systems import get_system
-from adaptive_horizon.training.utils import resolve_burn_in_steps
+from adaptive_horizon.utils import timestamp
 
 
-class TrajectoryDataset(NormalizationStats, Dataset):
-    """Dataset sliced from one shared long dynamical-system trajectory."""
-
+class BaseTrajectoryDataset(NormalizationStats, Dataset):
     def __init__(
         self,
-        T: int = 1,
         dt: float = config.DT,
         system: str = config.DEFAULT_SYSTEM,
         normalize: bool = True,
         seed: int | None = config.RANDOM_SEED,
         burn_in: int | None = None,
-        normalization_stats: dict | None = None,
         split: str = "train",
         trajectory_steps: int = config.TRAJECTORY_STEPS,
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
         trajectory_path: str | None = None,
     ):
-        """
-        Args:
-            T: Temporal horizon (number of prediction steps)
-            dt: Time step for simulation
-            system: Dynamical system name
-            normalize: Whether to normalize the data
-            seed: Random seed for the shared trajectory
-            burn_in: Number of initial steps to discard
-            normalization_stats: Optional mean/std values from a training dataset
-            split: Trajectory split to use ("train" or "val")
-            trajectory_steps: Length of the cached post-burn-in trajectory
-            train_fraction: Fraction assigned to the training split
-            split_gap: Guard gap between train and validation splits
-            trajectory_path: Optional path for the cached trajectory file
-        """
-        self.T = T
         self.system = get_system(system)
         self.system_name = self.system.name
+        self.dt = dt
         self.normalize = normalize
-        self.burn_in = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
+        self.burn_in: int = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
         self.split = split
+        self.mean: torch.Tensor | None = None
+        self.std: torch.Tensor | None = None
         self.trajectory_path = trajectory_path or default_trajectory_path(
             self.system.name,
             config.system_path(config.DATA_DIR, self.system.name),
@@ -68,16 +55,36 @@ class TrajectoryDataset(NormalizationStats, Dataset):
             seed=seed,
             path=self.trajectory_path,
         )
-        trajectory, self.split_bounds = split_trajectory(
+        self.raw_trajectory, self.split_bounds = split_trajectory(
             full_trajectory,
             split=split,
             train_fraction=train_fraction,
             gap=split_gap,
         )
-        self.trajectories = trajectory.unsqueeze(0)
-        apply_normalization(self, normalization_stats)
 
+    def _finalize(self, normalization_stats: dict | None):
+        self.trajectories = self.raw_trajectory.unsqueeze(0)
+        apply_normalization(self, normalization_stats)
         self.samples = self._create_samples()
+
+    def _create_samples(self):
+        raise NotImplementedError
+
+    @staticmethod
+    def _debug_path(prefix: str, system_name: str) -> Path:
+        return config.system_path(config.EVAL_DIR, system_name) / (
+            f"{prefix}_{timestamp()}.txt"
+        )
+
+    def __len__(self):
+        return len(self.samples)
+
+
+class TrajectoryDataset(BaseTrajectoryDataset):
+    def __init__(self, T: int = 1, normalization_stats: dict | None = None, **kwargs):
+        self.T = T
+        super().__init__(**kwargs)
+        self._finalize(normalization_stats)
 
     def _create_samples(self):
         """Create (input, targets) pairs for all valid starting points."""
@@ -92,9 +99,6 @@ class TrajectoryDataset(NormalizationStats, Dataset):
 
         return samples
 
-    def __len__(self):
-        return len(self.samples)
-
     def __getitem__(self, idx):
         """
         Returns:
@@ -105,7 +109,28 @@ class TrajectoryDataset(NormalizationStats, Dataset):
 
 
 def collate_fn(batch):
-    """Custom collate function for DataLoader."""
-    inputs = torch.stack([item[0] for item in batch])
-    targets = torch.stack([item[1] for item in batch])
-    return inputs, targets
+    """Stack every field of the samples; works for any fixed-size sample tuple."""
+    return tuple(torch.stack(column) for column in zip(*batch))
+
+
+def make_val_loader(
+    system_name,
+    dt,
+    T,
+    normalization_stats=None,
+    batch_size=config.BATCH_SIZE,
+):
+    dataset = TrajectoryDataset(
+        T=T,
+        dt=dt,
+        system=system_name,
+        normalize=True,
+        seed=config.RANDOM_SEED,
+        burn_in=resolve_burn_in_steps(dt),
+        split="val",
+        split_gap=default_split_gap(T),
+        normalization_stats=normalization_stats,
+    )
+    return DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+    )

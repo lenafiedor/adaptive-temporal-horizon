@@ -1,18 +1,10 @@
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 
 from adaptive_horizon import config
-from adaptive_horizon.data.utils import (
-    NormalizationStats,
-    apply_normalization,
-    default_trajectory_path,
-    get_trajectory,
-    split_trajectory,
-)
+from adaptive_horizon.data.dataset import BaseTrajectoryDataset
 from adaptive_horizon.dynamics.lyapunov import (
     compute_forward_ftle,
     compute_local_lyapunov,
@@ -21,9 +13,7 @@ from adaptive_horizon.dynamics.lyapunov import (
     mean_horizon,
     time_horizon,
 )
-from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.training.methods import LYAPUNOV_MEAN, LYAPUNOV_TIME
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def lyapunov_center_and_ftle(
@@ -45,66 +35,33 @@ def lyapunov_center_and_ftle(
     return lambda_estimate, base_T, ftle
 
 
-class LyapunovBasedDataset(NormalizationStats, Dataset):
+class LyapunovBasedDataset(BaseTrajectoryDataset):
     def __init__(
         self,
-        dt: float = config.DT,
-        system: str = config.DEFAULT_SYSTEM,
-        normalize: bool = True,
-        seed: int = config.RANDOM_SEED,
-        burn_in: int | None = None,
         max_T: int = config.MAX_TRAIN_T,
         var: int = config.VARIANCE,
         adaptive_method: str = LYAPUNOV_MEAN,
         normalization_stats: dict | None = None,
         debug: bool = False,
-        split: str = "train",
-        trajectory_steps: int = config.TRAJECTORY_STEPS,
-        train_fraction: float = config.TRAIN_FRACTION,
-        split_gap: int = 0,
-        trajectory_path: str | None = None,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
+        **kwargs,
     ):
-        self.system = get_system(system)
-        self.system_name = self.system.name
-        self.normalize = normalize
-        self.burn_in: int = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
-        self.dt = dt
-        self.split = split
-        self.mean: torch.Tensor | None = None
-        self.std: torch.Tensor | None = None
+        super().__init__(**kwargs)
         self.var = var
         self.lyapunov_fraction = float(lyapunov_fraction)
 
-        self.trajectory_path = trajectory_path or default_trajectory_path(
-            self.system.name,
-            config.system_path(config.DATA_DIR, self.system.name),
-            dt,
-            trajectory_steps,
-            seed,
-        )
-        full_trajectory = get_trajectory(
-            self.system,
-            dt=dt,
-            steps=trajectory_steps,
-            burn_in=self.burn_in,
-            seed=seed,
-            path=self.trajectory_path,
-        )
-        trajectory, self.split_bounds = split_trajectory(
-            full_trajectory,
-            split=split,
-            train_fraction=train_fraction,
-            gap=split_gap,
-        )
-
-        traj_np = trajectory.numpy()
+        traj_np = self.raw_trajectory.numpy()
         self.scores = []
         self.horizons = []
 
         self.lambda_estimate, self.base_T, sample_scores = lyapunov_center_and_ftle(
-            traj_np, dt, self.system, lambda_estimate, self.lyapunov_fraction, max_T
+            traj_np,
+            self.dt,
+            self.system,
+            lambda_estimate,
+            self.lyapunov_fraction,
+            max_T,
         )
         self.ftle_window = self.base_T
         self.scores.append(sample_scores)
@@ -120,16 +77,9 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
         self.horizons.append(horizons)
         self.mean_T = float(np.mean(horizons))
 
-        self.trajectories = trajectory.unsqueeze(0)
-        apply_normalization(self, normalization_stats)
-
-        self.samples = self._create_samples()
+        self._finalize(normalization_stats)
         if debug:
-            timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-            self._write_t_values(
-                config.system_path(config.EVAL_DIR, self.system.name)
-                / f"t_values_{timestamp}.txt"
-            )
+            self._write_t_values(self._debug_path("t_values", self.system_name))
 
     def _create_samples(self):
         samples = []
@@ -148,12 +98,8 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
 
         return samples
 
-    def _write_t_values(self, output_path: Path | None):
-        if output_path is None:
-            return
-
-        if output_path.parent != Path("."):
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+    def _write_t_values(self, output_path: Path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         t_values = [int(sample[2]) for sample in self.samples]
         unique_t_values, counts = np.unique(t_values, return_counts=True)
@@ -170,33 +116,21 @@ class LyapunovBasedDataset(NormalizationStats, Dataset):
                         f"{self.scores[traj_idx][i]},{self.horizons[traj_idx][i]}\n"
                     )
 
-    def __len__(self):
-        return len(self.samples)
-
     def __getitem__(self, index):
         input_state, target, T = self.samples[index]
         return input_state, target, torch.tensor(T, dtype=torch.float32)
 
 
-class WeightedLossDataset(NormalizationStats, Dataset):
+class WeightedLossDataset(BaseTrajectoryDataset):
     """Weighted-loss dataset sliced from one shared long trajectory."""
 
     def __init__(
         self,
-        dt: float = config.DT,
-        system: str = config.DEFAULT_SYSTEM,
-        normalize: bool = True,
-        seed: int = config.RANDOM_SEED,
-        burn_in: int | None = None,
         normalization_stats: dict | None = None,
         debug: bool = False,
-        split: str = "train",
-        trajectory_steps: int = config.TRAJECTORY_STEPS,
-        train_fraction: float = config.TRAIN_FRACTION,
-        split_gap: int = 0,
-        trajectory_path: str | None = None,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
+        **kwargs,
     ):
         """
         Every sample is rolled out for base_T steps, and its forward FTLE over
@@ -204,42 +138,12 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         the same Lyapunov-fraction rule as LyapunovBasedDataset. Pass the
         training split's lambda_estimate to validation datasets.
         """
-        self.system = get_system(system)
-        self.system_name = self.system.name
-        self.dt = dt
+        super().__init__(**kwargs)
         self.lyapunov_fraction = float(lyapunov_fraction)
-        self.normalize = normalize
-        self.burn_in: int = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
-        self.split = split
-        self.mean: torch.Tensor | None = None
-        self.std: torch.Tensor | None = None
 
-        self.trajectory_path = trajectory_path or default_trajectory_path(
-            self.system.name,
-            config.system_path(config.DATA_DIR, self.system.name),
-            dt,
-            trajectory_steps,
-            seed,
-        )
-        full_trajectory = get_trajectory(
-            self.system,
-            dt=dt,
-            steps=trajectory_steps,
-            burn_in=self.burn_in,
-            seed=seed,
-            path=self.trajectory_path,
-        )
-        trajectory, self.split_bounds = split_trajectory(
-            full_trajectory,
-            split=split,
-            train_fraction=train_fraction,
-            gap=split_gap,
-        )
-
-        traj_np = trajectory.numpy()
         self.lambda_estimate, self.base_T, ftle = lyapunov_center_and_ftle(
-            traj_np,
-            dt,
+            self.raw_trajectory.numpy(),
+            self.dt,
             self.system,
             lambda_estimate,
             self.lyapunov_fraction,
@@ -249,15 +153,10 @@ class WeightedLossDataset(NormalizationStats, Dataset):
         self.T_max = self.base_T
         self.lambda_scores = [ftle]
 
-        self.trajectories = trajectory.unsqueeze(0)
-        apply_normalization(self, normalization_stats)
-
-        self.samples = self._create_samples()
+        self._finalize(normalization_stats)
         if debug:
-            timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
             self._write_lambda_values(
-                config.system_path(config.EVAL_DIR, self.system.name)
-                / f"lambda_values_{timestamp}.txt"
+                self._debug_path("lambda_values", self.system_name)
             )
 
     def _create_samples(self):
@@ -279,8 +178,7 @@ class WeightedLossDataset(NormalizationStats, Dataset):
 
     def _write_lambda_values(self, output_path: Path):
         values = np.array([sample[2] for sample in self.samples])
-        if output_path.parent != Path("."):
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with output_path.open("w", encoding="ascii") as file:
             file.write("# Lambda score diagnostics\n")
@@ -289,9 +187,6 @@ class WeightedLossDataset(NormalizationStats, Dataset):
             file.write(f"std={float(np.std(values))}\n")
             file.write(f"min={float(np.min(values))}\n")
             file.write(f"max={float(np.max(values))}\n")
-
-    def __len__(self):
-        return len(self.samples)
 
     def __getitem__(self, index):
         input_state, targets, lambda_score = self.samples[index]
@@ -314,10 +209,3 @@ def collate_fn_lyapunov_based(batch):
 
     targets = torch.stack(padded_targets)
     return inputs, targets, T
-
-
-def collate_fn_weighted_loss(batch):
-    inputs = torch.stack([item[0] for item in batch])
-    targets = torch.stack([item[1] for item in batch])
-    lambda_scores = torch.stack([item[2] for item in batch])
-    return inputs, targets, lambda_scores

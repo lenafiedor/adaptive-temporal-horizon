@@ -3,8 +3,8 @@ from itertools import pairwise
 import matplotlib.pyplot as plt
 import numpy as np
 
+from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def lorenz_lobe_centers(rho=28, beta=8 / 3):

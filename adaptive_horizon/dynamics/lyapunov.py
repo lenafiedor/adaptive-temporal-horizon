@@ -1,13 +1,16 @@
 import numpy as np
 
 from adaptive_horizon import config
-from adaptive_horizon.config import DEFAULT_SYSTEM, SIMULATION_STEPS
+from adaptive_horizon.config import (
+    DEFAULT_SYSTEM,
+    SIMULATION_STEPS,
+    resolve_burn_in_steps,
+)
 from adaptive_horizon.dynamics.integrators import (
     resolve_integration_substeps,
     rk4_step_coupled,
 )
 from adaptive_horizon.dynamics.systems import get_system
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def lyapunov_center_horizon(lambda_estimate, dt, fraction, max_T, min_T=1):

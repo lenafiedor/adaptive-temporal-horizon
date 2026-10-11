@@ -17,6 +17,13 @@ ADAPTIVE_METHODS = {
 ) = ADAPTIVE_METHODS.keys()
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
+LYAPUNOV_METHODS = (LYAPUNOV_MEAN, LYAPUNOV_TIME)
+SCHEDULED_METHODS = (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+
+
+def takes_max_T(method: str | None) -> bool:
+    return method == LYAPUNOV_TIME or method in SCHEDULED_METHODS
+
 
 def adaptive_method_abbreviation(method: str | None) -> str | None:
     """Return a short filename-safe abbreviation for an adaptive method."""

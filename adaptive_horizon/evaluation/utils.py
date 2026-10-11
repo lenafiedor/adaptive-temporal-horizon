@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from math import sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
@@ -10,7 +9,7 @@ from torch import nn
 
 from adaptive_horizon import config
 from adaptive_horizon.model.mlp import MLP, MLPConfig
-from adaptive_horizon.utils import format_dt
+from adaptive_horizon.utils import format_dt, timestamp
 
 
 def get_dt_from_model_dir(model_dir: Path):
@@ -74,7 +73,7 @@ def summarize_wall_time(evaluation_records):
     }
     for record in evaluation_records:
         model_type = record.get("model_type")
-        wall_time = record.get("wall_time_seconds", "train_wall_clock_seconds")
+        wall_time = record.get("wall_time_seconds")
         if model_type not in totals or wall_time is None:
             continue
         totals[model_type] += float(wall_time)
@@ -99,11 +98,10 @@ def save_cross_validation_results(
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     prefix = "budget_" if budget_based else ""
     results_file = (
-        save_dir
-        / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{timestamp}.json"
+        save_dir / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{stamp}.json"
     )
     summary_metadata = summarize_metadata(summary)
     wall_time_metadata = summarize_wall_time(evaluation_records)

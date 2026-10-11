@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -9,7 +8,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from adaptive_horizon import config
 from adaptive_horizon.config import ANALYSIS_DIR, DT, EVAL_DIR, LOSS_DIR
-from adaptive_horizon.utils import format_dt
+from adaptive_horizon.utils import format_dt, timestamp
 
 COLOR_TRAIN = "#8B87B0"
 COLOR_EVAL = "#A0BAB5"
@@ -35,15 +34,15 @@ def save_losses(
     """Save training history"""
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     if adaptive:
-        filename = f"adaptive_loss_{timestamp}"
+        filename = f"adaptive_loss_{stamp}"
     else:
-        filename = f"loss_T{T}_{timestamp}"
+        filename = f"loss_T{T}_{stamp}"
 
     loss_path = save_dir / filename
 
-    _, ax1 = plt.subplots(figsize=(10, 6))
+    fig, ax1 = plt.subplots(figsize=(10, 6))
     ax1.plot(train_losses, label="Train Loss", color=COLOR_TRAIN, linewidth=2)
     ax1.plot(val_losses, label="Val Loss", color=COLOR_EVAL, linewidth=2)
     ax1.set_xlabel("Epoch")
@@ -53,9 +52,8 @@ def save_losses(
     )
     ax1.legend()
 
-    plt.tight_layout()
-    plt.savefig(f"{loss_path}.png", dpi=150)
-    plt.close()
+    fig.tight_layout()
+    save_figure(fig, f"{filename}.png", save_dir, verbose=False)
     print(f"\nLoss plot saved to {loss_path}.png")
 
     with open(f"{loss_path}.txt", "w") as f:
@@ -77,11 +75,11 @@ def plot_g_T(
 
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     filename = (
-        f"gradient_scaling_T{train_T}_{timestamp}.png"
+        f"gradient_scaling_T{train_T}_{stamp}.png"
         if not adaptive
-        else f"gradient_scaling_adaptive_{timestamp}.png"
+        else f"gradient_scaling_adaptive_{stamp}.png"
     )
     plot_path = save_dir / filename
 
@@ -114,10 +112,7 @@ def plot_g_T(
     ax.set_xlabel(r"Validation Horizon ($\tau = T \cdot dt$)")
     ax.set_title("Gradient Scaling")
     fig.tight_layout()
-    fig.savefig(plot_path, dpi=150)
-    plt.close(fig)
-
-    print(f"Gradient scaling plot saved to {plot_path}")
+    save_figure(fig, plot_path.name, plot_path.parent)
 
 
 def plot_gradients_histogram(
@@ -172,12 +167,13 @@ def plot_gradients_histogram(
         title += rf" (train $\tau = {train_T * dt:.2f}$)"
     fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     label = f"T{train_T}" if not adaptive else "adaptive"
     epoch_part = f"_epoch{epoch + 1:03d}" if epoch is not None else ""
-    save_path = save_dir / f"g_T_hist_{label}{epoch_part}_{timestamp}.png"
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_path = save_dir / f"g_T_hist_{label}{epoch_part}_{stamp}.png"
+    save_figure(
+        fig, save_path.name, save_path.parent, bbox_inches="tight", verbose=False
+    )
 
     print(f"\tg(T) histogram saved to {save_path}")
     return save_path
@@ -267,11 +263,12 @@ def plot_gradient_history(
     )
 
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     label = f"T{train_T}" if not adaptive else "adaptive"
-    save_path = save_dir / f"g_T_history_{label}_{timestamp}.png"
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_path = save_dir / f"g_T_history_{label}_{stamp}.png"
+    save_figure(
+        fig, save_path.name, save_path.parent, bbox_inches="tight", verbose=False
+    )
 
     print(f"g(T) history plot saved to {save_path}")
     return save_path
@@ -367,11 +364,10 @@ def plot_mse(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
+    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{stamp}.png"
     save_figure(fig, filename, save_dir)
-    plt.close(fig)
 
 
 def plot_paired_deltas(
@@ -415,12 +411,9 @@ def plot_paired_deltas(
     plt.tight_layout()
 
     prefix = "budget_" if budget_based else ""
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    filename = (
-        f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
-    )
+    stamp = timestamp()
+    filename = f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{metric}_{stamp}.png"
     save_figure(fig, filename, save_dir)
-    plt.close(fig)
 
 
 def plot_lyapunov_exponents(
@@ -498,7 +491,6 @@ def plot_lle_heatmap(
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         lle_i = exponents[:, i]
-        # noinspection PyArgumentList
         norm = Normalize(float(lle_i.min()), float(lle_i.max()))
         lc = Line3DCollection(segments, cmap="coolwarm", norm=norm)
         lc.set_array(lle_i[:-1])
@@ -581,10 +573,9 @@ def plot_g_T_heatmap(
     cbar.set_label(rf"$g(T)$ at $T={T_val}$, $\tau={T_val * dt:.2f}$")
 
     fig.tight_layout()
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    filename = f"{system_name}_gradient_heatmap_T{T_val}_{timestamp}.png"
+    stamp = timestamp()
+    filename = f"{system_name}_gradient_heatmap_T{T_val}_{stamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
-    plt.close(fig)
 
 
 def plot_prediction_overlay(
@@ -633,15 +624,20 @@ def plot_prediction_overlay(
     ax.legend()
     fig.tight_layout()
 
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    filename = f"{system_name}_prediction_T{T_val}_{timestamp}.png"
+    stamp = timestamp()
+    filename = f"{system_name}_prediction_T{T_val}_{stamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
-    plt.close(fig)
 
 
-def save_figure(fig, filename, save_dir=ANALYSIS_DIR, dpi=150):
+def save_figure(
+    fig, filename, save_dir=ANALYSIS_DIR, dpi=150, bbox_inches=None, verbose=True
+):
+    """Save ``fig`` as ``save_dir / filename`` and close it."""
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     save_path = save_dir / filename
-    fig.savefig(save_path, dpi=dpi)
-    print(f"Plot saved to {save_path}")
+    fig.savefig(save_path, dpi=dpi, bbox_inches=bbox_inches)
+    plt.close(fig)
+    if verbose:
+        print(f"Plot saved to {save_path}")
+    return save_path

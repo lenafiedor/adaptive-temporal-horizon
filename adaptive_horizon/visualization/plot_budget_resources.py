@@ -2,21 +2,23 @@ import argparse
 import csv
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from adaptive_horizon import config
-from adaptive_horizon.utils import format_dt
-from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
-
-
-@dataclass(frozen=True)
-class EvalScope:
-    mode: str
-    eval_T: int | None = None
+from adaptive_horizon.evaluation.results import (
+    EvalScope,
+    add_scope_argument,
+    load_payload,
+    metric_for_scope,
+    parse_eval_scope,
+    per_seed_mses,
+    select_fixed_result,
+)
+from adaptive_horizon.utils import format_dt, timestamp
+from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN, save_figure
 
 
 @dataclass(frozen=True)
@@ -30,84 +32,22 @@ class BudgetComparison:
     source_path: Path
 
 
-def aggregate_values(values, metric: str):
-    if metric == "mean":
-        return float(np.mean(values))
-    return float(np.median(values))
-
-
-def per_seed_mses(
-    records, model_type: str, metric: str, eval_scope: EvalScope, train_T=None
-):
-    matching_records = [
-        record
-        for record in records
-        if record["model_type"] == model_type
-        and record.get("seed") is not None
-        and (train_T is None or record.get("train_T") == train_T)
-        and (eval_scope.mode != "single" or int(record["val_T"]) == eval_scope.eval_T)
-    ]
-
-    values_by_seed = {}
-    for record in matching_records:
-        values_by_seed.setdefault(int(record["seed"]), []).append(float(record["mse"]))
-
-    return [
-        aggregate_values(seed_values, metric)
-        for _, seed_values in sorted(values_by_seed.items())
-        if seed_values
-    ]
-
-
-def summary_for_eval_T(summaries, eval_T: int):
-    for summary in summaries:
-        if int(summary["eval_T"]) == eval_T:
-            return summary
-    available = ", ".join(str(summary["eval_T"]) for summary in summaries)
-    raise ValueError(f"Validation horizon T={eval_T} not found. Available: {available}")
-
-
-def select_fixed_result(summary, metric: str, eval_scope: EvalScope):
-    if eval_scope.mode == "overall":
-        return min(summary["fixed"], key=lambda item: item["overall"][metric])
-
-    if eval_scope.eval_T is None:
-        raise ValueError("Single-horizon scope requires an evaluation horizon")
-
-    eval_T = eval_scope.eval_T
-    return min(
-        summary["fixed"],
-        key=lambda item: summary_for_eval_T(item["by_eval_T"], eval_T)[metric],
-    )
-
-
 def load_result(path: Path, metric: str, eval_scope: EvalScope):
-    with path.open("r") as f:
-        result = json.load(f)
+    result = load_payload(path)
     metadata = result.get("metadata", {})
     summary = result.get("summary", {})
     records = result.get("evaluation_records", [])
     fixed_result = select_fixed_result(summary, metric, eval_scope)
     best_train_T = fixed_result["train_T"]
 
-    if eval_scope.mode == "single":
-        if eval_scope.eval_T is None:
-            raise ValueError("Single-horizon scope requires an evaluation horizon")
-        eval_T = eval_scope.eval_T
-        fixed_summary = summary_for_eval_T(fixed_result["by_eval_T"], eval_T)
-        adaptive_summary = summary_for_eval_T(summary["adaptive"]["by_eval_T"], eval_T)
-    else:
-        fixed_summary = fixed_result["overall"]
-        adaptive_summary = summary["adaptive"]["overall"]
-
     adaptive_seed_mses = per_seed_mses(records, "adaptive", metric, eval_scope)
     fixed_seed_mses = per_seed_mses(records, "fixed", metric, eval_scope, best_train_T)
 
     return BudgetComparison(
         max_train_T=metadata["max_train_T"],
-        adaptive_mse=float(adaptive_summary[metric]),
+        adaptive_mse=metric_for_scope(summary["adaptive"], metric, eval_scope),
         adaptive_seed_mses=adaptive_seed_mses,
-        fixed_mse=float(fixed_summary[metric]),
+        fixed_mse=metric_for_scope(fixed_result, metric, eval_scope),
         fixed_seed_mses=fixed_seed_mses,
         best_train_T=best_train_T,
         source_path=path,
@@ -217,12 +157,13 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
     ax.legend()
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(
+        fig, output_path.name, output_path.parent, bbox_inches="tight", verbose=False
+    )
 
 
 def default_output_path(results_dir, metric, eval_scope, comparisons):
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     dt_values = {
         json.loads(comparison.source_path.read_text()).get("metadata", {}).get("dt")
         for comparison in comparisons
@@ -234,23 +175,7 @@ def default_output_path(results_dir, metric, eval_scope, comparisons):
             dt_part = f"_dt_{format_dt(dt)}"
     scope_part = f"_T{eval_scope.eval_T}" if eval_scope.mode == "single" else ""
     return Path(results_dir) / (
-        f"budget_based_comparison{dt_part}_{metric}{scope_part}_{timestamp}.png"
-    )
-
-
-def parse_eval_scope(scope_args):
-    if scope_args == ["overall"]:
-        return EvalScope("overall")
-    if len(scope_args) == 2 and scope_args[0] == "single":
-        try:
-            eval_T = int(scope_args[1])
-        except ValueError as exc:
-            raise argparse.ArgumentTypeError(
-                "--scope single requires an integer validation horizon"
-            ) from exc
-        return EvalScope("single", eval_T)
-    raise argparse.ArgumentTypeError(
-        "--scope must be either 'overall' or 'single <validation horizon>'"
+        f"budget_based_comparison{dt_part}_{metric}{scope_part}_{stamp}.png"
     )
 
 
@@ -271,13 +196,7 @@ def main():
         default="median",
         help="Overall MSE summary statistic to compare",
     )
-    parser.add_argument(
-        "--scope",
-        nargs="+",
-        default=["overall"],
-        metavar=("MODE", "T"),
-        help="Use 'overall' or 'single <validation horizon>'",
-    )
+    add_scope_argument(parser)
     args = parser.parse_args()
     try:
         eval_scope = parse_eval_scope(args.scope)

@@ -1,16 +1,14 @@
 import argparse
 
-from torch.utils.data import DataLoader
-
 from adaptive_horizon import config
-from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.data.dataset import make_val_loader
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
 )
 from adaptive_horizon.training.loss import compute_g_T
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_g_T
 
 
@@ -28,25 +26,11 @@ def gradient_scaling(
 
     adaptive = "adaptive" in str(model_path)
     train_T = checkpoint.get("train_T") if not adaptive else None
-    split_gap = max(
-        config.MAX_TRAIN_T,
-        config.MAX_EVAL_T,
+    eval_loader = make_val_loader(
+        system_name,
+        dt,
         max_T,
-    )
-
-    eval_dataset = TrajectoryDataset(
-        dt=dt,
-        system=system_name,
-        T=max_T,
-        normalize=True,
-        seed=config.RANDOM_SEED,
-        burn_in=burn_in_steps,
-        split="val",
-        split_gap=split_gap,
         normalization_stats=get_checkpoint_normalization_stats(checkpoint),
-    )
-    eval_loader = DataLoader(
-        eval_dataset, batch_size=config.BATCH_SIZE, shuffle=False, collate_fn=collate_fn
     )
 
     T_vals = list(range(1, max_T + 1))

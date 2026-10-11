@@ -1,9 +1,7 @@
 import argparse
 import csv
-import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -11,13 +9,18 @@ import numpy as np
 from matplotlib.ticker import MaxNLocator
 
 from adaptive_horizon import config
-from adaptive_horizon.visualization.plot_budget_resources import (
+from adaptive_horizon.evaluation.results import (
     EvalScope,
+    add_scope_argument,
     aggregate_values,
+    load_payload,
+    matching_records,
+    metric_for_scope,
     parse_eval_scope,
     select_fixed_result,
 )
-from adaptive_horizon.visualization.plotting import COLOR_TRAIN
+from adaptive_horizon.utils import timestamp
+from adaptive_horizon.visualization.plotting import COLOR_TRAIN, save_figure
 
 
 @dataclass(frozen=True)
@@ -40,11 +43,7 @@ def infer_epochs(fixed_dir: str, budget_epochs: int) -> int:
 
 def select_seed_train_T(records, seed: int, metric: str, eval_scope: EvalScope) -> int:
     values_by_train_T = {}
-    for record in records:
-        if record["model_type"] != "fixed" or int(record["seed"]) != seed:
-            continue
-        if eval_scope.mode == "single" and int(record["val_T"]) != eval_scope.eval_T:
-            continue
+    for record in matching_records(records, "fixed", eval_scope, seed=seed):
         values_by_train_T.setdefault(int(record["train_T"]), []).append(
             float(record["mse"])
         )
@@ -64,22 +63,12 @@ def load_optimal_horizon(
     eval_scope: EvalScope,
     budget_epochs: int,
 ) -> OptimalHorizon:
-    with path.open("r") as f:
-        payload = json.load(f)
+    payload = load_payload(path)
 
     metadata = payload.get("metadata", {})
     fixed_dir = str(metadata.get("fixed_dir", ""))
     epochs = infer_epochs(fixed_dir, budget_epochs)
     best = select_fixed_result(payload["summary"], metric, eval_scope)
-    if eval_scope.mode == "single":
-        mse = next(
-            item[metric]
-            for item in best["by_eval_T"]
-            if int(item["eval_T"]) == eval_scope.eval_T
-        )
-    else:
-        mse = best["overall"][metric]
-
     records = payload["evaluation_records"]
     seeds = sorted(
         {
@@ -92,7 +81,7 @@ def load_optimal_horizon(
     return OptimalHorizon(
         epochs=epochs,
         train_T=int(best["train_T"]),
-        mse=float(mse),
+        mse=metric_for_scope(best, metric, eval_scope),
         seed_train_Ts={
             seed: select_seed_train_T(records, seed, metric, eval_scope)
             for seed in seeds
@@ -166,8 +155,9 @@ def plot_results(results, eval_scope, output_path):
     ax.set_title(f"Optimal Horizon ({scope_label})")
     ax.legend()
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(
+        fig, output_path.name, output_path.parent, bbox_inches="tight", verbose=False
+    )
 
 
 def save_csv(results, output_path):
@@ -193,13 +183,7 @@ def main():
         help="Directory containing fixed-model cross-validation JSON files",
     )
     parser.add_argument("--metric", choices=("mean", "median"), default="median")
-    parser.add_argument(
-        "--scope",
-        nargs="+",
-        default=["overall"],
-        metavar=("MODE", "T"),
-        help="Use 'overall' or 'single <validation horizon>'",
-    )
+    add_scope_argument(parser)
     parser.add_argument(
         "--budget-epochs",
         type=int,
@@ -216,8 +200,8 @@ def main():
     results = load_results(
         args.results_dir, args.metric, eval_scope, args.budget_epochs
     )
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    output_path = args.results_dir / f"optimal_horizon_{timestamp}.png"
+    stamp = timestamp()
+    output_path = args.results_dir / f"optimal_horizon_{stamp}.png"
     plot_results(results, eval_scope, output_path)
     csv_path = save_csv(results, output_path)
     print(f"Saved optimal horizon plot to {output_path}")

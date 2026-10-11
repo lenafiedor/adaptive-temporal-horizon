@@ -3,13 +3,13 @@ import argparse
 import numpy as np
 
 from adaptive_horizon import config
+from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.utils import simulate_trajectory
 from adaptive_horizon.dynamics.lyapunov import (
     compute_global_lyapunov,
     compute_local_lyapunov,
 )
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
     plot_lle_heatmap,
     plot_lyapunov_exponents,

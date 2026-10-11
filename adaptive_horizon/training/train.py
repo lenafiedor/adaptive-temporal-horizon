@@ -3,10 +3,10 @@ from pathlib import Path
 from time import perf_counter
 
 import torch
-from torch.utils.data import DataLoader
 
 from adaptive_horizon import config
-from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.data.dataset import make_val_loader
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
@@ -23,8 +23,10 @@ from adaptive_horizon.training.methods import (
     EARLY_STOPPING,
     LINEAR_SCHEDULER,
     LYAPUNOV_MEAN,
-    LYAPUNOV_TIME,
+    LYAPUNOV_METHODS,
+    SCHEDULED_METHODS,
     WEIGHTED_LOSS,
+    takes_max_T,
 )
 from adaptive_horizon.training.schedules import stepped_scheduler
 from adaptive_horizon.training.setup import create_model_and_loaders
@@ -33,7 +35,6 @@ from adaptive_horizon.training.utils import (
     get_existing_adaptive_model_seeds,
     get_existing_fixed_model_seeds,
     get_train_Ts,
-    resolve_burn_in_steps,
     resolve_dirs,
     save_model,
 )
@@ -65,6 +66,62 @@ def scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
     if current_T == T_max and (epoch + 1) % 10 == 0:
         return True
     return stepped_scheduler(epoch + 1, T_max) > current_T
+
+
+class BestCheckpoint:
+    """Tracks the best (lowest-loss) model state seen at schedule boundaries."""
+
+    def __init__(self):
+        self.state = None
+        self.loss = None
+        self.T = None
+        self.epoch = None
+
+    def update(self, model, loss, T, epoch):
+        """Store the model if ``loss`` improves on the best so far."""
+        loss = float(loss)
+        if self.loss is not None and not loss < self.loss:
+            return False
+        self.state = clone_model_state_dict(model)
+        self.loss = loss
+        self.T = int(T)
+        self.epoch = epoch
+        return True
+
+    def restore(self, model):
+        """Load the best state into ``model``; returns whether one was stored."""
+        if self.state is None:
+            return False
+        model.load_state_dict(self.state)
+        return True
+
+
+def method_batch_loss(
+    model, inputs, targets, extra, adaptive, adaptive_method, current_T, dt
+):
+    """Training loss for one batch under the selected (adaptive) method."""
+    if not adaptive:
+        return batch_loss(model, inputs, targets, current_T)
+    if adaptive_method in LYAPUNOV_METHODS:
+        return adaptive_batch_loss(model, inputs, targets, *extra)
+    if adaptive_method == WEIGHTED_LOSS:
+        return lle_weighted_batch_loss(model, inputs, targets, *extra, dt=dt)
+    if adaptive_method in SCHEDULED_METHODS:
+        return batch_loss(model, inputs, targets[:, :current_T], current_T)
+    raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
+
+
+def method_validation_loss(model, val_loader, T, adaptive, adaptive_method, dt, device):
+    """Validation loss matching the training objective of the selected method."""
+    if not adaptive:
+        return validation_loss(model, val_loader, T, device)
+    if adaptive_method in LYAPUNOV_METHODS:
+        return adaptive_validation_loss(model, val_loader, device)
+    if adaptive_method == WEIGHTED_LOSS:
+        return lle_weighted_validation_loss(model, val_loader, dt=dt, device=device)
+    if adaptive_method in SCHEDULED_METHODS:
+        return validation_loss(model, val_loader, 1, device)
+    raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
 
 
 def train(
@@ -114,26 +171,21 @@ def train(
     if max_wall_time_seconds is not None and metadata is not None:
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
-    if adaptive and adaptive_method == EARLY_STOPPING:
-        early_stop_best_state = None
-        early_stop_best_loss = None
-        early_stop_best_T = None
-        early_stop_best_epoch = None
-        early_stop_wait = 0
-        stopped_early = False
-        if metadata is not None:
+    scheduled = adaptive and adaptive_method in SCHEDULED_METHODS
+    early_stopping = adaptive and adaptive_method == EARLY_STOPPING
+    cross_validation = adaptive and adaptive_method == CROSS_VALIDATION
+    best = BestCheckpoint()
+    early_stop_wait = 0
+    stopped_early = False
+
+    if metadata is not None:
+        if early_stopping:
             metadata["early_stopping"] = {
                 "enabled": True,
                 "metric": "validation_loss_T1",
                 "patience": config.EARLY_STOP_PATIENCE,
             }
-
-    if adaptive and adaptive_method == CROSS_VALIDATION:
-        cached_state = None
-        cached_T = None
-        cached_epoch = None
-        cached_val_loss = None
-        if metadata is not None:
+        elif cross_validation:
             metadata["early_stopping"] = {
                 "enabled": False,
                 "max_T": T,
@@ -143,26 +195,12 @@ def train(
         if save_dir is None:
             save_dir = config.system_path(config.LOSS_DIR, system_name)
         save_dir.mkdir(parents=True, exist_ok=True)
-        split_gap = max(
-            config.MAX_TRAIN_T,
+        debug_loader = make_val_loader(
+            system_name,
+            dt,
             config.MAX_EVAL_T,
-        )
-        debug_dataset = TrajectoryDataset(
-            T=config.MAX_EVAL_T,
-            dt=dt,
-            system=system_name,
-            normalize=True,
-            seed=config.RANDOM_SEED,
-            burn_in=resolve_burn_in_steps(dt),
-            split="val",
-            split_gap=split_gap,
             normalization_stats=getattr(model, "normalization_stats", None),
-        )
-        debug_loader = DataLoader(
-            debug_dataset,
             batch_size=1,
-            shuffle=False,
-            collate_fn=collate_fn,
         )
         debug_T_vals = [2, 4, 6, 8, 10]
 
@@ -173,11 +211,7 @@ def train(
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
-        if adaptive and adaptive_method in (
-            LINEAR_SCHEDULER,
-            EARLY_STOPPING,
-            CROSS_VALIDATION,
-        ):
+        if scheduled:
             current_T = stepped_scheduler(epoch, T)
             if current_T != linear_scheduler_T:
                 print(
@@ -191,49 +225,15 @@ def train(
         final_T = current_T
 
         for batch in train_loader:
-            inputs, targets, *rest = batch
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets, *extra = [tensor.to(device) for tensor in batch]
             optimizer.zero_grad()
-            if adaptive:
-                if adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
-                    T_values = rest[0].to(device) if rest else None
-                    loss = adaptive_batch_loss(
-                        model,
-                        inputs,
-                        targets,
-                        T_values,
-                    )
-                elif adaptive_method == WEIGHTED_LOSS:
-                    lambda_scores = rest[0].to(device) if rest else None
-                    loss = lle_weighted_batch_loss(
-                        model,
-                        inputs,
-                        targets,
-                        lambda_scores,
-                        dt=dt,
-                    )
-                elif adaptive_method in (
-                    LINEAR_SCHEDULER,
-                    EARLY_STOPPING,
-                    CROSS_VALIDATION,
-                ):
-                    loss = batch_loss(
-                        model,
-                        inputs,
-                        targets[:, :current_T],
-                        current_T,
-                    )
-                else:
-                    raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
-            else:
-                loss = batch_loss(model, inputs, targets, T)
+            loss = method_batch_loss(
+                model, inputs, targets, extra, adaptive, adaptive_method, current_T, dt
+            )
             loss.backward()
             optimizer.step()
-            if adaptive and adaptive_method in (
-                LINEAR_SCHEDULER,
-                EARLY_STOPPING,
-                CROSS_VALIDATION,
-            ):
+            if scheduled:
+                # Report the T=1 loss so curves are comparable across the schedule.
                 with torch.no_grad():
                     loss = batch_loss(model, inputs, targets[:, :1], 1)
             epoch_loss += loss.item()
@@ -241,59 +241,25 @@ def train(
         avg_loss = epoch_loss / len(train_loader)
         train_losses.append(avg_loss)
 
-        if not adaptive:
-            val_loss = validation_loss(model, val_loader, T, device)
-        elif adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME):
-            val_loss = adaptive_validation_loss(model, val_loader, device)
-        elif adaptive_method == WEIGHTED_LOSS:
-            val_loss = lle_weighted_validation_loss(
-                model, val_loader, dt=dt, device=device
-            )
-        elif adaptive_method in (
-            LINEAR_SCHEDULER,
-            EARLY_STOPPING,
-            CROSS_VALIDATION,
-        ):
-            val_loss = validation_loss(model, val_loader, 1, device)
+        val_loss = method_validation_loss(
+            model, val_loader, T, adaptive, adaptive_method, dt, device
+        )
         val_losses.append(val_loss)
 
-        if (
-            adaptive
-            and adaptive_method == CROSS_VALIDATION
-            and scheduler_boundary_reached(epoch, epochs, current_T, T)
-            and (cached_val_loss is None or val_loss < cached_val_loss)
+        if (cross_validation or early_stopping) and scheduler_boundary_reached(
+            epoch, epochs, current_T, T
         ):
-            cached_state = clone_model_state_dict(model)
-            cached_T = int(current_T)
-            cached_epoch = epoch + 1
-            cached_val_loss = val_loss
-
-        if (
-            adaptive
-            and adaptive_method == EARLY_STOPPING
-            and scheduler_boundary_reached(epoch, epochs, current_T, T)
-        ):
-            early_stop_val_loss = float(val_loss)
-            if (
-                early_stop_best_loss is None
-                or early_stop_val_loss < early_stop_best_loss
-            ):
-                early_stop_best_state = clone_model_state_dict(model)
-                early_stop_best_loss = early_stop_val_loss
-                early_stop_best_T = int(current_T)
-                early_stop_best_epoch = epoch + 1
-                early_stop_wait = 0
-            else:
-                early_stop_wait += 1
-
-            print(
-                f"\tEarly-stopping check at epoch {epoch + 1}, T={current_T}: "
-                f"T=1 MSE={early_stop_val_loss:.6f}"
-            )
-            if early_stop_wait >= config.EARLY_STOP_PATIENCE:
-                stopped_early = True
-                print(f"\tEarly stopping at epoch {epoch + 1}")
-                break
+            improved = best.update(model, val_loss, current_T, epoch + 1)
+            if early_stopping:
+                early_stop_wait = 0 if improved else early_stop_wait + 1
+                print(
+                    f"\tEarly-stopping check at epoch {epoch + 1}, T={current_T}: "
+                    f"T=1 MSE={float(val_loss):.6f}"
+                )
+                if early_stop_wait >= config.EARLY_STOP_PATIENCE:
+                    stopped_early = True
+                    print(f"\tEarly stopping at epoch {epoch + 1}")
+                    break
 
         if (epoch + 1) % 10 == 0:
             print(
@@ -318,47 +284,38 @@ def train(
             epoch += 1
             break
         epoch += 1
-    if (
-        adaptive
-        and adaptive_method == EARLY_STOPPING
-        and early_stop_best_state is not None
-    ):
-        model.load_state_dict(early_stop_best_state)
-        final_T = early_stop_best_T
+
+    if (early_stopping or cross_validation) and best.restore(model):
+        final_T = best.T
+        label = "Early stopping" if early_stopping else "Cross-validation"
+        metric = "T=1 MSE" if early_stopping else "MSE"
         print(
-            f"\tEarly stopping selected T={early_stop_best_T} from epoch "
-            f"{early_stop_best_epoch} (T=1 MSE={early_stop_best_loss:.6f})"
-        )
-    if adaptive and adaptive_method == CROSS_VALIDATION and cached_state is not None:
-        model.load_state_dict(cached_state)
-        final_T = cached_T
-        print(
-            f"\tCross-validation selected T={cached_T} from epoch "
-            f"{cached_epoch} (MSE={cached_val_loss:.6f})"
+            f"\t{label} selected T={best.T} from epoch "
+            f"{best.epoch} ({metric}={best.loss:.6f})"
         )
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
-        if adaptive and adaptive_method == EARLY_STOPPING:
+        if early_stopping:
             metadata["early_stopping"].update(
                 {
                     "stopped_early": stopped_early,
-                    "best_val_loss": early_stop_best_loss,
-                    "selected_T": early_stop_best_T,
-                    "selected_epoch": early_stop_best_epoch,
+                    "best_val_loss": best.loss,
+                    "selected_T": best.T,
+                    "selected_epoch": best.epoch,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
                 }
             )
-        elif adaptive and adaptive_method == CROSS_VALIDATION:
+        elif cross_validation:
             metadata["early_stopping"].update(
                 {
                     "stopped_early": False,
-                    "selected_T": cached_T,
-                    "selected_epoch": cached_epoch,
-                    "selected_loss": cached_val_loss,
+                    "selected_T": best.T,
+                    "selected_epoch": best.epoch,
+                    "selected_loss": best.loss,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
                     "stop_epoch": None,
@@ -397,11 +354,7 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            T
-            if adaptive_method
-            in (LYAPUNOV_TIME, LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
-            or not adaptive
-            else None,
+            T if not adaptive or takes_max_T(adaptive_method) else None,
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -412,12 +365,7 @@ def train_single_model(
     if adaptive:
         if budget_metadata is not None:
             metadata["budget"] = budget_metadata
-        if adaptive_method in (
-            LINEAR_SCHEDULER,
-            EARLY_STOPPING,
-            CROSS_VALIDATION,
-            WEIGHTED_LOSS,
-        ):
+        if adaptive_method in (*SCHEDULED_METHODS, WEIGHTED_LOSS):
             T = metadata["adaptive"]["T_max"]
         else:
             T = None
@@ -598,17 +546,7 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=(
-                max_T
-                if adaptive_method
-                in (
-                    LYAPUNOV_TIME,
-                    LINEAR_SCHEDULER,
-                    EARLY_STOPPING,
-                    CROSS_VALIDATION,
-                )
-                else None
-            ),
+            T=max_T if takes_max_T(adaptive_method) else None,
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -765,16 +703,7 @@ def main():
             loss_save_dir=loss_dir,
             dt=args.dt,
             T=(
-                args.max_T
-                if train_adaptive
-                and adaptive_method
-                in (
-                    LYAPUNOV_TIME,
-                    LINEAR_SCHEDULER,
-                    EARLY_STOPPING,
-                    CROSS_VALIDATION,
-                )
-                else None
+                (args.max_T if takes_max_T(adaptive_method) else None)
                 if train_adaptive
                 else args.T
             ),
@@ -803,8 +732,7 @@ def main():
             wall_time_budget = None
             budget_metadata = None
             if args.budget_based and adaptive_method in (
-                LYAPUNOV_MEAN,
-                LYAPUNOV_TIME,
+                *LYAPUNOV_METHODS,
                 WEIGHTED_LOSS,
             ):
                 wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)

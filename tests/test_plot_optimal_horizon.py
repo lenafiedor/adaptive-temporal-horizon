@@ -1,4 +1,4 @@
-from adaptive_horizon.visualization.plot_budget_resources import EvalScope
+from adaptive_horizon.evaluation.results import EvalScope
 from adaptive_horizon.visualization.plot_optimal_horizon import (
     infer_epochs,
     select_seed_train_T,

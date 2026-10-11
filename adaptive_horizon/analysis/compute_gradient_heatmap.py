@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from adaptive_horizon import config
+from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.utils import (
     default_trajectory_path,
     get_trajectory,
@@ -13,8 +14,11 @@ from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
 )
-from adaptive_horizon.training.loss import batch_loss, rollout_predictions
-from adaptive_horizon.training.utils import resolve_burn_in_steps
+from adaptive_horizon.training.loss import (
+    batch_loss,
+    grads_l2_norm,
+    rollout_predictions,
+)
 from adaptive_horizon.visualization.plotting import (
     plot_g_T_heatmap,
     plot_prediction_overlay,
@@ -97,11 +101,7 @@ def gradient_norm(loss, params, device):
         create_graph=False,
         allow_unused=True,
     )
-    total = torch.zeros((), device=device)
-    for grad in grads:
-        if grad is not None:
-            total += grad.norm().pow(2)
-    return torch.sqrt(total)
+    return grads_l2_norm(grads, device)
 
 
 def compute_local_g_values(

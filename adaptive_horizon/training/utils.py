@@ -1,6 +1,4 @@
-import math
 import re
-from datetime import datetime
 from pathlib import Path
 from statistics import mean
 
@@ -8,15 +6,7 @@ import torch
 
 from adaptive_horizon import config
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
-from adaptive_horizon.utils import format_dt
-
-
-def resolve_burn_in_steps(
-    dt=config.DT, burn_in_time=config.BURN_IN_TIME, burn_in_steps=None
-):
-    if burn_in_steps is not None:
-        return int(burn_in_steps)
-    return math.ceil(burn_in_time / dt)
+from adaptive_horizon.utils import format_dt, timestamp
 
 
 def get_train_Ts(max_T: int):
@@ -86,9 +76,9 @@ def resolve_dirs(
     loss_root = config.system_path(config.LOSS_DIR, system_name)
 
     if output_dir is None:
-        timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+        stamp = timestamp()
         prefix = "budget_" if budget_based else ""
-        filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
+        filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{stamp}"
         model_root = model_dir / filename
         append_existing = False
     else:
@@ -112,10 +102,8 @@ def resolve_dirs(
 
 
 def checkpoint_wall_time(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    if "wall_time_seconds" in metadata:
-        return float(metadata["wall_time_seconds"])
-    return float(metadata["train_wall_clock_seconds"])
+    """Training wall time in seconds, as stored in the checkpoint metadata."""
+    return float(checkpoint["metadata"]["wall_time_seconds"])
 
 
 def fixed_budget_wall_time(fixed_dir: Path, max_T: int):
@@ -147,12 +135,12 @@ def save_model(
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     if adaptive:
         method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
-        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{timestamp}.pt"
+        filename = f"adaptive_mlp_{method_suffix}seed{seed}_{stamp}.pt"
     else:
-        filename = f"mlp_T{T}_seed{seed}_{timestamp}.pt"
+        filename = f"mlp_T{T}_seed{seed}_{stamp}.pt"
 
     model_path = save_dir / filename
 

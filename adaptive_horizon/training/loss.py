@@ -134,50 +134,53 @@ def lle_weighted_batch_loss(
     return anchor_alpha * one_step_loss + (1.0 - anchor_alpha) * weighted_rollout_loss
 
 
-def validation_loss(model, val_loader, T, device=config.DEVICE):
-    """Compute validation loss."""
+def evaluate_loss(model, loader, loss_fn, device=config.DEVICE):
+    """Average ``loss_fn(model, *batch)`` over a loader without gradients."""
     model.eval()
     total_loss = 0.0
 
     with torch.no_grad():
-        for inputs, targets in val_loader:
-            inputs, targets = inputs.to(device), targets.to(device)
-            loss = batch_loss(model, inputs, targets, T)
-            total_loss += loss.item()
+        for batch in loader:
+            batch = [tensor.to(device) for tensor in batch]
+            total_loss += loss_fn(model, *batch).item()
 
-    return total_loss / len(val_loader)
+    return total_loss / len(loader)
+
+
+def validation_loss(model, val_loader, T, device=config.DEVICE):
+    """Compute validation loss at a fixed horizon T."""
+    return evaluate_loss(
+        model,
+        val_loader,
+        lambda model, inputs, targets: batch_loss(model, inputs, targets, T),
+        device,
+    )
 
 
 def adaptive_validation_loss(model, val_loader, device="cpu"):
     """Compute validation loss for sample-specific hard temporal horizons."""
-    model.eval()
-    total_loss = 0.0
-
-    with torch.no_grad():
-        for inputs, targets, T in val_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
-            T = T.to(device)
-            loss = adaptive_batch_loss(model, inputs, targets, T)
-            total_loss += loss.item()
-
-    return total_loss / len(val_loader)
+    return evaluate_loss(model, val_loader, adaptive_batch_loss, device)
 
 
 def lle_weighted_validation_loss(model, val_loader, dt=config.DT, device=config.DEVICE):
     """Compute validation loss for the LLE-weighted training objective."""
-    model.eval()
-    total_loss = 0.0
+    return evaluate_loss(
+        model,
+        val_loader,
+        lambda model, inputs, targets, lambda_scores: lle_weighted_batch_loss(
+            model, inputs, targets, lambda_scores, dt=dt
+        ),
+        device,
+    )
 
-    with torch.no_grad():
-        for inputs, targets, lambda_scores in val_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
-            lambda_scores = lambda_scores.to(device)
-            loss = lle_weighted_batch_loss(model, inputs, targets, lambda_scores, dt=dt)
-            total_loss += loss.item()
 
-    return total_loss / len(val_loader)
+def grads_l2_norm(grads, device=config.DEVICE):
+    """L2 norm over a collection of gradient tensors."""
+    total_norm = torch.zeros((), device=device)
+    for grad in grads:
+        if grad is not None:
+            total_norm += grad.norm().pow(2)
+    return torch.sqrt(total_norm)
 
 
 def compute_gradient_norm(
@@ -189,46 +192,34 @@ def compute_gradient_norm(
     per_batch=False,
 ):
     """Compute gradient norm using loss per paper Eq. 3."""
-    if per_batch:
-        gradient_norms = []
 
+    def parameter_grads():
+        return (p.grad for p in model.parameters())
+
+    def batches():
         for i, (inputs, targets) in enumerate(loader):
             if i >= max_batches:
                 break
-            inputs, targets = inputs.to(device), targets.to(device)
+            yield inputs.to(device), targets.to(device)
+
+    if per_batch:
+        gradient_norms = []
+
+        for inputs, targets in batches():
             model.zero_grad()
-            loss = batch_loss(model, inputs, targets[:, :T], T)
-            loss.backward()
-
-            total_norm = torch.zeros((), device=device)
-            for p in model.parameters():
-                if p.grad is not None:
-                    total_norm += p.grad.norm().pow(2)
-
-            gradient_norms.append(torch.sqrt(total_norm).item())
+            batch_loss(model, inputs, targets[:, :T], T).backward()
+            gradient_norms.append(grads_l2_norm(parameter_grads(), device).item())
 
         return gradient_norms
 
     model.zero_grad()
-    total_loss = 0.0
-    batch_count = 0
-
-    for i, (inputs, targets) in enumerate(loader):
-        if i >= max_batches:
-            break
-        inputs, targets = inputs.to(device), targets.to(device)
-        total_loss += batch_loss(model, inputs, targets[:, :T], T)
-        batch_count += 1
-
-    total_loss /= batch_count
+    losses = [
+        batch_loss(model, inputs, targets[:, :T], T) for inputs, targets in batches()
+    ]
+    total_loss = sum(losses) / len(losses)
     total_loss.backward()
 
-    total_norm = torch.zeros((), device=device)
-    for p in model.parameters():
-        if p.grad is not None:
-            total_norm += p.grad.norm().pow(2)
-
-    return torch.sqrt(total_norm)
+    return grads_l2_norm(parameter_grads(), device)
 
 
 def compute_g_T(
@@ -253,36 +244,21 @@ def compute_g_T(
     """
     model.eval()
 
+    def norm_at(T):
+        return compute_gradient_norm(
+            model,
+            loader,
+            T=T,
+            device=device,
+            max_batches=max_batches,
+            per_batch=per_batch,
+        )
+
+    g1 = norm_at(1)
+    g_T = {T: norm_at(T) for T in T_vals}
+
     if per_batch:
-        g1_values = compute_gradient_norm(
-            model, loader, T=1, device=device, max_batches=max_batches, per_batch=True
-        )
-        gT_values = {
-            T: compute_gradient_norm(
-                model,
-                loader,
-                T=T,
-                device=device,
-                max_batches=max_batches,
-                per_batch=True,
-            )
-            for T in T_vals
-        }
-
         return {
-            T: [gT / g1 for gT, g1 in zip(gT_values[T], g1_values) if g1 != 0]
-            for T in T_vals
+            T: [gT / g1_i for gT, g1_i in zip(g_T[T], g1) if g1_i != 0] for T in T_vals
         }
-
-    g1 = compute_gradient_norm(
-        model, loader, T=1, device=device, max_batches=max_batches
-    )
-    g_vals = {}
-
-    for T in T_vals:
-        gT = compute_gradient_norm(
-            model, loader, T=T, device=device, max_batches=max_batches
-        )
-        g_vals[T] = (gT / g1).item()
-
-    return g_vals
+    return {T: (g_T[T] / g1).item() for T in T_vals}

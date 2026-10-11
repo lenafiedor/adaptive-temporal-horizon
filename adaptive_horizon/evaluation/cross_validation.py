@@ -3,10 +3,9 @@ import json
 from pathlib import Path
 
 import numpy as np
-from torch.utils.data import DataLoader
 
 from adaptive_horizon import config
-from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
+from adaptive_horizon.data.dataset import make_val_loader
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
@@ -16,7 +15,7 @@ from adaptive_horizon.evaluation.utils import (
     summarize_cross_validation,
 )
 from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.training.utils import find_fixed_models, resolve_burn_in_steps
+from adaptive_horizon.training.utils import checkpoint_wall_time, find_fixed_models
 from adaptive_horizon.visualization.plotting import plot_mse
 
 
@@ -40,37 +39,6 @@ def get_adaptive_paths(model_dir: Path = config.MODEL_DIR) -> list[Path]:
 
 def get_adaptive_method(checkpoint):
     return checkpoint.get("metadata", {}).get("adaptive", {}).get("method")
-
-
-def get_training_wall_time(checkpoint):
-    metadata = checkpoint.get("metadata", {})
-    key = "wall_time_seconds"
-    if key not in metadata:
-        key = "train_wall_clock_seconds"
-    return {"wall_time_seconds": float(metadata[key])}
-
-
-def make_eval_loader(
-    max_val_T, dt, normalization_stats=None, system_name=config.DEFAULT_SYSTEM
-):
-    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, max_val_T)
-    dataset = TrajectoryDataset(
-        T=max_val_T,
-        dt=dt,
-        system=system_name,
-        normalize=True,
-        seed=config.RANDOM_SEED,
-        burn_in=resolve_burn_in_steps(dt),
-        split="val",
-        split_gap=split_gap,
-        normalization_stats=normalization_stats,
-    )
-    return DataLoader(
-        dataset,
-        batch_size=config.BATCH_SIZE,
-        shuffle=False,
-        collate_fn=collate_fn,
-    )
 
 
 def eval_loader_cache_key(normalization_stats):
@@ -99,11 +67,8 @@ def cross_validate_models(
         checkpoint_system = checkpoint.get("metadata", {}).get("system") or system_name
         key = (checkpoint_system, eval_loader_cache_key(normalization_stats))
         if key not in eval_loaders:
-            eval_loaders[key] = make_eval_loader(
-                max(val_Ts),
-                dt,
-                normalization_stats,
-                system_name=checkpoint_system,
+            eval_loaders[key] = make_val_loader(
+                checkpoint_system, dt, max(val_Ts), normalization_stats
             )
         return eval_loaders[key]
 
@@ -119,7 +84,7 @@ def cross_validate_models(
                 "train_T": train_T,
                 "val_T": val_T,
                 "mse": validation_loss(model, eval_loader, val_T, device),
-                **get_training_wall_time(checkpoint),
+                "wall_time_seconds": checkpoint_wall_time(checkpoint),
             }
             if model_type == "adaptive":
                 record["adaptive_method"] = get_adaptive_method(checkpoint)

@@ -1,8 +1,6 @@
 import argparse
-import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib
@@ -12,12 +10,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from adaptive_horizon.visualization.plot_budget_resources import (
+from adaptive_horizon.evaluation.results import (
     EvalScope,
+    add_scope_argument,
+    load_payload,
+    metric_for_scope,
     parse_eval_scope,
-    summary_for_eval_T,
 )
-from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN
+from adaptive_horizon.utils import timestamp
+from adaptive_horizon.visualization.plotting import COLOR_EVAL, COLOR_TRAIN, save_figure
 
 
 @dataclass(frozen=True)
@@ -26,11 +27,6 @@ class MethodResult:
     directory: Path
     source_path: Path
     payload: dict
-
-
-def load_payload(path: Path):
-    with path.open("r") as f:
-        return json.load(f)
 
 
 def select_max_budget_result(result_paths):
@@ -76,13 +72,7 @@ def load_method_results(results_dir: Path):
 
 
 def median_for_scope(summary, eval_scope: EvalScope):
-    if eval_scope.mode == "overall":
-        return float(summary["overall"]["median"])
-
-    if eval_scope.eval_T is None:
-        raise ValueError("Single-horizon scope requires an evaluation horizon")
-
-    return float(summary_for_eval_T(summary["by_eval_T"], eval_scope.eval_T)["median"])
+    return metric_for_scope(summary, "median", eval_scope)
 
 
 def adaptive_median(result: MethodResult, eval_scope: EvalScope):
@@ -182,14 +172,15 @@ def plot_aggregate(results, eval_scope: EvalScope, output_path: Path):
         ax.set_title("Aggregate MSE by method")
     ax.set_axisbelow(True)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(
+        fig, output_path.name, output_path.parent, bbox_inches="tight", verbose=False
+    )
 
 
 def default_output_path(results_dir: Path, eval_scope: EvalScope):
-    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+    stamp = timestamp()
     scope_part = "overall" if eval_scope.mode == "overall" else f"T{eval_scope.eval_T}"
-    return results_dir / f"aggregate_mse_{scope_part}_{timestamp}.png"
+    return results_dir / f"aggregate_mse_{scope_part}_{stamp}.png"
 
 
 def main():
@@ -202,13 +193,7 @@ def main():
         required=True,
         help="Directory whose subdirectories contain budget_mse_results_*.json files",
     )
-    parser.add_argument(
-        "--scope",
-        nargs="+",
-        default=["overall"],
-        metavar=("MODE", "T"),
-        help="Use 'overall' or 'single <validation horizon>'",
-    )
+    add_scope_argument(parser)
     args = parser.parse_args()
 
     try:

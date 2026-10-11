@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.adaptive_dataset import LyapunovBasedDataset
 from adaptive_horizon.data.utils import get_trajectory
 from adaptive_horizon.dynamics.integrators import rk4_step_coupled
@@ -10,7 +11,6 @@ from adaptive_horizon.dynamics.lyapunov import (
     compute_step_tangent_maps,
 )
 from adaptive_horizon.dynamics.systems import get_system
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def _naive_forward_ftle(trajectory, dt, window, system_name):
