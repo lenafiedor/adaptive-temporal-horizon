@@ -108,7 +108,7 @@ def save_cross_validation_results(
 
     payload = {
         "metadata": {
-            "created_at": timestamp,
+            "created_at": stamp,
             "dt": dt,
             "system": system_name,
             "adaptive_dir": str(adaptive_dir),

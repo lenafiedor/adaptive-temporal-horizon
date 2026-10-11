@@ -114,8 +114,6 @@ Evaluate fixed and adaptive models across validation horizons. The command saves
 ```bash
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
-./scripts/cross_validate_budget_based.sh --model-dir experiments/lorenz/models/budget_based_dt_08 --output-dir experiments/lorenz/evaluation
-poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --system rossler
 ```
 
 **Args:**
