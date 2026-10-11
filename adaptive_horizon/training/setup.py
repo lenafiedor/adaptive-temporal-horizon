@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 from adaptive_horizon.data.adaptive_dataset import (
     LyapunovBasedDataset,
     WeightedLossDataset,
@@ -14,13 +14,12 @@ from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     CROSS_VALIDATION,
     EARLY_STOPPING,
+    LINEAR_SCHEDULER,
     LYAPUNOV_MEAN,
     LYAPUNOV_TIME,
-    LINEAR_SCHEDULER,
     WEIGHTED_LOSS,
 )
 from adaptive_horizon.training.utils import resolve_burn_in_steps
-from adaptive_horizon.utils import time_to_steps
 
 
 def create_optimizer(optimizer_name, model):
@@ -57,7 +56,6 @@ def create_model_and_loaders(
     adaptive_method=LYAPUNOV_MEAN,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    ftle_window=config.FTLE_WINDOW,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
 ):
@@ -73,7 +71,6 @@ def create_model_and_loaders(
         adaptive_method: Adaptive training method
         optimizer_name: Optimizer name
         batch_size: Batch size for data loaders
-        ftle_window: Forward FTLE window for weighted-loss training
         debug: Whether adaptive datasets should write T values and Lyapunov exponents
         system_name: Name of the dynamical system
 
@@ -91,7 +88,7 @@ def create_model_and_loaders(
     )
     model = MLP(mlp_config, random_seed=seed).to(device)
     burn_in_steps = resolve_burn_in_steps(dt)
-    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, ftle_window, T or 0)
+    split_gap = max(config.MAX_TRAIN_T, config.MAX_EVAL_T, T or 0)
     metadata = {
         "dt": dt,
         "integration_dt": config.INTEGRATION_DT,
@@ -130,13 +127,13 @@ def create_model_and_loaders(
                 split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
+                lambda_estimate=train_dataset.lambda_estimate,
             )
             collate_function = collate_fn_lyapunov_based
         elif adaptive_method == WEIGHTED_LOSS:
             train_dataset = WeightedLossDataset(
                 dt=dt,
                 system=system.name,
-                ftle_window=ftle_window,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 split="train",
@@ -146,18 +143,18 @@ def create_model_and_loaders(
             val_dataset = WeightedLossDataset(
                 dt=dt,
                 system=system.name,
-                ftle_window=ftle_window,
                 seed=config.RANDOM_SEED,
                 burn_in=burn_in_steps,
                 split="val",
                 split_gap=split_gap,
                 normalization_stats=train_dataset.normalization_stats,
                 debug=debug,
+                lambda_estimate=train_dataset.lambda_estimate,
             )
             collate_function = collate_fn_weighted_loss
         elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             if T is None:
-                T = time_to_steps(config.DEFAULT_HORIZON, dt)
+                T = config.MAX_TRAIN_T
             train_dataset = TrajectoryDataset(
                 T=T,
                 dt=dt,
@@ -184,9 +181,11 @@ def create_model_and_loaders(
         metadata["adaptive"] = {
             "method": adaptive_method,
         }
+        if adaptive_method in (LYAPUNOV_MEAN, LYAPUNOV_TIME, WEIGHTED_LOSS):
+            metadata["adaptive"]["ftle_window"] = train_dataset.ftle_window
         if adaptive_method == WEIGHTED_LOSS:
             metadata["adaptive"]["T_max"] = train_dataset.T_max
-            metadata["adaptive"]["ftle_window"] = ftle_window
+            metadata["adaptive"]["lambda_estimate"] = train_dataset.lambda_estimate
         elif adaptive_method in (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION):
             metadata["adaptive"].update(
                 {
@@ -207,7 +206,16 @@ def create_model_and_loaders(
             )
             if adaptive_method == LYAPUNOV_MEAN:
                 metadata["adaptive"].update(
-                    {"variance": train_dataset.var, "base_T": train_dataset.base_T}
+                    {
+                        "variance": train_dataset.var,
+                        "base_T": train_dataset.base_T,
+                        "lyapunov_fraction": train_dataset.lyapunov_fraction,
+                        "lambda_estimate": train_dataset.lambda_estimate,
+                        "mean_train_T": train_dataset.mean_T,
+                        "mean_train_T_lyapunov_times": (
+                            train_dataset.lambda_estimate * dt * train_dataset.mean_T
+                        ),
+                    }
                 )
     else:
         train_dataset = TrajectoryDataset(

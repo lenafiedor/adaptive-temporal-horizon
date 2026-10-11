@@ -1,18 +1,19 @@
 import argparse
+
 import numpy as np
 
+from adaptive_horizon import config
 from adaptive_horizon.data.utils import simulate_trajectory
 from adaptive_horizon.dynamics.lyapunov import (
     compute_global_lyapunov,
     compute_local_lyapunov,
 )
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
-from adaptive_horizon.visualization.plotting import (
-    plot_lyapunov_exponents,
-    plot_lle_heatmap,
-)
 from adaptive_horizon.training.utils import resolve_burn_in_steps
-import adaptive_horizon.config as config
+from adaptive_horizon.visualization.plotting import (
+    plot_lle_heatmap,
+    plot_lyapunov_exponents,
+)
 
 
 def main():

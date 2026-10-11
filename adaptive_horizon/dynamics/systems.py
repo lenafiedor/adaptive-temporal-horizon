@@ -1,22 +1,22 @@
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional
 
 import numpy as np
 
+from adaptive_horizon import config
 from adaptive_horizon.dynamics.lorenz import (
     LORENZ_PARAMETERS,
     jacobian_lorenz,
     lorenz_f,
     sample_lorenz_initial_state,
 )
+from adaptive_horizon.dynamics.lorenz96 import make_lorenz96_functions
 from adaptive_horizon.dynamics.rossler import (
     ROSSLER_PARAMETERS,
     jacobian_rossler,
     rossler_f,
     sample_rossler_initial_state,
 )
-from adaptive_horizon.dynamics.lorenz96 import make_lorenz96_functions
-from adaptive_horizon import config
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class DynamicsSystem:
     jacobian: Callable[..., np.ndarray]
     sample_initial_state: Callable[..., np.ndarray]
     parameters: Mapping[str, float] = field(default_factory=dict)
-    display_name: Optional[str] = None
+    display_name: str | None = None
 
     @property
     def label(self):

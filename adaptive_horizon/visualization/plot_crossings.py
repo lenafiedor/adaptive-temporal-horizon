@@ -1,5 +1,7 @@
-import numpy as np
+from itertools import pairwise
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 from adaptive_horizon.dynamics.lorenz import simulate_lorenz
 from adaptive_horizon.training.utils import resolve_burn_in_steps
@@ -26,7 +28,7 @@ def same_wing_segments(trajectory, crossings, min_segment_steps=5):
     boundaries = [0, *[int(index) + 1 for index in crossings], len(trajectory)]
     segments = []
 
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
+    for start, end in pairwise(boundaries):
         if end - start < min_segment_steps:
             continue
 
@@ -106,8 +108,10 @@ def summarize_duration(name, durations, dt):
         f"({p05:.4f} / {p95:.4f} time)"
     )
     print(
-        f"Min / Max: {np.min(durations):.0f} / {np.max(durations):.0f} steps "
-        f"({np.min(duration_times):.4f} / {np.max(duration_times):.4f} time)"
+        f"Min / Max: {float(np.min(durations)):.0f} / "
+        f"{float(np.max(durations)):.0f} steps "
+        f"({float(np.min(duration_times)):.4f} / "
+        f"{float(np.max(duration_times)):.4f} time)"
     )
 
 
@@ -180,7 +184,7 @@ def plot_lorenz_with_crossings(traj, crossings, lap_indices):
     plt.show()
 
 
-if __name__ == "__main__":
+def main():
     dt = 0.01
     burn_in = resolve_burn_in_steps(dt)
     trajectory = np.array(simulate_lorenz(dt=dt, burn_in=burn_in))
@@ -195,3 +199,7 @@ if __name__ == "__main__":
     summarize_duration("Lobe lap duration", lap_duration_steps, dt)
 
     plot_lorenz_with_crossings(trajectory, crossings, lap_indices)
+
+
+if __name__ == "__main__":
+    main()

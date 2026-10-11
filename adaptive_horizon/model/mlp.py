@@ -1,11 +1,11 @@
-import torch
-import torch.nn as nn
-import numpy as np
-from dataclasses import dataclass
-from typing import Union
+from dataclasses import dataclass, field
 
-from adaptive_horizon.model.residual_block import ResidualBlock
+import numpy as np
+import torch
+from torch import nn
+
 from adaptive_horizon.model.dense_block import DenseBlock
+from adaptive_horizon.model.residual_block import ResidualBlock
 
 
 @dataclass(frozen=True)
@@ -14,8 +14,8 @@ class MLPConfig:
     output_size: int
     layer_widths: list[int]
     residual_connections: bool = False
-    activation: nn.Module = nn.ReLU()
-    k: Union[int, None] = None
+    activation: nn.Module = field(default_factory=nn.ReLU)
+    k: int | None = None
 
 
 class MLP(torch.nn.Module):
@@ -23,7 +23,7 @@ class MLP(torch.nn.Module):
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
 
-        super(MLP, self).__init__()
+        super().__init__()
         self.layer_widths = config.layer_widths
         self.embedding = nn.Linear(
             config.input_size, config.layer_widths[0], bias=False

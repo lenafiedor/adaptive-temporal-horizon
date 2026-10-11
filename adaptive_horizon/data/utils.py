@@ -1,13 +1,12 @@
-from typing import Optional
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from adaptive_horizon.dynamics.integrators import rk4_step, resolve_integration_substeps
+from adaptive_horizon.config import DEFAULT_SYSTEM, INTEGRATION_DT
+from adaptive_horizon.dynamics.integrators import resolve_integration_substeps, rk4_step
 from adaptive_horizon.dynamics.systems import DynamicsSystem, get_system
 from adaptive_horizon.utils import format_dt
-from adaptive_horizon.config import DEFAULT_SYSTEM, INTEGRATION_DT
 
 
 def simulate_trajectory(
@@ -135,7 +134,7 @@ def split_trajectory(trajectory, split, train_fraction=0.8, gap=0):
     return trajectory[start:end], (start, end)
 
 
-def apply_normalization(dataset, normalization_stats: Optional[dict]):
+def apply_normalization(dataset, normalization_stats: dict | None):
     """Apply z-score normalization to a dataset object with trajectories."""
     if dataset.normalize:
         if normalization_stats is None:

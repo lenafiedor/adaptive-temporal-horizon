@@ -1,16 +1,17 @@
-from torch.utils.data import DataLoader
 import argparse
 
-import adaptive_horizon.config as config
+from torch.utils.data import DataLoader
+
+from adaptive_horizon import config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
-from adaptive_horizon.training.loss import compute_g_T
-from adaptive_horizon.training.utils import resolve_burn_in_steps
-from adaptive_horizon.visualization.plotting import plot_g_T
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
 )
+from adaptive_horizon.training.loss import compute_g_T
+from adaptive_horizon.training.utils import resolve_burn_in_steps
+from adaptive_horizon.visualization.plotting import plot_g_T
 
 
 def gradient_scaling(

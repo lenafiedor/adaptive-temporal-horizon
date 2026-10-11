@@ -1,13 +1,12 @@
 import torch
 from torch.utils.data import Dataset
-from typing import Optional
 
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 from adaptive_horizon.data.utils import (
+    NormalizationStats,
     apply_normalization,
     default_trajectory_path,
     get_trajectory,
-    NormalizationStats,
     split_trajectory,
 )
 from adaptive_horizon.dynamics.systems import get_system
@@ -23,14 +22,14 @@ class TrajectoryDataset(NormalizationStats, Dataset):
         dt: float = config.DT,
         system: str = config.DEFAULT_SYSTEM,
         normalize: bool = True,
-        seed: Optional[int] = config.RANDOM_SEED,
-        burn_in: Optional[int] = None,
-        normalization_stats: Optional[dict] = None,
+        seed: int | None = config.RANDOM_SEED,
+        burn_in: int | None = None,
+        normalization_stats: dict | None = None,
         split: str = "train",
         trajectory_steps: int = config.TRAJECTORY_STEPS,
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
-        trajectory_path: Optional[str] = None,
+        trajectory_path: str | None = None,
     ):
         """
         Args:
@@ -51,7 +50,7 @@ class TrajectoryDataset(NormalizationStats, Dataset):
         self.system = get_system(system)
         self.system_name = self.system.name
         self.normalize = normalize
-        self.burn_in = resolve_burn_in_steps(dt, burn_in)
+        self.burn_in = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
         self.split = split
         self.trajectory_path = trajectory_path or default_trajectory_path(
             self.system.name,

@@ -3,7 +3,7 @@ import torch
 
 class ResidualBlock(torch.nn.Module):
     def __init__(self, width: int, k: int, activation: torch.nn.Module) -> None:
-        super(ResidualBlock, self).__init__()
+        super().__init__()
 
         self.activation = activation
         self.layer_norm = torch.nn.LayerNorm(width)

@@ -1,8 +1,9 @@
 import argparse
+
 import numpy as np
 import torch
 
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 from adaptive_horizon.data.utils import (
     default_trajectory_path,
     get_trajectory,
@@ -12,12 +13,12 @@ from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     load_model,
 )
-from adaptive_horizon.training.loss import rollout_predictions, batch_loss
+from adaptive_horizon.training.loss import batch_loss, rollout_predictions
+from adaptive_horizon.training.utils import resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import (
     plot_g_T_heatmap,
     plot_prediction_overlay,
 )
-from adaptive_horizon.training.utils import resolve_burn_in_steps
 
 
 def normalize_trajectory(trajectory, normalization_stats):
@@ -116,8 +117,6 @@ def compute_local_g_values(
     model.eval()
     params = [p for p in model.parameters() if p.requires_grad]
     g_values = np.empty(len(inputs), dtype=np.float64)
-    g1_norms = np.empty(len(inputs), dtype=np.float64)
-    gT_norms = np.empty(len(inputs), dtype=np.float64)
 
     try:
         with torch.enable_grad():
@@ -136,12 +135,10 @@ def compute_local_g_values(
 
                 ratio = (norm_T / norm_1.clamp_min(epsilon)).item()
                 g_values[start:end] = ratio
-                g1_norms[start:end] = norm_1.item()
-                gT_norms[start:end] = norm_T.item()
     finally:
         model.train(was_training)
 
-    return g_values, g1_norms, gT_norms
+    return g_values
 
 
 def rollout_prediction(model, inputs, sample_index, T_val, mean, std, device):
@@ -186,7 +183,7 @@ def compute_gradient_heatmap(args):
         trajectory_normalized, args.T_val
     )
 
-    g_values, g1_norms, gT_norms = compute_local_g_values(
+    g_values = compute_local_g_values(
         model=model,
         inputs=inputs,
         targets=targets,

@@ -1,5 +1,3 @@
-from typing import Optional
-
 ADAPTIVE_METHODS = {
     "lyapunov-mean": "lm",
     "lyapunov-time": "lt",
@@ -20,7 +18,7 @@ ADAPTIVE_METHODS = {
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
 
-def adaptive_method_abbreviation(method: Optional[str]) -> Optional[str]:
+def adaptive_method_abbreviation(method: str | None) -> str | None:
     """Return a short filename-safe abbreviation for an adaptive method."""
     if method is None:
         return None

@@ -1,13 +1,31 @@
 import numpy as np
 
 from adaptive_horizon import config
+from adaptive_horizon.config import DEFAULT_SYSTEM, SIMULATION_STEPS
 from adaptive_horizon.dynamics.integrators import (
     resolve_integration_substeps,
     rk4_step_coupled,
 )
 from adaptive_horizon.dynamics.systems import get_system
-from adaptive_horizon.config import FTLE_WINDOW, DEFAULT_SYSTEM, SIMULATION_STEPS
 from adaptive_horizon.training.utils import resolve_burn_in_steps
+
+
+def lyapunov_center_horizon(lambda_estimate, dt, fraction, max_T, min_T=1):
+    if dt <= 0:
+        raise ValueError(f"dt must be positive, got {dt}")
+    if fraction <= 0:
+        raise ValueError(f"fraction must be positive, got {fraction}")
+    if min_T > max_T:
+        raise ValueError(f"min_T ({min_T}) must not exceed max_T ({max_T})")
+
+    lambda_estimate = float(lambda_estimate)
+    if not np.isfinite(lambda_estimate):
+        raise ValueError(f"lambda_estimate must be finite, got {lambda_estimate}")
+    if lambda_estimate <= 0:
+        return int(max_T)
+
+    T = round(fraction / (lambda_estimate * dt))
+    return int(min(max(T, min_T), max_T))
 
 
 def mean_horizon(lambda_max, base_T, min_T, max_T):
@@ -64,34 +82,67 @@ def compute_global_lyapunov(
     return lyap
 
 
-def compute_local_lyapunov(
+def compute_step_tangent_maps(
     trajectory,
     dt=0.01,
     system=config.DEFAULT_SYSTEM,
     integration_dt=None,
 ):
     """
-    Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
+    One-step tangent maps along a sampled trajectory.
 
-    Args:
-        trajectory (array [N, 3]): array of states
-        dt (float): time step
-        system (str): name of the dynamical system
+    maps[i] is the Jacobian of the dt-flow evaluated at trajectory[i], i.e. it
+    propagates a perturbation from sample i to sample i + 1.
+
     Returns:
-        LLEs (array [N - 1, 3]): array of local Lyapunov exponents
+        array [N - 1, dim, dim]
     """
     system = get_system(system)
     integration_dt = dt if integration_dt is None else integration_dt
     substeps = resolve_integration_substeps(dt, integration_dt)
     trajectory = np.array(trajectory)
-    Q = np.eye(system.dim)
-    lles = []
+    maps = np.empty((len(trajectory) - 1, system.dim, system.dim))
 
     for i in range(len(trajectory) - 1):
         x = trajectory[i]
+        tangent_map = np.eye(system.dim)
         for _ in range(substeps):
-            x, Q = rk4_step_coupled(x, Q, integration_dt, system.rhs, system.jacobian)
-        Q, R = np.linalg.qr(Q)
+            x, tangent_map = rk4_step_coupled(
+                x, tangent_map, integration_dt, system.rhs, system.jacobian
+            )
+        maps[i] = tangent_map
+
+    return maps
+
+
+def compute_local_lyapunov(
+    trajectory,
+    dt=0.01,
+    system=config.DEFAULT_SYSTEM,
+    integration_dt=None,
+    tangent_maps=None,
+):
+    """
+    Compute local Lyapunov exponents using RK4-consistent tangent space evolution.
+
+    Args:
+        trajectory (array [N, 3]): array of states
+        dt (float): simulation time step
+        system (str): name of the dynamical system
+        integration_dt (float): integration time step
+        tangent_maps (array [N - 1, d, d], optional): precomputed one-step maps
+    Returns:
+        LLEs (array [N - 1, 3]): array of local Lyapunov exponents
+    """
+    if tangent_maps is None:
+        tangent_maps = compute_step_tangent_maps(
+            trajectory, dt=dt, system=system, integration_dt=integration_dt
+        )
+    Q = np.eye(tangent_maps.shape[-1])
+    lles = []
+
+    for tangent_map in tangent_maps:
+        Q, R = np.linalg.qr(tangent_map @ Q)
         lles.append(np.log(np.abs(np.diag(R)) + 1e-12) / dt)
 
     return np.array(lles)
@@ -99,10 +150,11 @@ def compute_local_lyapunov(
 
 def compute_forward_ftle(
     trajectory,
+    window,
     dt=0.01,
-    window=FTLE_WINDOW,
     system=config.DEFAULT_SYSTEM,
     integration_dt=None,
+    tangent_maps=None,
 ):
     """
     Compute an aligned forward finite-time Lyapunov score for each start state.
@@ -113,37 +165,28 @@ def compute_forward_ftle(
 
     Args:
         trajectory (array [N, 3]): states along a trajectory
-        dt (float): time step
+        dt (float): simulation time step
         window (int): number of forward integration steps
         system (str): name of the dynamical system
+        integration_dt (float): integration time step
+        tangent_maps (array [N - 1, d, d], optional): precomputed one-step maps
     Returns:
         array [N - window]: largest forward FTLE for each valid start index
     """
     if window < 1:
         raise ValueError(f"window must be at least 1, got {window}")
 
-    system = get_system(system)
-    integration_dt = dt if integration_dt is None else integration_dt
-    substeps = resolve_integration_substeps(dt, integration_dt)
-    trajectory = np.array(trajectory)
-    ftles = []
-
-    for start in range(len(trajectory) - window):
-        tangent_map = np.eye(system.dim)
-        for offset in range(window):
-            x = trajectory[start + offset]
-            for _ in range(substeps):
-                x, tangent_map = rk4_step_coupled(
-                    x,
-                    tangent_map,
-                    integration_dt,
-                    system.rhs,
-                    system.jacobian,
-                )
-
-        sigma_max = float(
-            np.linalg.norm(np.asarray(tangent_map, dtype=np.float64), ord=2)
+    if tangent_maps is None:
+        tangent_maps = compute_step_tangent_maps(
+            trajectory, dt=dt, system=system, integration_dt=integration_dt
         )
-        ftles.append(np.log(sigma_max + 1e-12) / (window * dt))
+    num_starts = len(tangent_maps) - window + 1
+    if num_starts < 1:
+        return np.empty(0)
 
-    return np.array(ftles)
+    products = tangent_maps[:num_starts].copy()
+    for offset in range(1, window):
+        products = tangent_maps[offset : offset + num_starts] @ products
+
+    sigma_max = np.linalg.svd(products, compute_uv=False)[:, 0]
+    return np.log(sigma_max + 1e-12) / (window * dt)

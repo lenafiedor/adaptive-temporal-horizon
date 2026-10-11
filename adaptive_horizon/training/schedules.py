@@ -1,4 +1,4 @@
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 
 
 def stepped_scheduler(

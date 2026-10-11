@@ -1,4 +1,5 @@
 import sys
+
 import numpy as np
 
 from adaptive_horizon.analysis import compute_lyapunov
@@ -66,6 +67,7 @@ def test_local_cli_resolves_system_for_trajectory_and_lle(monkeypatch, capsys):
         dt,
         system,
     ):
+        seen["lle_trajectory_shape"] = trajectory.shape
         seen["lle_system_name"] = system.name
         seen["lle_dt"] = dt
         return np.array([[1.0, 0.0, -1.0], [3.0, 2.0, -3.0]])
@@ -105,6 +107,7 @@ def test_local_cli_resolves_system_for_trajectory_and_lle(monkeypatch, capsys):
         "trajectory_dt": 0.01,
         "trajectory_steps": 8,
         "burn_in": 5,
+        "lle_trajectory_shape": (9, 3),
         "lle_system_name": "rossler",
         "lle_dt": 0.01,
     }

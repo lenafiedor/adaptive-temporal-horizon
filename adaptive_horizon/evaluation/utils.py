@@ -1,5 +1,3 @@
-import torch
-import torch.nn as nn
 import json
 from datetime import datetime
 from math import sqrt
@@ -7,11 +5,12 @@ from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any
 
+import torch
+from torch import nn
+
+from adaptive_horizon import config
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.utils import format_dt
-import adaptive_horizon.config as config
-
-LAST_RUN_FILE = "last_run.txt"
 
 
 def get_dt_from_model_dir(model_dir: Path):
@@ -40,17 +39,6 @@ def get_dt_from_model_dir(model_dir: Path):
             )
         return metadata_dts[0]
     return None
-
-
-def get_last_run(save_dir):
-    last_run_file = Path(save_dir) / LAST_RUN_FILE
-    if not last_run_file.exists():
-        raise FileNotFoundError(
-            "No last run found. Run training / cross-validation first."
-        )
-
-    with open(last_run_file, "r") as f:
-        return Path(f.read().strip())
 
 
 def load_model(model_path):
@@ -111,7 +99,7 @@ def save_cross_validation_results(
     """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
     results_file = (
         save_dir
@@ -137,9 +125,6 @@ def save_cross_validation_results(
 
     with open(results_file, "w") as f:
         json.dump(payload, f, indent=2)
-
-    with open(save_dir / LAST_RUN_FILE, "w") as f:
-        f.write(str(results_file))
 
     print(f"\nCross-validation results saved to {results_file}")
     return results_file

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from torch.utils.data import DataLoader
 
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
 from adaptive_horizon.evaluation.utils import (
@@ -16,7 +16,7 @@ from adaptive_horizon.evaluation.utils import (
     summarize_cross_validation,
 )
 from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.training.utils import model_info, resolve_burn_in_steps
+from adaptive_horizon.training.utils import find_fixed_models, resolve_burn_in_steps
 from adaptive_horizon.visualization.plotting import plot_mse
 
 
@@ -25,11 +25,7 @@ def get_fixed_paths(
     model_dir: Path = config.MODEL_DIR,
 ) -> dict[int, list[Path]]:
     model_paths: dict[int, list[Path]] = {}
-    for model_path in sorted(model_dir.glob("mlp_T*.pt")):
-        info = model_info(model_path)
-        if info is None or info[0] is None:
-            continue
-        train_T = info[0]
+    for model_path, train_T, _ in find_fixed_models(model_dir):
         if train_Ts is None or train_T in train_Ts:
             model_paths.setdefault(train_T, []).append(model_path)
 
@@ -198,8 +194,6 @@ def cross_validation(
     else:
         output_dir = output_dir or Path(config.system_path(config.EVAL_DIR, system))
         fixed_dir = Path(fixed_dir) if fixed_dir is not None else model_dir / "fixed"
-        if (fixed_dir / "fixed").is_dir():
-            fixed_dir = fixed_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
         budget_based = model_dir.name.startswith("budget")

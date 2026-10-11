@@ -56,24 +56,24 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 
 **Args:**
 
-| Name               | Description                                                           | Values                                                                                              | Default value           |
-|--------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|-------------------------|
-| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                 | `config.EPOCHS`         |
-| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                       | false                   |
-| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                 | 1                       |
-| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                       | false                   |
-| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                       | false                   |
+| Name               | Description                                                           | Values                                                                                                                | Default value           |
+|--------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------|
+| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                                   | `config.EPOCHS`         |
+| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                                         | false                   |
+| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                                   | 1                       |
+| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                                         | false                   |
+| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                                         | false                   |
 | `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `lyapunov-time` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
-| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                | None                    |
-| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                 | `config.MAX_TRAIN_T`    |
-| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                       | false                   |
-| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                 | 20                      |
-| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                 | `config.NUM_SEEDS`      |
-| `--dt`             | Model prediction/sampling step                                        | float                                                                                               | `config.DT`             |
-| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                 | `config.DEFAULT_SYSTEM` |
-| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                 | `config.BATCH_SIZE`     |
-| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                | None                    |
-| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                       | false                   |
+| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                                  | None                    |
+| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                                   | `config.MAX_TRAIN_T`    |
+| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                                         | false                   |
+| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                                   | 20                      |
+| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                                   | `config.NUM_SEEDS`      |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                                                 | `config.DT`             |
+| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                                   | `config.DEFAULT_SYSTEM` |
+| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                                   | `config.BATCH_SIZE`     |
+| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                                  | None                    |
+| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                                         | false                   |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
@@ -199,7 +199,7 @@ poetry run gradient-heatmap --model path/to/trained/model.pt --system rossler --
 |---------------------|------------------------------------------------|-------------------------------------|---------------------------|
 | `--model`, `-m`     | Path to the trained model                      | str                                 | required                  |
 | `--T-val`           | Evaluation horizon                             | int                                 | `config.MAX_EVAL_T`       |
-| `--dt`              | Model prediction/sampling step                  | float                               | `config.DT`               |
+| `--dt`              | Model prediction/sampling step                 | float                               | `config.DT`               |
 | `--system`          | Dynamical system for the diagnostic trajectory | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`   |
 | `--steps`           | Post-burn-in diagnostic trajectory length      | int                                 | `config.TRAJECTORY_STEPS` |
 | `--seed`            | Diagnostic trajectory seed                     | int                                 | `config.RANDOM_SEED`      |

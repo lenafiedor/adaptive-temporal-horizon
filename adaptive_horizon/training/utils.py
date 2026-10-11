@@ -1,18 +1,22 @@
+import math
+import re
 from datetime import datetime
 from pathlib import Path
-import re
-import torch
-import math
 from statistics import mean
 
-import adaptive_horizon.config as config
+import torch
+
+from adaptive_horizon import config
 from adaptive_horizon.training.methods import adaptive_method_abbreviation
 from adaptive_horizon.utils import format_dt
 
 
-def resolve_burn_in_steps(dt=config.DT, burn_in_time=config.BURN_IN_TIME):
-    """Resolve transient burn-in steps from physical time."""
-    return int(math.ceil(burn_in_time / dt))
+def resolve_burn_in_steps(
+    dt=config.DT, burn_in_time=config.BURN_IN_TIME, burn_in_steps=None
+):
+    if burn_in_steps is not None:
+        return int(burn_in_steps)
+    return math.ceil(burn_in_time / dt)
 
 
 def get_train_Ts(max_T: int):
@@ -32,13 +36,20 @@ def model_info(model_path: Path):
     return None, int(match.group(1))
 
 
-def get_existing_fixed_model_seeds(model_dir: Path):
-    model_seeds = {}
-    for model_path in model_dir.glob("mlp_T*.pt"):
+def find_fixed_models(model_dir: Path) -> list[tuple[Path, int, int]]:
+    """Recursively find fixed-horizon checkpoints as (path, train_T, seed)."""
+    models = []
+    for model_path in sorted(Path(model_dir).rglob("mlp_T*.pt")):
         info = model_info(model_path)
         if info is None or info[0] is None:
             continue
-        train_T, seed = info
+        models.append((model_path, info[0], info[1]))
+    return models
+
+
+def get_existing_fixed_model_seeds(model_dir: Path):
+    model_seeds = {}
+    for _, train_T, seed in find_fixed_models(model_dir):
         model_seeds.setdefault(train_T, set()).add(seed)
     return model_seeds
 
@@ -73,10 +84,9 @@ def resolve_dirs(
 ):
     model_dir = config.system_path(config.MODEL_DIR, system_name)
     loss_root = config.system_path(config.LOSS_DIR, system_name)
-    last_run_file = model_dir / "last_run.txt"
 
     if output_dir is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
         prefix = "budget_" if budget_based else ""
         filename = f"{prefix}dt_{format_dt(dt)}_T{max_train_T}_{timestamp}"
         model_root = model_dir / filename
@@ -98,7 +108,7 @@ def resolve_dirs(
     fixed_dir.mkdir(parents=True, exist_ok=True)
     adaptive_dir.mkdir(parents=True, exist_ok=True)
 
-    return model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file, append_existing
+    return model_root, fixed_dir, adaptive_dir, loss_dir, append_existing
 
 
 def checkpoint_wall_time(checkpoint):
@@ -110,11 +120,7 @@ def checkpoint_wall_time(checkpoint):
 
 def fixed_budget_wall_time(fixed_dir: Path, max_T: int):
     wall_times_by_T = {T: [] for T in range(1, max_T + 1)}
-    for model_path in Path(fixed_dir).glob("mlp_T*.pt"):
-        info = model_info(model_path)
-        if info is None or info[0] is None:
-            continue
-        train_T, _ = info
+    for model_path, train_T, _ in find_fixed_models(fixed_dir):
         if train_T not in wall_times_by_T:
             continue
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
@@ -141,7 +147,7 @@ def save_model(
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     if adaptive:
         method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
         filename = f"adaptive_mlp_{method_suffix}seed{seed}_{timestamp}.pt"

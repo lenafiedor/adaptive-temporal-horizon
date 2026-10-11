@@ -3,7 +3,7 @@ import torch
 
 class DenseBlock(torch.nn.Module):
     def __init__(self, width: int, activation: torch.nn.Module) -> None:
-        super(DenseBlock, self).__init__()
+        super().__init__()
 
         self.activation = activation
         self.layer_norm = torch.nn.LayerNorm(width)

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -221,7 +222,7 @@ def plot_comparisons(comparisons, metric, eval_scope, output_path):
 
 
 def default_output_path(results_dir, metric, eval_scope, comparisons):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     dt_values = {
         json.loads(comparison.source_path.read_text()).get("metadata", {}).get("dt")
         for comparison in comparisons

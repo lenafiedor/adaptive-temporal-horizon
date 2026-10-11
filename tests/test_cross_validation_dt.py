@@ -1,8 +1,8 @@
 from pathlib import Path
 from unittest.mock import Mock
 
-from adaptive_horizon.evaluation.utils import summarize_cross_validation
 from adaptive_horizon.evaluation import cross_validation
+from adaptive_horizon.evaluation.utils import summarize_cross_validation
 
 
 def test_cross_validate_models_falls_back_to_requested_system(monkeypatch):

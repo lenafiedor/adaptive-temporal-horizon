@@ -1,10 +1,11 @@
-import torch
-from torch.utils.data import DataLoader
 import argparse
 from pathlib import Path
 from time import perf_counter
 
-import adaptive_horizon.config as config
+import torch
+from torch.utils.data import DataLoader
+
+from adaptive_horizon import config
 from adaptive_horizon.data.dataset import TrajectoryDataset, collate_fn
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
@@ -16,31 +17,31 @@ from adaptive_horizon.training.loss import (
     lle_weighted_validation_loss,
     validation_loss,
 )
+from adaptive_horizon.training.methods import (
+    ADAPTIVE_METHOD_CHOICES,
+    CROSS_VALIDATION,
+    EARLY_STOPPING,
+    LINEAR_SCHEDULER,
+    LYAPUNOV_MEAN,
+    LYAPUNOV_TIME,
+    WEIGHTED_LOSS,
+)
+from adaptive_horizon.training.schedules import stepped_scheduler
+from adaptive_horizon.training.setup import create_model_and_loaders
+from adaptive_horizon.training.utils import (
+    fixed_budget_wall_time,
+    get_existing_adaptive_model_seeds,
+    get_existing_fixed_model_seeds,
+    get_train_Ts,
+    resolve_burn_in_steps,
+    resolve_dirs,
+    save_model,
+)
 from adaptive_horizon.visualization.plotting import (
     plot_gradient_history,
     plot_gradients_histogram,
     save_losses,
 )
-from adaptive_horizon.training.methods import (
-    LYAPUNOV_MEAN,
-    LYAPUNOV_TIME,
-    ADAPTIVE_METHOD_CHOICES,
-    CROSS_VALIDATION,
-    EARLY_STOPPING,
-    LINEAR_SCHEDULER,
-    WEIGHTED_LOSS,
-)
-from adaptive_horizon.training.utils import (
-    resolve_burn_in_steps,
-    get_existing_adaptive_model_seeds,
-    get_existing_fixed_model_seeds,
-    get_train_Ts,
-    fixed_budget_wall_time,
-    resolve_dirs,
-    save_model,
-)
-from adaptive_horizon.training.schedules import stepped_scheduler
-from adaptive_horizon.training.setup import create_model_and_loaders
 
 
 def padded_mean_loss(losses_by_seed):
@@ -260,12 +261,12 @@ def train(
             adaptive
             and adaptive_method == CROSS_VALIDATION
             and scheduler_boundary_reached(epoch, epochs, current_T, T)
+            and (cached_val_loss is None or val_loss < cached_val_loss)
         ):
-            if cached_val_loss is None or val_loss < cached_val_loss:
-                cached_state = clone_model_state_dict(model)
-                cached_T = int(current_T)
-                cached_epoch = epoch + 1
-                cached_val_loss = val_loss
+            cached_state = clone_model_state_dict(model)
+            cached_T = int(current_T)
+            cached_epoch = epoch + 1
+            cached_val_loss = val_loss
 
         if (
             adaptive
@@ -385,7 +386,6 @@ def train_single_model(
     adaptive_method=LYAPUNOV_MEAN,
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
-    ftle_window=config.FTLE_WINDOW,
     debug=False,
     max_wall_time_seconds=None,
     budget_metadata=None,
@@ -405,7 +405,6 @@ def train_single_model(
             adaptive_method,
             optimizer_name,
             batch_size,
-            ftle_window,
             debug,
             system_name,
         )
@@ -557,7 +556,6 @@ def train_adaptive_models(
     batch_size=config.BATCH_SIZE,
     adaptive_method=LYAPUNOV_MEAN,
     max_T=config.MAX_TRAIN_T,
-    ftle_window=config.FTLE_WINDOW,
     append=False,
     debug=False,
     max_wall_time_seconds=None,
@@ -615,7 +613,6 @@ def train_adaptive_models(
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
             batch_size=batch_size,
-            ftle_window=ftle_window,
             debug=debug,
             max_wall_time_seconds=max_wall_time_seconds,
             budget_metadata=budget_metadata,
@@ -743,7 +740,7 @@ def main():
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
 
-    model_root, fixed_dir, adaptive_dir, loss_dir, last_run_file, append = resolve_dirs(
+    model_root, fixed_dir, adaptive_dir, loss_dir, append = resolve_dirs(
         args.dt,
         args.T if args.single and not train_adaptive else args.max_T,
         args.debug,
@@ -840,7 +837,6 @@ def main():
     print("\n" + "=" * 50)
     print("Training Complete")
     print("=" * 50 + "\n")
-    last_run_file.write_text(str(model_root))
 
 
 if __name__ == "__main__":

@@ -28,12 +28,18 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "runtime"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 
 [dependency-groups]
+runtime = [
+    "torch (>=2.0,<3.0)",
+    "numpy (>=1.26,<3.0)",
+    "matplotlib (>=3.7,<4.0)",
+]
 dev = [
-    "pytest (>=9.1.1,<10.0.0)"
+    "pytest (>=9.1.1,<10.0.0)",
+    "ruff (>=0.16.10,<0.17.0)",
 ]

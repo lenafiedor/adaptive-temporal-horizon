@@ -1,12 +1,14 @@
+from datetime import datetime
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from datetime import datetime
-from pathlib import Path
+from matplotlib.colors import Normalize
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from adaptive_horizon import config
-from adaptive_horizon.config import LOSS_DIR, EVAL_DIR, ANALYSIS_DIR, DT
+from adaptive_horizon.config import ANALYSIS_DIR, DT, EVAL_DIR, LOSS_DIR
 from adaptive_horizon.utils import format_dt
 
 COLOR_TRAIN = "#8B87B0"
@@ -33,7 +35,7 @@ def save_losses(
     """Save training history"""
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     if adaptive:
         filename = f"adaptive_loss_{timestamp}"
     else:
@@ -41,7 +43,7 @@ def save_losses(
 
     loss_path = save_dir / filename
 
-    fig, ax1 = plt.subplots(figsize=(10, 6))
+    _, ax1 = plt.subplots(figsize=(10, 6))
     ax1.plot(train_losses, label="Train Loss", color=COLOR_TRAIN, linewidth=2)
     ax1.plot(val_losses, label="Val Loss", color=COLOR_EVAL, linewidth=2)
     ax1.set_xlabel("Epoch")
@@ -75,7 +77,7 @@ def plot_g_T(
 
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     filename = (
         f"gradient_scaling_T{train_T}_{timestamp}.png"
         if not adaptive
@@ -165,13 +167,12 @@ def plot_gradients_histogram(
     for ax in flat_axes[num_plots:]:
         ax.set_visible(False)
 
-    train_time = train_T * dt if train_T is not None else None
     title = "g(T) batch histograms"
-    if train_time is not None:
-        title += rf" (train $\tau = {train_time:.2f}$)"
+    if train_T is not None:
+        title += rf" (train $\tau = {train_T * dt:.2f}$)"
     fig.suptitle(title)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     label = f"T{train_T}" if not adaptive else "adaptive"
     epoch_part = f"_epoch{epoch + 1:03d}" if epoch is not None else ""
     save_path = save_dir / f"g_T_hist_{label}{epoch_part}_{timestamp}.png"
@@ -258,16 +259,15 @@ def plot_gradient_history(
     for ax in axes[:, 0]:
         ax.set_ylabel("g(T)")
 
-    train_time = train_T * dt if train_T is not None else None
     title = "Gradient scaling over epochs"
-    if train_time is not None:
-        title += rf" (train $\tau = {train_time:.2f}$)"
+    if train_T is not None:
+        title += rf" (train $\tau = {train_T * dt:.2f}$)"
     fig.suptitle(
         title + "\nmedian line, p25-p75 inner band, p05-p95 outer band, p99 markers"
     )
 
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     label = f"T{train_T}" if not adaptive else "adaptive"
     save_path = save_dir / f"g_T_history_{label}_{timestamp}.png"
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -367,7 +367,7 @@ def plot_mse(
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     prefix = "budget_" if budget_based else ""
     filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     save_figure(fig, filename, save_dir)
@@ -415,7 +415,7 @@ def plot_paired_deltas(
     plt.tight_layout()
 
     prefix = "budget_" if budget_based else ""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     filename = (
         f"deltas_{prefix}dt_{format_dt(dt)}_T{max_train_T}_{metric}_{timestamp}.png"
     )
@@ -478,8 +478,8 @@ def plot_lle_heatmap(
         system_name: name of the dynamical system
         save_dir: directory to save the figure
     """
-    trajectory = np.array(trajectory)
-    exponents = np.array(exponents)
+    trajectory = np.asarray(trajectory, dtype=np.float64)
+    exponents = np.asarray(exponents, dtype=np.float64)
     n_lle = len(exponents)
     traj_aligned = trajectory[burn_in : burn_in + n_lle]
 
@@ -498,7 +498,8 @@ def plot_lle_heatmap(
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         lle_i = exponents[:, i]
-        norm = plt.Normalize(lle_i.min(), lle_i.max())
+        # noinspection PyArgumentList
+        norm = Normalize(float(lle_i.min()), float(lle_i.max()))
         lc = Line3DCollection(segments, cmap="coolwarm", norm=norm)
         lc.set_array(lle_i[:-1])
         lc.set_linewidth(1)
@@ -557,7 +558,7 @@ def plot_g_T_heatmap(
         vmin = float(segment_values.min())
         vmax = float(segment_values.max())
 
-    norm = plt.Normalize(vmin=vmin, vmax=vmax, clip=True)
+    norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(111, projection="3d")
     lc = Line3DCollection(segments, cmap="viridis", norm=norm)
@@ -580,7 +581,7 @@ def plot_g_T_heatmap(
     cbar.set_label(rf"$g(T)$ at $T={T_val}$, $\tau={T_val * dt:.2f}$")
 
     fig.tight_layout()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     filename = f"{system_name}_gradient_heatmap_T{T_val}_{timestamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
     plt.close(fig)
@@ -632,7 +633,7 @@ def plot_prediction_overlay(
     ax.legend()
     fig.tight_layout()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     filename = f"{system_name}_prediction_T{T_val}_{timestamp}.png"
     save_figure(fig, filename, save_dir=save_dir)
     plt.close(fig)

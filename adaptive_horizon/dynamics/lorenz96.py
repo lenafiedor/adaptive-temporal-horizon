@@ -1,13 +1,9 @@
 import numpy as np
 
-
-LORENZ96_PARAMETERS = {
-    "dimension": 10,
-    "forcing": 8.0,
-}
+from adaptive_horizon import config
 
 
-def lorenz96_f(x, forcing=LORENZ96_PARAMETERS["forcing"]):
+def lorenz96_f(x, forcing=config.LORENZ96_FORCING):
     """Lorenz-96 vector field with cyclic indices."""
     state = np.asarray(x, dtype=np.float64)
     if state.ndim != 1 or state.size < 4:
@@ -22,7 +18,7 @@ def lorenz96_f(x, forcing=LORENZ96_PARAMETERS["forcing"]):
 
 def jacobian_lorenz96(
     *state,
-    forcing=LORENZ96_PARAMETERS["forcing"],
+    forcing=config.LORENZ96_FORCING,
 ):
     """Analytic Lorenz-96 Jacobian for the coupled Lyapunov integrator."""
     del forcing  # The constant forcing has zero derivative.
@@ -43,8 +39,8 @@ def jacobian_lorenz96(
 
 def sample_lorenz96_initial_state(
     rng=None,
-    dimension=LORENZ96_PARAMETERS["dimension"],
-    forcing=LORENZ96_PARAMETERS["forcing"],
+    dimension=config.LORENZ96_DIMENSION,
+    forcing=config.LORENZ96_FORCING,
 ):
     """Sample a small perturbation around the standard uniform state."""
     if dimension < 4:
@@ -53,7 +49,7 @@ def sample_lorenz96_initial_state(
     return generator.normal(forcing, 0.01, size=dimension).astype(np.float64)
 
 
-def make_lorenz96_functions(dimension, forcing=LORENZ96_PARAMETERS["forcing"]):
+def make_lorenz96_functions(dimension, forcing=config.LORENZ96_FORCING):
     """Create dimension-specific RHS, Jacobian, and initial-state functions."""
     if dimension < 4:
         raise ValueError("Lorenz-96 requires at least 4 variables")

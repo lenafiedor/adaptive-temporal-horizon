@@ -14,6 +14,7 @@ optimizer = "adam"
 learning_rate = 3e-4
 weight_decay = 1e-2
 num_seeds = 20
+lyapunov_fraction = 0.45
 
 [system]
 default_system = "lorenz"
@@ -32,14 +33,12 @@ train_fraction = 0.8
 
 [lyapunov-mean]
 variance = 1
-default_horizon = 0.4
 
 [weighted-loss]
 rho = 1.0
 temperature = 0.25
 weight_floor = 0.05
 anchor_alpha = 0.25
-ftle_window = 5
 
 [early-stopping]
 patience = 3

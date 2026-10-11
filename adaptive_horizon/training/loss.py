@@ -1,6 +1,6 @@
 import torch
 
-import adaptive_horizon.config as config
+from adaptive_horizon import config
 from adaptive_horizon.model.mlp import MLP
 
 

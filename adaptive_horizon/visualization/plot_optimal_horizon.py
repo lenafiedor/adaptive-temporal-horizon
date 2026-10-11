@@ -216,7 +216,7 @@ def main():
     results = load_results(
         args.results_dir, args.metric, eval_scope, args.budget_epochs
     )
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     output_path = args.results_dir / f"optimal_horizon_{timestamp}.png"
     plot_results(results, eval_scope, output_path)
     csv_path = save_csv(results, output_path)

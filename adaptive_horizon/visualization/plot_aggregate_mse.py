@@ -78,17 +78,21 @@ def load_method_results(results_dir: Path):
 def median_for_scope(summary, eval_scope: EvalScope):
     if eval_scope.mode == "overall":
         return float(summary["overall"]["median"])
+
+    if eval_scope.eval_T is None:
+        raise ValueError("Single-horizon scope requires an evaluation horizon")
+
     return float(summary_for_eval_T(summary["by_eval_T"], eval_scope.eval_T)["median"])
 
 
 def adaptive_median(result: MethodResult, eval_scope: EvalScope):
-    summary = result.payload.get("summary", {}).get("adaptive")
-    if summary is None:
+    summary = result.payload.get("summary", {}).get("adaptive", {})
+    if not summary:
         return None
     if eval_scope.mode == "overall":
-        metadata_value = result.payload.get("metadata", {}).get("adaptive_median_MSE")
-        if metadata_value is not None:
-            return float(metadata_value)
+        metadata = result.payload.get("metadata", {})
+        if "adaptive_median_MSE" in metadata:
+            return float(metadata["adaptive_median_MSE"])
     return median_for_scope(summary, eval_scope)
 
 
@@ -99,9 +103,9 @@ def best_fixed_median(result: MethodResult, eval_scope: EvalScope):
         return None
 
     if eval_scope.mode == "overall":
-        metadata_value = result.payload.get("metadata", {}).get("best_fixed_median_MSE")
-        if metadata_value is not None:
-            return float(metadata_value)
+        metadata = result.payload.get("metadata", {})
+        if "best_fixed_median_MSE" in metadata:
+            return float(metadata["best_fixed_median_MSE"])
 
     return min(
         median_for_scope(fixed_summary, eval_scope) for fixed_summary in fixed_summaries
@@ -183,7 +187,7 @@ def plot_aggregate(results, eval_scope: EvalScope, output_path: Path):
 
 
 def default_output_path(results_dir: Path, eval_scope: EvalScope):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     scope_part = "overall" if eval_scope.mode == "overall" else f"T{eval_scope.eval_T}"
     return results_dir / f"aggregate_mse_{scope_part}_{timestamp}.png"
 
