@@ -11,9 +11,7 @@ from adaptive_horizon.dynamics.lyapunov import (
     compute_step_tangent_maps,
     lyapunov_center_horizon,
     mean_horizon,
-    time_horizon,
 )
-from adaptive_horizon.training.methods import LYAPUNOV_MEAN, LYAPUNOV_TIME
 
 
 def lyapunov_center_and_ftle(
@@ -40,7 +38,6 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         self,
         max_T: int = config.MAX_TRAIN_T,
         var: int = config.VARIANCE,
-        adaptive_method: str = LYAPUNOV_MEAN,
         normalization_stats: dict | None = None,
         debug: bool = False,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
@@ -66,14 +63,9 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         self.ftle_window = self.base_T
         self.scores.append(sample_scores)
 
-        if adaptive_method == LYAPUNOV_TIME:
-            self.min_T = 1
-            self.max_T = max_T
-            horizons = time_horizon(sample_scores, self.dt, self.min_T, self.max_T)
-        else:
-            self.min_T = max(1, self.base_T - self.var)
-            self.max_T = min(self.base_T + self.var, max_T)
-            horizons = mean_horizon(sample_scores, self.base_T, self.min_T, self.max_T)
+        self.min_T = max(1, self.base_T - self.var)
+        self.max_T = min(self.base_T + self.var, max_T)
+        horizons = mean_horizon(sample_scores, self.base_T, self.min_T, self.max_T)
         self.horizons.append(horizons)
         self.mean_T = float(np.mean(horizons))
 

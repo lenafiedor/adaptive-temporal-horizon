@@ -1,5 +1,5 @@
 import json
-from math import sqrt
+from math import isfinite, sqrt
 from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any
@@ -66,57 +66,41 @@ def get_checkpoint_normalization_stats(checkpoint):
     return metadata.get("normalization_stats")
 
 
-def summarize_wall_time(evaluation_records):
-    totals = {
-        "fixed": 0.0,
-        "adaptive": 0.0,
-    }
-    for record in evaluation_records:
-        model_type = record.get("model_type")
-        wall_time = record.get("wall_time_seconds")
-        if model_type not in totals or wall_time is None:
-            continue
-        totals[model_type] += float(wall_time)
-
-    return {
-        "total_time_fixed": totals["fixed"],
-        "total_time_adaptive": totals["adaptive"],
-    }
-
-
 def save_cross_validation_results(
     evaluation_records,
     summary,
     max_train_T,
-    dt,
-    adaptive_dir,
-    fixed_dir=None,
-    save_dir=config.EVAL_DIR,
-    budget_based=False,
-    system_name=config.DEFAULT_SYSTEM,
+    fixed_dir,
+    save_dir,
+    budget_based,
+    run_metadata,
 ):
-    """Save cross-validation summaries to a JSON file."""
+    """Save cross-validation summaries to a JSON file.
+
+    ``run_metadata`` holds the evaluation settings shared by all records
+    (``dt``, ``system``, ``vpt_thresholds`` and ``lyapunov_exponent``).
+    """
     save_dir.mkdir(parents=True, exist_ok=True)
-
-    stamp = timestamp()
     prefix = "budget_" if budget_based else ""
-    results_file = (
-        save_dir / f"{prefix}mse_results_dt_{format_dt(dt)}_T{max_train_T}_{stamp}.json"
+    results_file = save_dir / (
+        f"{prefix}mse_results_dt_{format_dt(run_metadata['dt'])}"
+        f"_T{max_train_T}_{timestamp()}.json"
     )
-    summary_metadata = summarize_metadata(summary)
-    wall_time_metadata = summarize_wall_time(evaluation_records)
-
+    metadata = {
+        **run_metadata,
+        "fixed_dir": str(fixed_dir),
+        "max_train_T": max_train_T,
+    }
+    if summary["fixed"]:
+        best_fixed = min(summary["fixed"], key=lambda item: item["overall"]["median"])
+        metadata["best_train_T"] = best_fixed["train_T"]
+        metadata["best_fixed_median_MSE"] = round(best_fixed["overall"]["median"], 6)
+    if summary["adaptive"] is not None:
+        metadata["adaptive_median_MSE"] = round(
+            summary["adaptive"]["overall"]["median"], 6
+        )
     payload = {
-        "metadata": {
-            "created_at": stamp,
-            "dt": dt,
-            "system": system_name,
-            "adaptive_dir": str(adaptive_dir),
-            "fixed_dir": str(fixed_dir or adaptive_dir),
-            "max_train_T": max_train_T,
-            **summary_metadata,
-            **wall_time_metadata,
-        },
+        "metadata": metadata,
         "summary": summary,
         "evaluation_records": evaluation_records,
     }
@@ -132,21 +116,32 @@ def calculate_stats(values):
     values = [float(value) for value in values]
     mean_value = float(mean(values))
     median_value = float(median(values))
-    margin = float(1.96 * stdev(values) / sqrt(len(values))) if len(values) > 1 else 0.0
+    margin = (
+        float(1.96 * stdev(values) / sqrt(len(values)))
+        if len(values) > 1 and all(isfinite(value) for value in values)
+        else 0.0
+    )
+    return {"mean": mean_value, "median": median_value, "ci95": margin}
+
+
+def win_counts(deltas):
+    adaptive_wins = sum(delta > 0 for delta in deltas)
+    fixed_wins = sum(delta < 0 for delta in deltas)
     return {
-        "mean": mean_value,
-        "mean_ci95_low": mean_value - margin,
-        "mean_ci95_high": mean_value + margin,
-        "median": median_value,
-        "median_ci95_low": median_value - margin,
-        "median_ci95_high": median_value + margin,
+        "n_pairs": len(deltas),
+        "adaptive_wins": adaptive_wins,
+        "fixed_wins": fixed_wins,
+        "ties": len(deltas) - adaptive_wins - fixed_wins,
+        "adaptive_win_rate": adaptive_wins / len(deltas),
     }
 
 
-def summarize_paired_deltas(
-    evaluation_records, train_Ts, val_Ts, num_seeds=config.NUM_SEEDS
-):
-    seeds = range(num_seeds)
+def summarize_paired_deltas(evaluation_records, train_Ts, val_Ts):
+    """Compare adaptive models with same-seed best fixed models per ``val_T``.
+
+    Only seeds evaluated for both model types are paired. Returns None when
+    no fixed and adaptive model share a seed.
+    """
     mse_by_key = {
         (
             record["model_type"],
@@ -157,103 +152,76 @@ def summarize_paired_deltas(
         for record in evaluation_records
         if record.get("seed") is not None
     }
+    seeds = {seed for model_type, *_, seed in mse_by_key if model_type == "adaptive"}
     by_val_T = {}
     all_deltas = []
 
     for val_T in val_Ts:
-        fixed_candidates = [
-            (
-                int(train_T),
-                [
-                    mse_by_key[("fixed", int(train_T), val_T, seed)]
-                    for seed in seeds
-                    if ("fixed", int(train_T), val_T, seed) in mse_by_key
-                ],
-            )
+        adaptive_mse = {
+            seed: mse_by_key[key]
+            for seed in seeds
+            if (key := ("adaptive", None, val_T, seed)) in mse_by_key
+        }
+        fixed_mse = {
+            int(train_T): {
+                seed: mse_by_key[key]
+                for seed in adaptive_mse
+                if (key := ("fixed", int(train_T), val_T, seed)) in mse_by_key
+            }
             for train_T in train_Ts
-        ]
-        fixed_candidates = [
-            (train_T, values) for train_T, values in fixed_candidates if values
-        ]
-        best_train_T, _ = min(
-            fixed_candidates,
-            key=lambda candidate: median(candidate[1]),
+        }
+        fixed_mse = {train_T: mse for train_T, mse in fixed_mse.items() if mse}
+        if not fixed_mse:
+            continue
+        best_train_T = min(
+            fixed_mse, key=lambda train_T: median(fixed_mse[train_T].values())
         )
         deltas = [
-            mse_by_key[("fixed", best_train_T, val_T, seed)]
-            - mse_by_key[("adaptive", None, val_T, seed)]
-            for seed in seeds
-            if ("fixed", best_train_T, val_T, seed) in mse_by_key
-            and ("adaptive", None, val_T, seed) in mse_by_key
+            mse - adaptive_mse[seed] for seed, mse in fixed_mse[best_train_T].items()
         ]
-        adaptive_wins = sum(delta > 0 for delta in deltas)
-        fixed_wins = sum(delta < 0 for delta in deltas)
-        ties = len(deltas) - adaptive_wins - fixed_wins
         all_deltas.extend(deltas)
-
         by_val_T[str(int(val_T))] = {
             "best_train_T": best_train_T,
-            "n_pairs": len(deltas),
-            "adaptive_wins": adaptive_wins,
-            "fixed_wins": fixed_wins,
-            "ties": ties,
-            "adaptive_win_rate": adaptive_wins / len(deltas),
+            **win_counts(deltas),
             **calculate_stats(deltas),
         }
 
-    overall_adaptive_wins = sum(delta > 0 for delta in all_deltas)
-    overall_fixed_wins = sum(delta < 0 for delta in all_deltas)
-    overall_ties = len(all_deltas) - overall_adaptive_wins - overall_fixed_wins
-    return {
-        "overall": {
-            "n_pairs": len(all_deltas),
-            "adaptive_wins": overall_adaptive_wins,
-            "fixed_wins": overall_fixed_wins,
-            "ties": overall_ties,
-            "adaptive_win_rate": overall_adaptive_wins / len(all_deltas),
-        },
-        "by_val_T": by_val_T,
-    }
-
-
-def summarize_metadata(summary):
-    fixed_summaries = summary.get("fixed", [])
-    best_fixed = min(
-        fixed_summaries,
-        key=lambda train_summary: train_summary["overall"]["median"],
-        default=None,
-    )
-    metadata = {}
-    if best_fixed is not None:
-        metadata["best_train_T"] = best_fixed["train_T"]
-        metadata["best_fixed_median_MSE"] = round(best_fixed["overall"]["median"], 6)
-
-    adaptive_summary = summary.get("adaptive")
-    if adaptive_summary is not None:
-        metadata["adaptive_median_MSE"] = round(
-            adaptive_summary["overall"]["median"], 6
-        )
-
-    return metadata
+    if not all_deltas:
+        return None
+    return {"overall": win_counts(all_deltas), "by_val_T": by_val_T}
 
 
 def summarize_by_eval_T(records, val_Ts):
+    """MSE, NRMSE, SMAPE, and (at the longest horizon) VPT statistics."""
     by_val_T = []
     for val_T in val_Ts:
-        values = [record["mse"] for record in records if record["val_T"] == val_T]
-        by_val_T.append(
-            {
-                "eval_T": int(val_T),
-                **calculate_stats(values),
+        records_at_T = [record for record in records if record["val_T"] == val_T]
+        stats: dict[str, Any] = {
+            "eval_T": int(val_T),
+            **calculate_stats(record["mse"] for record in records_at_T),
+        }
+        # Results saved before these metrics were added only have MSE.
+        if all("nrmse" in record for record in records_at_T):
+            stats["metrics"] = {
+                name: calculate_stats(record[name] for record in records_at_T)
+                for name in ("nrmse", "smape")
             }
-        )
+        if all("vpt" in record for record in records_at_T):
+            stats["vpt"] = {
+                threshold: {
+                    field: calculate_stats(
+                        record["vpt"][threshold][field] for record in records_at_T
+                    )
+                    for field in vpt
+                }
+                for threshold, vpt in records_at_T[0]["vpt"].items()
+            }
+        by_val_T.append(stats)
 
     return by_val_T
 
 
-def summarize_cross_validation(
-    evaluation_records, train_Ts, val_Ts, num_seeds=config.NUM_SEEDS
-):
+def summarize_cross_validation(evaluation_records, train_Ts, val_Ts):
     summary: dict[str, Any] = {"fixed": [], "adaptive": None}
 
     for train_T in train_Ts:
@@ -284,8 +252,8 @@ def summarize_cross_validation(
         "overall": adaptive_overall,
         "by_eval_T": summarize_by_eval_T(adaptive_records, val_Ts),
     }
-    summary["deltas"] = summarize_paired_deltas(
-        evaluation_records, train_Ts, val_Ts, num_seeds
-    )
+    deltas = summarize_paired_deltas(evaluation_records, train_Ts, val_Ts)
+    if deltas is not None:
+        summary["deltas"] = deltas
 
     return summary

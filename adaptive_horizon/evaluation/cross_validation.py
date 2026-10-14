@@ -6,7 +6,13 @@ import numpy as np
 
 from adaptive_horizon import config
 from adaptive_horizon.data.dataset import make_val_loader
+from adaptive_horizon.dynamics.lyapunov import compute_global_lyapunov
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES
+from adaptive_horizon.evaluation.metrics import (
+    DEFAULT_VPT_THRESHOLDS,
+    ERROR_METRICS,
+    evaluate_metrics,
+)
 from adaptive_horizon.evaluation.utils import (
     get_checkpoint_normalization_stats,
     get_dt_from_model_dir,
@@ -14,9 +20,8 @@ from adaptive_horizon.evaluation.utils import (
     save_cross_validation_results,
     summarize_cross_validation,
 )
-from adaptive_horizon.training.loss import validation_loss
-from adaptive_horizon.training.utils import checkpoint_wall_time, find_fixed_models
-from adaptive_horizon.visualization.plotting import plot_mse
+from adaptive_horizon.training.utils import find_fixed_models
+from adaptive_horizon.visualization.plotting import plot_mse, plot_vpt
 
 
 def get_fixed_paths(
@@ -37,10 +42,6 @@ def get_adaptive_paths(model_dir: Path = config.MODEL_DIR) -> list[Path]:
     return sorted(model_dir.glob("adaptive_mlp*.pt"))
 
 
-def get_adaptive_method(checkpoint):
-    return checkpoint.get("metadata", {}).get("adaptive", {}).get("method")
-
-
 def eval_loader_cache_key(normalization_stats):
     if normalization_stats is None:
         return None
@@ -57,6 +58,7 @@ def cross_validate_models(
     device=config.DEVICE,
     val_Ts: list[int] | None = None,
     system_name: str = config.DEFAULT_SYSTEM,
+    vpt_thresholds=DEFAULT_VPT_THRESHOLDS,
 ):
     train_Ts = list(fixed_paths)
     val_Ts = list(val_Ts) if val_Ts is not None else train_Ts
@@ -76,19 +78,19 @@ def cross_validate_models(
         model, checkpoint = load_model(model_path)
         model = model.to(device)
         eval_loader = get_eval_loader(checkpoint)
-        records = []
-        for val_T in model_val_Ts:
-            record = {
+        metrics = evaluate_metrics(
+            model, eval_loader, model_val_Ts, vpt_thresholds, device
+        )
+        records = [
+            {
                 "model_type": model_type,
                 "seed": checkpoint.get("seed"),
                 "train_T": train_T,
                 "val_T": val_T,
-                "mse": validation_loss(model, eval_loader, val_T, device),
-                "wall_time_seconds": checkpoint_wall_time(checkpoint),
+                **metrics[val_T],
             }
-            if model_type == "adaptive":
-                record["adaptive_method"] = get_adaptive_method(checkpoint)
-            records.append(record)
+            for val_T in model_val_Ts
+        ]
         print(
             f"  Model {model_path.name}: mean MSE = "
             f"{np.mean([record['mse'] for record in records]):.6f}"
@@ -120,6 +122,33 @@ def load_cross_validation_results(cached: Path):
         return json.load(file)
 
 
+def reusable_fixed_records(payload, fixed_paths, fixed_dir, val_Ts, run_metadata):
+    """Split fixed models into cached complete evaluations and paths to evaluate."""
+    metadata = payload["metadata"]
+    if any(metadata.get(key) != value for key, value in run_metadata.items()):
+        return [], fixed_paths
+    records = [
+        record
+        for record in payload["evaluation_records"]
+        if record["model_type"] == "fixed"
+        and record["train_T"] in fixed_paths
+        and record["val_T"] in val_Ts
+    ]
+    cached_keys = {(r["train_T"], r["seed"], r["val_T"]) for r in records}
+    reusable_models = {
+        (train_T, seed)
+        for train_T, seed, _ in cached_keys
+        if all((train_T, seed, T) in cached_keys for T in val_Ts)
+    }
+    records = [r for r in records if (r["train_T"], r["seed"]) in reusable_models]
+    seeds_by_path = {path: seed for path, _, seed in find_fixed_models(fixed_dir)}
+    remaining_paths = {
+        T: [path for path in paths if (T, seeds_by_path[path]) not in reusable_models]
+        for T, paths in fixed_paths.items()
+    }
+    return records, remaining_paths
+
+
 def cross_validation(
     model_dir,
     fixed_dir=None,
@@ -130,6 +159,8 @@ def cross_validation(
     device=config.DEVICE,
     metric="median",
     system=config.DEFAULT_SYSTEM,
+    error_metric="mse",
+    vpt_thresholds=DEFAULT_VPT_THRESHOLDS,
 ):
     model_dir = Path(model_dir)
     cached = Path(cached) if cached is not None else None
@@ -145,7 +176,7 @@ def cross_validation(
         train_Ts = list(range(1, metadata["max_train_T"] + 1))
         if max_train_T is not None:
             train_Ts = [train_T for train_T in train_Ts if train_T <= max_train_T]
-        if max_eval_T is None or budget_based:
+        if max_eval_T is None:
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
         evaluation_records = [
@@ -154,20 +185,31 @@ def cross_validation(
             if record["val_T"] in val_Ts
             and (record["model_type"] == "adaptive" or record["train_T"] in train_Ts)
         ]
-        adaptive_dir = metadata.get("adaptive_dir", "cached")
-        fixed_dir = metadata.get("fixed_dir", "cached")
+        lyapunov_exponent = metadata.get("lyapunov_exponent")
     else:
         output_dir = output_dir or Path(config.system_path(config.EVAL_DIR, system))
         fixed_dir = Path(fixed_dir) if fixed_dir is not None else model_dir / "fixed"
         adaptive_dir = model_dir / "adaptive"
         dt = get_dt_from_model_dir(model_dir)
+        if dt is None:
+            dt = get_dt_from_model_dir(fixed_dir) or config.DT
         budget_based = model_dir.name.startswith("budget")
+        if lyapunov_exponent is None:
+            lyapunov_exponent = float(
+                compute_global_lyapunov(dt=config.INTEGRATION_DT, system=system)
+            )
+        run_metadata = {
+            "dt": dt,
+            "system": system,
+            "vpt_thresholds": list(vpt_thresholds),
+            "lyapunov_exponent": lyapunov_exponent,
+        }
         fixed_paths = get_fixed_paths(model_dir=fixed_dir)
         train_Ts = sorted(fixed_paths)
         if max_train_T is not None:
             train_Ts = [train_T for train_T in train_Ts if train_T <= max_train_T]
             fixed_paths = {train_T: fixed_paths[train_T] for train_T in train_Ts}
-        if max_eval_T is None or budget_based:
+        if max_eval_T is None:
             max_eval_T = config.MAX_EVAL_T
         val_Ts = list(range(1, max_eval_T + 1))
         cached_fixed_records = []
@@ -178,14 +220,9 @@ def cross_validation(
             if previous_results:
                 previous_result = previous_results[-1]
                 payload = load_cross_validation_results(previous_result)
-                cached_fixed_records = [
-                    record
-                    for record in payload["evaluation_records"]
-                    if record["model_type"] == "fixed"
-                    and record["train_T"] in train_Ts
-                    and record["val_T"] in val_Ts
-                ]
-                fixed_paths = {max_train_T: fixed_paths.get(max_train_T, [])}
+                cached_fixed_records, fixed_paths = reusable_fixed_records(
+                    payload, fixed_paths, fixed_dir, val_Ts, run_metadata
+                )
                 print(
                     f"Reusing {len(cached_fixed_records)} fixed-model evaluation "
                     f"records from {previous_result}"
@@ -198,24 +235,35 @@ def cross_validation(
             device=device,
             val_Ts=val_Ts,
             system_name=system,
+            vpt_thresholds=vpt_thresholds,
         )
 
-    effective_max_train_T = max_train_T if max_train_T is not None else max(train_Ts)
+    effective_max_train_T = max_train_T or max(train_Ts, default=0)
     summary = summarize_cross_validation(evaluation_records, train_Ts, val_Ts)
     if cached is None:
         save_cross_validation_results(
             evaluation_records,
             summary,
             effective_max_train_T,
-            dt,
-            adaptive_dir,
             fixed_dir,
             output_dir,
             budget_based,
-            system,
+            run_metadata,
         )
-    if effective_max_train_T == max_eval_T:
-        plot_mse(summary, output_dir, dt, effective_max_train_T, budget_based, metric)
+    if not summary["fixed"]:
+        print("No fixed models evaluated; skipping plots")
+        return
+    plot_mse(
+        summary,
+        output_dir,
+        dt,
+        effective_max_train_T,
+        budget_based,
+        metric,
+        error_metric,
+    )
+    if lyapunov_exponent is not None:
+        plot_vpt(summary, output_dir, dt, lyapunov_exponent, metric)
 
 
 def main():
@@ -227,6 +275,7 @@ def main():
     parser.add_argument("--max-eval-T", type=int, default=config.MAX_EVAL_T)
     parser.add_argument("--cached", type=Path, default=None)
     parser.add_argument("--metric", choices=("mean", "median"), default="median")
+    parser.add_argument("--error-metric", choices=ERROR_METRICS, default="mse")
     parser.add_argument(
         "--system", choices=SYSTEM_CHOICES, default=config.DEFAULT_SYSTEM
     )

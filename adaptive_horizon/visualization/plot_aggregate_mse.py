@@ -79,10 +79,6 @@ def adaptive_median(result: MethodResult, eval_scope: EvalScope):
     summary = result.payload.get("summary", {}).get("adaptive", {})
     if not summary:
         return None
-    if eval_scope.mode == "overall":
-        metadata = result.payload.get("metadata", {})
-        if "adaptive_median_MSE" in metadata:
-            return float(metadata["adaptive_median_MSE"])
     return median_for_scope(summary, eval_scope)
 
 
@@ -91,11 +87,6 @@ def best_fixed_median(result: MethodResult, eval_scope: EvalScope):
     fixed_summaries = summary.get("fixed", [])
     if not fixed_summaries:
         return None
-
-    if eval_scope.mode == "overall":
-        metadata = result.payload.get("metadata", {})
-        if "best_fixed_median_MSE" in metadata:
-            return float(metadata["best_fixed_median_MSE"])
 
     return min(
         median_for_scope(fixed_summary, eval_scope) for fixed_summary in fixed_summaries

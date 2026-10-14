@@ -56,24 +56,24 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 
 **Args:**
 
-| Name               | Description                                                           | Values                                                                                                                | Default value           |
-|--------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------|
-| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                                   | `config.EPOCHS`         |
-| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                                         | false                   |
-| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                                   | 1                       |
-| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                                         | false                   |
-| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                                         | false                   |
-| `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `lyapunov-time` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
-| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                                                  | None                    |
-| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                                   | `config.MAX_TRAIN_T`    |
-| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                                         | false                   |
-| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                                   | 20                      |
-| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                                   | `config.NUM_SEEDS`      |
-| `--dt`             | Model prediction/sampling step                                        | float                                                                                                                 | `config.DT`             |
-| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                                   | `config.DEFAULT_SYSTEM` |
-| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                                   | `config.BATCH_SIZE`     |
-| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                                                  | None                    |
-| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                                         | false                   |
+| Name               | Description                                                           | Values                                                                                             | Default value           |
+|--------------------|-----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|-------------------------|
+| `--epochs` `-e`    | Number of training epochs                                             | int                                                                                                | `config.EPOCHS`         |
+| `--single`         | Train a single model; combine with `--adaptive` for adaptive training | true \| false                                                                                      | false                   |
+| `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                | 1                       |
+| `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                      | false                   |
+| `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                      | false                   |
+| `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
+| `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                               | None                    |
+| `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                | `config.MAX_TRAIN_T`    |
+| `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                      | false                   |
+| `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                | 20                      |
+| `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                | `config.NUM_SEEDS`      |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                              | `config.DT`             |
+| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                | `config.DEFAULT_SYSTEM` |
+| `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                | `config.BATCH_SIZE`     |
+| `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                               | None                    |
+| `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                      | false                   |
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
@@ -109,25 +109,37 @@ Plots use median plus 95% CI for repeated values.
 
 ### Cross-Validation
 
-Evaluate fixed and adaptive models across validation horizons. The command saves a JSON file containing metadata, a median/95% CI summary, and raw `evaluation_records`.
+Evaluate fixed and adaptive models across validation horizons. The command saves a JSON file containing metadata, summaries, and raw `evaluation_records` with MSE, NRMSE, SMAPE and valid prediction times (VPT).
 
 ```bash
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08
 poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
+poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --max-eval-T 200 --error-metric nrmse
 ```
 
 **Args:**
 
-| Name             | Description                                               | Values                              | Default value                   |
-|------------------|-----------------------------------------------------------|-------------------------------------|---------------------------------|
-| `--model-dir`    | Model directory containing `fixed/` and `adaptive/`       | str                                 | required                        |
-| `--fixed-dir`    | Directory with fixed models                               | str                                 | Inferred from `--model-dir`     |
-| `--output-dir`   | Directory for cross-validation JSON and plots             | str                                 | Configured evaluation directory |
-| `--max-train-T`  | Maximum fixed training horizon to include                 | int                                 | Max fixed T found               |
-| `--max-eval-T`   | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
-| `--cached`       | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
-| `--metric`       | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
-| `--system`       | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+| Name                  | Description                                               | Values                              | Default value                   |
+|-----------------------|-----------------------------------------------------------|-------------------------------------|---------------------------------|
+| `--model-dir`         | Model directory containing `fixed/` and `adaptive/`       | str                                 | required                        |
+| `--fixed-dir`         | Directory with fixed models                               | str                                 | Inferred from `--model-dir`     |
+| `--output-dir`        | Directory for cross-validation JSON and plots             | str                                 | Configured evaluation directory |
+| `--max-train-T`       | Maximum fixed training horizon to include                 | int                                 | Max fixed T found               |
+| `--max-eval-T`        | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
+| `--cached`            | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
+| `--metric`            | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
+| `--error-metric`      | Error shown in the cross-validation plot                  | `mse` \| `nrmse` \| `smape`         | `mse`                           |
+| `--system`            | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+
+For a true state $x$ and prediction $\hat{x}$ with $D$ coordinates, per-step errors are:
+
+- MSE: the training loss in normalized coordinates, averaged per batch (kept for compatibility).
+- NRMSE: $\sqrt{\frac{1}{D}\sum_d \left((\hat{x}_d-x_d)/\sigma_d\right)^2}$, where $\sigma_d$ is the coordinate's standard deviation from the normalization statistics. It is about $\sqrt{2}$ for two unrelated points on the attractor.
+- SMAPE: $\frac{200}{D}\sum_d |\hat{x}_d-x_d|/\max(|\hat{x}_d|+|x_d|,10^{-8})$ in physical coordinates, on a 0–200% scale, for comparison with [Horizon Forcing](https://doi.org/10.1145/3718090) (which uses 0–1). It is sensitive near zero-valued coordinates.
+
+NRMSE and SMAPE weight every forecast starting point equally and are averaged over the evaluated steps.
+
+The **valid prediction time** of one forecast is the number of steps before its NRMSE first **exceeds** a threshold $\varepsilon$ (zero if the first prediction fails), as in [Vlachas et al. (2020)](https://doi.org/10.1016/j.neunet.2020.02.016). Several thresholds are evaluated so conclusions can be checked for threshold sensitivity; $\varepsilon = 0.5$ is a common choice.
 
 ### Budget Comparison and Aggregate MSE
 
@@ -152,7 +164,7 @@ poetry run aggregate-mse --results-dir experiments/lorenz/evaluation --scope sin
 
 Notes:
 - The default `overall` scope plots aggregate MSE across all validation horizons.
-- `--scope single 1` keeps the same best fixed model selected by the overall comparison, but plots its MSE at a single validation horizon.
+- `--scope single 1` keeps the same best fixed model selected by the overall comparison but plots its MSE at a single validation horizon.
 
 ### Optimal Horizon by Epoch Budget
 

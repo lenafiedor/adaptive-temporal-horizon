@@ -3,7 +3,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from matplotlib.colors import Normalize
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from adaptive_horizon import config
@@ -287,9 +286,11 @@ def plot_mse(
     max_train_T=config.MAX_TRAIN_T,
     budget_based=False,
     metric="median",
+    error_metric="mse",
+    max_lines=10,
 ):
     """
-    Plot MSE summaries for each validation T as separate lines.
+    Plot error summaries for up to ``max_lines`` evenly spaced validation Ts.
 
     Args:
         summary: output from summarize_cross_validation
@@ -298,6 +299,8 @@ def plot_mse(
         max_train_T: maximum training time horizon
         budget_based: whether the model training is budget-based
         metric: median or mean
+        error_metric: mse, nrmse, or smape
+        max_lines: maximum number of lines to plot
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -305,33 +308,38 @@ def plot_mse(
     fixed_summaries = summary["fixed"]
     adaptive_summary = summary["adaptive"]
     train_Ts = [train_summary["train_T"] for train_summary in fixed_summaries]
-    eval_summaries = fixed_summaries[0]["by_eval_T"]
+    eval_Ts = [item["eval_T"] for item in fixed_summaries[0]["by_eval_T"]]
+    # e.g. max_eval_T=100 -> plot eval_T = 10, 20, ..., 100
+    step = -(-max(eval_Ts) // max_lines)
+    plotted = [i for i, eval_T in enumerate(eval_Ts) if eval_T % step == 0]
 
     fig, ax = plt.subplots(figsize=(12, 8))
-    cmap = plt.cm.tab20
-    colors = [cmap(i / len(eval_summaries)) for i in range(len(eval_summaries))]
+    cmap = plt.get_cmap("viridis")
+    colors = [cmap(j / max(len(plotted) - 1, 1)) for j in range(len(plotted))]
     train_times = [train_T * dt for train_T in train_Ts]
 
-    for i, val_summary in enumerate(eval_summaries):
+    def error_stats(val_summary):
+        if error_metric == "mse":
+            return val_summary
+        if error_metric not in val_summary.get("metrics", {}):
+            raise ValueError(
+                f"Cached results lack {error_metric.upper()}; rerun evaluation"
+            )
+        return val_summary["metrics"][error_metric]
+
+    for color, i in zip(colors, plotted):
         fixed_by_train_T = [
-            train_summary["by_eval_T"][i] for train_summary in fixed_summaries
+            error_stats(train_summary["by_eval_T"][i])
+            for train_summary in fixed_summaries
         ]
         centers = [mse_summary[metric] for mse_summary in fixed_by_train_T]
-        lower_errors = [
-            mse_summary[metric] - mse_summary[f"{metric}_ci95_low"]
-            for mse_summary in fixed_by_train_T
-        ]
-        upper_errors = [
-            mse_summary[f"{metric}_ci95_high"] - mse_summary[metric]
-            for mse_summary in fixed_by_train_T
-        ]
 
         ax.errorbar(
             train_times,
             centers,
-            yerr=np.array([lower_errors, upper_errors]),
-            color=colors[i],
-            label=rf"$\tau_{{val}}={val_summary['eval_T'] * dt:.2f}$",
+            yerr=[mse_summary["ci95"] for mse_summary in fixed_by_train_T],
+            color=color,
+            label=rf"$\tau_{{val}}={eval_Ts[i] * dt:.2f}$",
             linewidth=1.5,
             marker=".",
             markersize=6,
@@ -340,16 +348,17 @@ def plot_mse(
 
         if adaptive_summary is not None:
             ax.axhline(
-                y=adaptive_summary["by_eval_T"][i][metric],
-                color=colors[i],
+                y=error_stats(adaptive_summary["by_eval_T"][i])[metric],
+                color=color,
                 linestyle="--",
                 linewidth=1.0,
                 alpha=0.7,
             )
 
     ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
-    ax.set_ylabel(f"Validation MSE ({metric} +/- 95% CI)")
-    title = "Cross-Validation MSE"
+    unit = " (%)" if error_metric == "smape" else ""
+    ax.set_ylabel(f"Validation {error_metric.upper()}{unit} ({metric} +/- 95% CI)")
+    title = f"Cross-Validation {error_metric.upper()}"
     if adaptive_summary is not None:
         title += " (dashed = adaptive model)"
     ax.set_title(title)
@@ -366,8 +375,57 @@ def plot_mse(
     plt.tight_layout()
     stamp = timestamp()
     prefix = "budget_" if budget_based else ""
-    filename = f"{prefix}mse_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{stamp}.png"
+    filename = (
+        f"{prefix}{error_metric}_dt_{format_dt(dt)}_T{max_train_T}_{metric}_{stamp}.png"
+    )
     save_figure(fig, filename, save_dir)
+
+
+def plot_vpt(summary, save_dir, dt, lyapunov_exponent, metric="median"):
+    """Plot median valid prediction times per NRMSE threshold at the longest rollout."""
+    fixed = summary["fixed"]
+    if "vpt" not in fixed[0]["by_eval_T"][-1]:
+        return
+    scale = dt * lyapunov_exponent
+
+    def median_vpt(model_summary, vpt_threshold):
+        return model_summary["by_eval_T"][-1]["vpt"][vpt_threshold]["median"]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    thresholds = list(fixed[0]["by_eval_T"][-1]["vpt"])
+    cmap = plt.get_cmap("viridis")
+    for i, threshold in enumerate(thresholds):
+        color = cmap(i / max(len(thresholds) - 1, 1))
+        stats = [median_vpt(item, threshold) for item in fixed]
+        ax.errorbar(
+            [item["train_T"] * dt for item in fixed],
+            [item[metric] * scale for item in stats],
+            yerr=[item["ci95"] * scale for item in stats],
+            label=rf"$\varepsilon$ = {threshold}",
+            color=color,
+            marker=".",
+            capsize=3,
+        )
+        if summary["adaptive"] is not None:
+            ax.axhline(
+                median_vpt(summary["adaptive"], threshold)[metric] * scale,
+                color=color,
+                linestyle="--",
+            )
+    ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
+    ax.set_ylabel(f"Median VPT in Lyapunov times ({metric} +/- 95% CI)")
+    ax.set_title("Valid prediction time")
+    legend_title = "NRMSE threshold"
+    if summary["adaptive"] is not None:
+        legend_title += " (dashed = adaptive)"
+    ax.legend(title=legend_title)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    save_figure(
+        fig,
+        f"vpt_dt_{format_dt(dt)}_{metric}_{timestamp()}.png",
+        save_dir,
+    )
 
 
 def plot_paired_deltas(
@@ -384,14 +442,10 @@ def plot_paired_deltas(
     centers = np.asarray(
         [deltas["by_val_T"][str(T)][metric] for T in val_Ts], dtype=np.float64
     )
-    lows = np.asarray(
-        [deltas["by_val_T"][str(T)][f"{metric}_ci95_low"] for T in val_Ts],
-        dtype=np.float64,
+    margins = np.asarray(
+        [deltas["by_val_T"][str(T)]["ci95"] for T in val_Ts], dtype=np.float64
     )
-    highs = np.asarray(
-        [deltas["by_val_T"][str(T)][f"{metric}_ci95_high"] for T in val_Ts],
-        dtype=np.float64,
-    )
+    lows, highs = centers - margins, centers + margins
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.axhline(0.0, color="#333333", linewidth=1.0, linestyle="--", alpha=0.7)
@@ -491,9 +545,9 @@ def plot_lle_heatmap(
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         lle_i = exponents[:, i]
-        norm = Normalize(float(lle_i.min()), float(lle_i.max()))
-        lc = Line3DCollection(segments, cmap="coolwarm", norm=norm)
+        lc = Line3DCollection(segments, cmap="coolwarm")
         lc.set_array(lle_i[:-1])
+        lc.set_clim(float(lle_i.min()), float(lle_i.max()))
         lc.set_linewidth(1)
         ax.add_collection3d(lc)
 
@@ -550,11 +604,11 @@ def plot_g_T_heatmap(
         vmin = float(segment_values.min())
         vmax = float(segment_values.max())
 
-    norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(111, projection="3d")
-    lc = Line3DCollection(segments, cmap="viridis", norm=norm)
+    lc = Line3DCollection(segments, cmap="viridis")
     lc.set_array(segment_values)
+    lc.set_clim(vmin, vmax)
     lc.set_linewidth(1.1)
     ax.add_collection3d(lc)
 

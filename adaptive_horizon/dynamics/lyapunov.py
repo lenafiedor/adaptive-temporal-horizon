@@ -43,21 +43,6 @@ def mean_horizon(lambda_max, base_T, min_T, max_T):
     return T.astype(int)
 
 
-def time_horizon(
-    lambda_max,
-    dt,
-    min_T=1,
-    max_T=config.MAX_TRAIN_T,
-):
-    """Map Lyapunov exponents to one Lyapunov time in rollout steps."""
-    lambda_max = np.asarray(lambda_max)
-    T = np.full(lambda_max.shape, max_T, dtype=float)
-    expanding = lambda_max > 0
-    T[expanding] = np.floor(1.0 / (lambda_max[expanding] * dt))
-    T = np.clip(T, min_T, max_T).astype(int)
-    return int(T) if T.ndim == 0 else T
-
-
 def compute_global_lyapunov(
     dt=0.01,
     steps=SIMULATION_STEPS,
@@ -93,9 +78,6 @@ def compute_step_tangent_maps(
 ):
     """
     One-step tangent maps along a sampled trajectory.
-
-    maps[i] is the Jacobian of the dt-flow evaluated at trajectory[i], i.e. it
-    propagates a perturbation from sample i to sample i + 1.
 
     Returns:
         array [N - 1, dim, dim]

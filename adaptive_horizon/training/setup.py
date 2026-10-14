@@ -15,7 +15,6 @@ from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
     LYAPUNOV_MEAN,
     LYAPUNOV_METHODS,
-    LYAPUNOV_TIME,
     SCHEDULED_METHODS,
     WEIGHTED_LOSS,
 )
@@ -66,7 +65,6 @@ def _build_datasets(adaptive, adaptive_method, T, common, debug):
         lyapunov_common = {
             **common,
             "max_T": T or config.MAX_TRAIN_T,
-            "adaptive_method": adaptive_method,
             "debug": debug,
         }
         pair = _make_pair(
@@ -107,22 +105,18 @@ def _adaptive_metadata(adaptive_method, train_dataset, T, dt):
     else:
         metadata["min_T"] = train_dataset.min_T
         metadata["max_T"] = train_dataset.max_T
-        metadata["horizon_mapping"] = (
-            "lyapunov_time" if adaptive_method == LYAPUNOV_TIME else "lyapunov_mean"
+        metadata.update(
+            {
+                "variance": train_dataset.var,
+                "base_T": train_dataset.base_T,
+                "lyapunov_fraction": train_dataset.lyapunov_fraction,
+                "lambda_estimate": train_dataset.lambda_estimate,
+                "mean_train_T": train_dataset.mean_T,
+                "mean_train_T_lyapunov_times": (
+                    train_dataset.lambda_estimate * dt * train_dataset.mean_T
+                ),
+            }
         )
-        if adaptive_method == LYAPUNOV_MEAN:
-            metadata.update(
-                {
-                    "variance": train_dataset.var,
-                    "base_T": train_dataset.base_T,
-                    "lyapunov_fraction": train_dataset.lyapunov_fraction,
-                    "lambda_estimate": train_dataset.lambda_estimate,
-                    "mean_train_T": train_dataset.mean_T,
-                    "mean_train_T_lyapunov_times": (
-                        train_dataset.lambda_estimate * dt * train_dataset.mean_T
-                    ),
-                }
-            )
     return metadata
 
 

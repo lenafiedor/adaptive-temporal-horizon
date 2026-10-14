@@ -17,12 +17,13 @@ def test_cross_validate_models_falls_back_to_requested_system(monkeypatch):
                 model,
                 {
                     "seed": 1,
-                    "metadata": {"wall_time_seconds": 0.0},
                 },
             )
         ),
     )
-    monkeypatch.setattr(cross_validation, "validation_loss", Mock(return_value=0.0))
+    monkeypatch.setattr(
+        cross_validation, "evaluate_metrics", Mock(return_value={1: {"mse": 0.0}})
+    )
 
     make_val_loader = Mock(return_value=object())
     monkeypatch.setattr(cross_validation, "make_val_loader", make_val_loader)
