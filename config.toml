@@ -8,7 +8,7 @@ data_dir = "experiments/lorenz/data"
 [training]
 device = "cpu"
 max_train_T = 10
-epochs = 100
+epochs = 200
 batch_size = 64
 optimizer = "adam"
 learning_rate = 3e-4
@@ -40,8 +40,13 @@ temperature = 0.25
 weight_floor = 0.05
 anchor_alpha = 0.25
 
-[early-stopping]
-patience = 3
+[cross-validation]
+tolerance = 0.05
+smoothing_epochs = 3
+stall_patience = 3
+stall_min_delta = 0.01
+min_stage_epochs = 5
+max_stage_epochs = 20
 
 [model]
 layer_width = 10

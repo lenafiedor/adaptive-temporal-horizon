@@ -20,7 +20,6 @@ from adaptive_horizon.training.loss import (
 from adaptive_horizon.training.methods import (
     ADAPTIVE_METHOD_CHOICES,
     CROSS_VALIDATION,
-    EARLY_STOPPING,
     LINEAR_SCHEDULER,
     LYAPUNOV_MEAN,
     LYAPUNOV_METHODS,
@@ -28,7 +27,7 @@ from adaptive_horizon.training.methods import (
     WEIGHTED_LOSS,
     takes_max_T,
 )
-from adaptive_horizon.training.schedules import stepped_scheduler
+from adaptive_horizon.training.schedules import HorizonScheduler
 from adaptive_horizon.training.setup import create_model_and_loaders
 from adaptive_horizon.training.utils import (
     fixed_budget_wall_time,
@@ -60,39 +59,44 @@ def clone_model_state_dict(model):
     }
 
 
-def scheduler_boundary_reached(epoch, total_epochs, current_T, T_max):
-    if epoch + 1 >= total_epochs:
-        return True
-    if current_T == T_max and (epoch + 1) % 10 == 0:
-        return True
-    return stepped_scheduler(epoch + 1, T_max) > current_T
+class HorizonSelector:
+    """Selects a checkpoint among schedule boundaries, preferring larger T.
 
+    The chosen checkpoint has the largest T whose loss is within ``tolerance``
+    (relative) of the best loss; ties at that T go to the lowest loss.
+    """
 
-class BestCheckpoint:
-    """Tracks the best (lowest-loss) model state seen at schedule boundaries."""
+    def __init__(self, tolerance=config.CV_TOLERANCE):
+        self.tolerance = tolerance
+        self.candidates = []
+        self.selected = None
+        self.best_loss = None
 
-    def __init__(self):
-        self.state = None
-        self.loss = None
-        self.T = None
-        self.epoch = None
+    def add(self, model, loss, T, epoch):
+        self.candidates.append(
+            {
+                "state": clone_model_state_dict(model),
+                "loss": float(loss),
+                "T": int(T),
+                "epoch": epoch,
+            }
+        )
 
-    def update(self, model, loss, T, epoch):
-        """Store the model if ``loss`` improves on the best so far."""
-        loss = float(loss)
-        if self.loss is not None and not loss < self.loss:
-            return False
-        self.state = clone_model_state_dict(model)
-        self.loss = loss
-        self.T = int(T)
-        self.epoch = epoch
-        return True
+    def select(self):
+        if not self.candidates:
+            return None
+        best_loss = min(c["loss"] for c in self.candidates)
+        threshold = best_loss * (1.0 + self.tolerance)
+        eligible = [c for c in self.candidates if c["loss"] <= threshold]
+        self.selected = max(eligible, key=lambda c: (c["T"], -c["loss"]))
+        self.best_loss = best_loss
+        return self.selected
 
     def restore(self, model):
-        """Load the best state into ``model``; returns whether one was stored."""
-        if self.state is None:
+        """Load the selected state into ``model``; returns whether one exists."""
+        if self.select() is None:
             return False
-        model.load_state_dict(self.state)
+        model.load_state_dict(self.selected["state"])
         return True
 
 
@@ -172,24 +176,26 @@ def train(
         metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
 
     scheduled = adaptive and adaptive_method in SCHEDULED_METHODS
-    early_stopping = adaptive and adaptive_method == EARLY_STOPPING
     cross_validation = adaptive and adaptive_method == CROSS_VALIDATION
-    best = BestCheckpoint()
-    early_stop_wait = 0
-    stopped_early = False
+    selector = HorizonSelector()
+    if scheduled:
+        horizon_scheduler = (
+            HorizonScheduler.stall(T)
+            if cross_validation
+            else HorizonScheduler.fixed(T, epochs)
+        )
 
-    if metadata is not None:
-        if early_stopping:
-            metadata["early_stopping"] = {
-                "enabled": True,
-                "metric": "validation_loss_T1",
-                "patience": config.EARLY_STOP_PATIENCE,
-            }
-        elif cross_validation:
-            metadata["early_stopping"] = {
-                "enabled": False,
-                "max_T": T,
-            }
+    if metadata is not None and scheduled:
+        metadata["schedule"] = {
+            "type": "stall" if cross_validation else "fixed",
+            "max_T": T,
+            **horizon_scheduler.describe(),
+        }
+    if metadata is not None and cross_validation:
+        metadata["selection"] = {
+            "metric": f"validation_loss_T1-{config.MAX_EVAL_T}",
+            "tolerance": selector.tolerance,
+        }
 
     if debug:
         if save_dir is None:
@@ -204,24 +210,12 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10]
 
-    linear_scheduler_T = 1
-
     epoch = 0
     final_T = None
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
-        if scheduled:
-            current_T = stepped_scheduler(epoch, T)
-            if current_T != linear_scheduler_T:
-                print(
-                    f"\tEpoch {epoch + 1}/{epochs}, updating T: "
-                    f"{linear_scheduler_T} -> {current_T}"
-                )
-                optimizer.state.clear()
-                linear_scheduler_T = current_T
-        else:
-            current_T = T
+        current_T = horizon_scheduler.T if scheduled else T
         final_T = current_T
 
         for batch in train_loader:
@@ -233,7 +227,6 @@ def train(
             loss.backward()
             optimizer.step()
             if scheduled:
-                # Report the T=1 loss so curves are comparable across the schedule.
                 with torch.no_grad():
                     loss = batch_loss(model, inputs, targets[:, :1], 1)
             epoch_loss += loss.item()
@@ -246,20 +239,32 @@ def train(
         )
         val_losses.append(val_loss)
 
-        if (cross_validation or early_stopping) and scheduler_boundary_reached(
-            epoch, epochs, current_T, T
-        ):
-            improved = best.update(model, val_loss, current_T, epoch + 1)
-            if early_stopping:
-                early_stop_wait = 0 if improved else early_stop_wait + 1
+        out_of_time = (
+            max_wall_time_seconds is not None
+            and perf_counter() - wall_time_start >= max_wall_time_seconds
+        )
+        if scheduled:
+            selection_loss = (
+                validation_loss(model, val_loader, config.MAX_EVAL_T, device)
+                if cross_validation
+                else None
+            )
+            training_ends = out_of_time or epoch + 1 >= epochs
+            stage_ended = horizon_scheduler.step(
+                selection_loss, force_boundary=training_ends
+            )
+            if stage_ended and cross_validation:
+                score = horizon_scheduler.stage_score
+                selector.add(model, score, current_T, epoch + 1)
                 print(
-                    f"\tEarly-stopping check at epoch {epoch + 1}, T={current_T}: "
-                    f"T=1 MSE={float(val_loss):.6f}"
+                    f"\tStage end at epoch {epoch + 1}, T={current_T}: "
+                    f"T=1..{config.MAX_EVAL_T} MSE={score:.6f}"
                 )
-                if early_stop_wait >= config.EARLY_STOP_PATIENCE:
-                    stopped_early = True
-                    print(f"\tEarly stopping at epoch {epoch + 1}")
-                    break
+            if horizon_scheduler.T != current_T and not training_ends:
+                print(
+                    f"\tAfter epoch {epoch + 1}/{epochs}, updating T: "
+                    f"{current_T} -> {horizon_scheduler.T}"
+                )
 
         if (epoch + 1) % 10 == 0:
             print(
@@ -273,10 +278,7 @@ def train(
                 gradient_history.append((epoch, gradients))
                 plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
 
-        if (
-            max_wall_time_seconds is not None
-            and perf_counter() - wall_time_start >= max_wall_time_seconds
-        ):
+        if out_of_time:
             print(
                 f"\tStopping after epoch {epoch + 1}: "
                 f"wall-clock budget {max_wall_time_seconds:.2f}s reached"
@@ -285,41 +287,34 @@ def train(
             break
         epoch += 1
 
-    if (early_stopping or cross_validation) and best.restore(model):
-        final_T = best.T
-        label = "Early stopping" if early_stopping else "Cross-validation"
-        metric = "T=1 MSE" if early_stopping else "MSE"
+    if cross_validation and selector.restore(model):
+        selected = selector.selected
+        final_T = selected["T"]
         print(
-            f"\t{label} selected T={best.T} from epoch "
-            f"{best.epoch} ({metric}={best.loss:.6f})"
+            f"\tCross-validation selected T={selected['T']} from epoch "
+            f"{selected['epoch']} (T=1..{config.MAX_EVAL_T} MSE={selected['loss']:.6f}, "
+            f"best={selector.best_loss:.6f})"
         )
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
-        if early_stopping:
-            metadata["early_stopping"].update(
+        metadata["epochs_ran"] = len(train_losses)
+        if cross_validation:
+            selected = selector.selected or {}
+            metadata["selection"].update(
                 {
-                    "stopped_early": stopped_early,
-                    "best_val_loss": best.loss,
-                    "selected_T": best.T,
-                    "selected_epoch": best.epoch,
+                    "selected_T": selected.get("T"),
+                    "selected_epoch": selected.get("epoch"),
+                    "selected_loss": selected.get("loss"),
+                    "best_loss": selector.best_loss,
+                    "candidates": [
+                        {k: c[k] for k in ("T", "epoch", "loss")}
+                        for c in selector.candidates
+                    ],
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
-                }
-            )
-        elif cross_validation:
-            metadata["early_stopping"].update(
-                {
-                    "stopped_early": False,
-                    "selected_T": best.T,
-                    "selected_epoch": best.epoch,
-                    "selected_loss": best.loss,
-                    "epochs_ran": len(train_losses),
-                    "final_T": final_T,
-                    "stop_epoch": None,
-                    "stop_T": None,
                 }
             )
         if max_wall_time_seconds is not None:
@@ -347,6 +342,7 @@ def train_single_model(
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
+    base_T=None,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -360,6 +356,7 @@ def train_single_model(
             batch_size,
             debug,
             system_name,
+            base_T=base_T,
         )
     )
     if adaptive:
@@ -509,6 +506,7 @@ def train_adaptive_models(
     max_wall_time_seconds=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
+    base_T=None,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
@@ -555,6 +553,7 @@ def train_adaptive_models(
             max_wall_time_seconds=max_wall_time_seconds,
             budget_metadata=budget_metadata,
             system_name=system_name,
+            base_T=base_T,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -619,6 +618,12 @@ def main():
         help="Fixed model directory used to read wall-clock budget",
     )
     parser.add_argument(
+        "--base-T",
+        type=int,
+        default=None,
+        help="Override the Lyapunov-based center horizon (1..config.MAX_TRAIN_T)",
+    )
+    parser.add_argument(
         "--max-T",
         type=int,
         default=config.MAX_TRAIN_T,
@@ -666,6 +671,15 @@ def main():
         train_adaptive = True
         adaptive_method = args.method
 
+    if args.base_T is not None:
+        if not train_adaptive or adaptive_method not in (
+            *LYAPUNOV_METHODS,
+            WEIGHTED_LOSS,
+        ):
+            parser.error("--base-T requires --method lyapunov-mean or weighted-loss")
+        if not 1 <= args.base_T <= config.MAX_TRAIN_T:
+            parser.error(f"--base-T must be between 1 and {config.MAX_TRAIN_T}")
+
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
     print(f"Dynamical system: {system.label}")
@@ -709,6 +723,7 @@ def main():
             ),
             adaptive=train_adaptive,
             adaptive_method=adaptive_method,
+            base_T=args.base_T,
             batch_size=args.batch_size,
             debug=args.debug,
             system_name=args.system,
@@ -759,6 +774,7 @@ def main():
                 max_wall_time_seconds=wall_time_budget,
                 budget_metadata=budget_metadata,
                 system_name=args.system,
+                base_T=args.base_T,
             )
 
     print(f"\nModels saved to {model_root}")

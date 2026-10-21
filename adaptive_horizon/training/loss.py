@@ -58,18 +58,18 @@ def adaptive_batch_loss(
     T: torch.Tensor,
 ):
     """Compute loss for sample-specific adaptive temporal horizons."""
-    batch_size = inputs.shape[0]
     max_T = int(T.max().item())
 
     preds = rollout_predictions(model, inputs, max_T)
 
-    total_loss = 0.0
-    for i in range(batch_size):
-        t_i = int(T[i].item())
-        sample_loss = torch.nn.functional.mse_loss(preds[i, :t_i], targets[i, :t_i])
-        total_loss += sample_loss
+    step_mse = torch.nn.functional.mse_loss(
+        preds, targets[:, :max_T], reduction="none"
+    ).mean(dim=2)
+    steps = torch.arange(max_T, device=T.device)
+    mask = (steps.unsqueeze(0) < T.unsqueeze(1)).to(step_mse.dtype)
+    sample_loss = (step_mse * mask).sum(dim=1) / T.to(step_mse.dtype)
 
-    return total_loss / batch_size
+    return sample_loss.mean()
 
 
 def lle_predictability_weights(

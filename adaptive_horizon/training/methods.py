@@ -2,7 +2,6 @@ ADAPTIVE_METHODS = {
     "lyapunov-mean": "lm",
     "weighted-loss": "wl",
     "linear-scheduler": "ls",
-    "early-stopping": "es",
     "cross-validation": "cv",
 }
 
@@ -10,13 +9,12 @@ ADAPTIVE_METHODS = {
     LYAPUNOV_MEAN,
     WEIGHTED_LOSS,
     LINEAR_SCHEDULER,
-    EARLY_STOPPING,
     CROSS_VALIDATION,
 ) = ADAPTIVE_METHODS.keys()
 ADAPTIVE_METHOD_CHOICES = list(ADAPTIVE_METHODS)
 
 LYAPUNOV_METHODS = (LYAPUNOV_MEAN,)
-SCHEDULED_METHODS = (LINEAR_SCHEDULER, EARLY_STOPPING, CROSS_VALIDATION)
+SCHEDULED_METHODS = (LINEAR_SCHEDULER, CROSS_VALIDATION)
 
 
 def takes_max_T(method: str | None) -> bool:

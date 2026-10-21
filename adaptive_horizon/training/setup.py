@@ -57,7 +57,7 @@ def _make_pair(dataset_cls, common, val_overrides=None, carry=()):
     return train_dataset, val_dataset
 
 
-def _build_datasets(adaptive, adaptive_method, T, common, debug):
+def _build_datasets(adaptive, adaptive_method, T, common, debug, base_T=None):
     if not adaptive:
         return *_make_pair(TrajectoryDataset, {**common, "T": T}), collate_fn, T
 
@@ -66,6 +66,7 @@ def _build_datasets(adaptive, adaptive_method, T, common, debug):
             **common,
             "max_T": T or config.MAX_TRAIN_T,
             "debug": debug,
+            "base_T": base_T,
         }
         pair = _make_pair(
             LyapunovBasedDataset, lyapunov_common, carry=("lambda_estimate",)
@@ -75,7 +76,7 @@ def _build_datasets(adaptive, adaptive_method, T, common, debug):
     if adaptive_method == WEIGHTED_LOSS:
         pair = _make_pair(
             WeightedLossDataset,
-            {**common, "debug": debug},
+            {**common, "debug": debug, "base_T": base_T},
             carry=("lambda_estimate",),
         )
         return *pair, collate_fn, T
@@ -112,6 +113,7 @@ def _adaptive_metadata(adaptive_method, train_dataset, T, dt):
                 "lyapunov_fraction": train_dataset.lyapunov_fraction,
                 "lambda_estimate": train_dataset.lambda_estimate,
                 "mean_train_T": train_dataset.mean_T,
+                "train_T_counts": train_dataset.horizon_counts(),
                 "mean_train_T_lyapunov_times": (
                     train_dataset.lambda_estimate * dt * train_dataset.mean_T
                 ),
@@ -131,6 +133,7 @@ def create_model_and_loaders(
     batch_size=config.BATCH_SIZE,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
+    base_T=None,
 ):
     system = get_system(system_name)
     mlp_config = MLPConfig(
@@ -165,7 +168,7 @@ def create_model_and_loaders(
         "split_gap": split_gap,
     }
     train_dataset, val_dataset, collate_function, T = _build_datasets(
-        adaptive, adaptive_method, T, common, debug
+        adaptive, adaptive_method, T, common, debug, base_T=base_T
     )
     if adaptive:
         metadata["adaptive"] = _adaptive_metadata(adaptive_method, train_dataset, T, dt)

@@ -15,8 +15,10 @@ from adaptive_horizon.dynamics.lyapunov import (
 
 
 def lyapunov_center_and_ftle(
-    trajectory, dt, system, lambda_estimate, lyapunov_fraction, max_T
+    trajectory, dt, system, lambda_estimate, lyapunov_fraction, max_T, base_T=None
 ):
+    if base_T is not None and not 1 <= base_T <= max_T:
+        raise ValueError(f"base_T must be between 1 and {max_T}, got {base_T}")
     tangent_maps = compute_step_tangent_maps(
         trajectory, dt=dt, system=system, integration_dt=config.INTEGRATION_DT
     )
@@ -26,7 +28,8 @@ def lyapunov_center_and_ftle(
         )
         lambda_estimate = np.mean(lles[:, 0])
     lambda_estimate = float(lambda_estimate)
-    base_T = lyapunov_center_horizon(lambda_estimate, dt, lyapunov_fraction, max_T)
+    if base_T is None:
+        base_T = lyapunov_center_horizon(lambda_estimate, dt, lyapunov_fraction, max_T)
     ftle = compute_forward_ftle(
         trajectory, dt=dt, window=base_T, tangent_maps=tangent_maps
     )
@@ -42,6 +45,7 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         debug: bool = False,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
+        base_T: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -59,6 +63,7 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
             lambda_estimate,
             self.lyapunov_fraction,
             max_T,
+            base_T=base_T,
         )
         self.ftle_window = self.base_T
         self.scores.append(sample_scores)
@@ -90,16 +95,19 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
 
         return samples
 
+    def horizon_counts(self) -> dict[int, int]:
+        """Number of training samples assigned to each horizon T."""
+        t_values = [int(sample[2]) for sample in self.samples]
+        unique_t_values, counts = np.unique(t_values, return_counts=True)
+        return {int(T): int(n) for T, n in zip(unique_t_values, counts)}
+
     def _write_t_values(self, output_path: Path):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        t_values = [int(sample[2]) for sample in self.samples]
-        unique_t_values, counts = np.unique(t_values, return_counts=True)
-
         with output_path.open("w", encoding="ascii") as file:
             file.write("# Unique T values and counts\n")
-            for value, count in zip(unique_t_values, counts):
-                file.write(f"T={int(value)} count={int(count)}\n")
+            for value, count in self.horizon_counts().items():
+                file.write(f"T={value} count={count}\n")
 
             file.write("\n# FTLE score and T value per sample\n")
             for traj_idx in range(len(self.horizons)):
@@ -122,13 +130,14 @@ class WeightedLossDataset(BaseTrajectoryDataset):
         debug: bool = False,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
+        base_T: int | None = None,
         **kwargs,
     ):
         """
         Every sample is rolled out for base_T steps, and its forward FTLE over
         the same base_T steps scales the per-step loss weights. base_T follows
-        the same Lyapunov-fraction rule as LyapunovBasedDataset. Pass the
-        training split's lambda_estimate to validation datasets.
+        the same Lyapunov-fraction rule as LyapunovBasedDataset unless overridden.
+        Pass the training split's lambda_estimate to validation datasets.
         """
         super().__init__(**kwargs)
         self.lyapunov_fraction = float(lyapunov_fraction)
@@ -140,6 +149,7 @@ class WeightedLossDataset(BaseTrajectoryDataset):
             lambda_estimate,
             self.lyapunov_fraction,
             config.MAX_TRAIN_T,
+            base_T=base_T,
         )
         self.ftle_window = self.base_T
         self.T_max = self.base_T

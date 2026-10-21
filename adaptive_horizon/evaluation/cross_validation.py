@@ -194,10 +194,9 @@ def cross_validation(
         if dt is None:
             dt = get_dt_from_model_dir(fixed_dir) or config.DT
         budget_based = model_dir.name.startswith("budget")
-        if lyapunov_exponent is None:
-            lyapunov_exponent = float(
-                compute_global_lyapunov(dt=config.INTEGRATION_DT, system=system)
-            )
+        lyapunov_exponent = float(
+            compute_global_lyapunov(dt=config.INTEGRATION_DT, system=system)
+        )
         run_metadata = {
             "dt": dt,
             "system": system,

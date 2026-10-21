@@ -18,7 +18,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           fixed, lyapunov-mean, lyapunov-time, weighted-loss, linear-scheduler, early-stopping, or cross-validation"
+  echo "  --method METHOD           fixed, lyapunov-mean, lyapunov-time, weighted-loss, linear-scheduler, or cross-validation"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -60,9 +60,6 @@ fi
 case "$METHOD" in
   fixed)
     method_args=(--fixed)
-    ;;
-  early-stopping)
-    method_args=(--method early-stopping)
     ;;
   cross-validation)
     method_args=(--method cross-validation)

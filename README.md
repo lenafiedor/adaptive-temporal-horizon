@@ -49,7 +49,7 @@ poetry run train-mlp                            # Train MLPs with both fixed and
 poetry run train-mlp --single -T 10             # Train a single model with T = 10
 poetry run train-mlp --single --adaptive        # Train a single adaptive model
 poetry run train-mlp --fixed --max-T 8          # Train fixed models for T = 1..8
-poetry run train-mlp --method lyapunov-mean    # Train adaptive models with the Lyapunov-mean method
+poetry run train-mlp --method lyapunov-mean     # Train adaptive models with the Lyapunov-mean method
 poetry run train-mlp --budget-based --max-T 10  # Train fixed/adaptive models under the same epoch budget
 poetry run train-mlp --system rossler           # Train on Rossler dynamics
 ```
@@ -63,8 +63,9 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 | `-T`               | Training horizon for fixed `--single` mode                            | int                                                                                                | 1                       |
 | `--fixed`, `-f`    | Train only fixed-horizon models                                       | true \| false                                                                                      | false                   |
 | `--adaptive`, `-a` | Train only adaptive models (uses `linear-scheduler` by default)       | true \| false                                                                                      | false                   |
-| `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `weighted-loss` \| `linear-scheduler` \| `early-stopping` \| `cross-validation` | None                    |
+| `--method`         | Adaptive training method                                              | `lyapunov-mean` \| `weighted-loss` \| `linear-scheduler` \| `cross-validation`                     | None                    |
 | `--fixed-dir`      | Fixed model directory used for budget wall-clock metadata             | path                                                                                               | None                    |
+| `--base-T`         | Override the center horizon for `lyapunov-mean` or `weighted-loss`    | int, 1..`config.MAX_TRAIN_T`                                                                       | Lyapunov-fraction rule  |
 | `--max-T`          | Maximum horizon used in aggregate training                            | int                                                                                                | `config.MAX_TRAIN_T`    |
 | `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                      | false                   |
 | `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                | 20                      |
@@ -77,7 +78,7 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 
 Notes:
 - `--fixed` and `--adaptive` are mutually exclusive. With neither flag, both fixed and adaptive models are trained.
-- `--method` selects one training method; `early-stopping` and `cross-validation` both use the linear scheduler.
+- `--method` selects one training method. Both scheduled methods grow T by one per stage, starting at 1, and keep Adam state across T changes.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon for scheduler-based adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
 
@@ -113,7 +114,7 @@ Evaluate fixed and adaptive models across validation horizons. The command saves
 
 ```bash
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08
-poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_es --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
+poetry run cross-validation --model-dir experiments/lorenz/models/budget_based_dt_08_cv --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed
 poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --max-eval-T 200 --error-metric nrmse
 ```
 
@@ -225,14 +226,13 @@ We argue that when the task of finding an optimal horizon $T$ is considered as a
 
 ### Training
 
-We train fixed and five types of adaptive models with mechanisms described below.
+We train fixed and four types of adaptive models with mechanisms described below.
 
 Run all budget horizons through the unified script by selecting one method:
 
 ```bash
 ./scripts/train_budget_based.sh --method fixed --output-dir experiments/lorenz/models/budget_based_dt_08_fixed
 ./scripts/train_budget_based.sh --method linear-scheduler --output-dir experiments/lorenz/models/budget_based_dt_08_ls
-./scripts/train_budget_based.sh --method early-stopping --output-dir experiments/lorenz/models/budget_based_dt_08_es
 ./scripts/train_budget_based.sh --method cross-validation --output-dir experiments/lorenz/models/budget_based_dt_08_cv
 ./scripts/train_budget_based.sh --method lyapunov-mean \
   --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed \
@@ -241,3 +241,4 @@ Run all budget horizons through the unified script by selecting one method:
   --fixed-dir experiments/lorenz/models/budget_based_dt_08_fixed/fixed \
   --output-dir experiments/lorenz/models/budget_based_dt_08_wl
 ```
+ 

@@ -48,7 +48,12 @@ TEMPERATURE = _config["weighted-loss"]["temperature"]
 WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
 ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
 
-EARLY_STOP_PATIENCE = _config["early-stopping"]["patience"]
+CV_TOLERANCE = _config["cross-validation"]["tolerance"]
+CV_SMOOTHING_EPOCHS = _config["cross-validation"]["smoothing_epochs"]
+CV_STALL_PATIENCE = _config["cross-validation"]["stall_patience"]
+CV_STALL_MIN_DELTA = _config["cross-validation"]["stall_min_delta"]
+CV_MIN_STAGE_EPOCHS = _config["cross-validation"]["min_stage_epochs"]
+CV_MAX_STAGE_EPOCHS = _config["cross-validation"]["max_stage_epochs"]
 
 LAYER_WIDTH = _config["model"]["layer_width"]
 

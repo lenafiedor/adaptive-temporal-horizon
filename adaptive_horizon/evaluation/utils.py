@@ -8,6 +8,11 @@ import torch
 from torch import nn
 
 from adaptive_horizon import config
+from adaptive_horizon.evaluation.results import (
+    EvalScope,
+    metric_for_scope,
+    select_fixed_result,
+)
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.utils import format_dt, timestamp
 
@@ -75,11 +80,7 @@ def save_cross_validation_results(
     budget_based,
     run_metadata,
 ):
-    """Save cross-validation summaries to a JSON file.
-
-    ``run_metadata`` holds the evaluation settings shared by all records
-    (``dt``, ``system``, ``vpt_thresholds`` and ``lyapunov_exponent``).
-    """
+    """Save cross-validation summaries to a JSON file."""
     save_dir.mkdir(parents=True, exist_ok=True)
     prefix = "budget_" if budget_based else ""
     results_file = save_dir / (
@@ -95,10 +96,22 @@ def save_cross_validation_results(
         best_fixed = min(summary["fixed"], key=lambda item: item["overall"]["median"])
         metadata["best_train_T"] = best_fixed["train_T"]
         metadata["best_fixed_median_MSE"] = round(best_fixed["overall"]["median"], 6)
-    if summary["adaptive"] is not None:
-        metadata["adaptive_median_MSE"] = round(
-            summary["adaptive"]["overall"]["median"], 6
+        if summary["adaptive"] is not None:
+            metadata["adaptive_median_MSE"] = round(
+                summary["adaptive"]["overall"]["median"], 6
+            )
+        t1_scope = EvalScope("single", 1)
+        best_fixed_t1 = select_fixed_result(summary, "median", t1_scope)
+        metadata["best_train_T_T1"] = best_fixed_t1["train_T"]
+        metadata["best_fixed_median_MSE_T1"] = round(
+            metric_for_scope(best_fixed_t1, "median", t1_scope), 6
         )
+        if summary["adaptive"] is not None:
+            metadata["adaptive_median_MSE_T1"] = round(
+                metric_for_scope(summary["adaptive"], "median", EvalScope("single", 1)),
+                6,
+            )
+
     payload = {
         "metadata": metadata,
         "summary": summary,
@@ -137,11 +150,7 @@ def win_counts(deltas):
 
 
 def summarize_paired_deltas(evaluation_records, train_Ts, val_Ts):
-    """Compare adaptive models with same-seed best fixed models per ``val_T``.
-
-    Only seeds evaluated for both model types are paired. Returns None when
-    no fixed and adaptive model share a seed.
-    """
+    """Compare adaptive models with same-seed best fixed models."""
     mse_by_key = {
         (
             record["model_type"],
