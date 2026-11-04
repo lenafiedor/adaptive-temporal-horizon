@@ -107,9 +107,7 @@ def fixed_sweep_rollout_steps(
     train_fraction: float = config.TRAIN_FRACTION,
 ):
     train_len = int(train_fraction * (trajectory_steps + 1))
-    return sum(
-        epochs_per_T * (train_len - T) * T for T in range(1, max_T + 1)
-    )
+    return sum(epochs_per_T * (train_len - T) * T for T in range(1, max_T + 1))
 
 
 def save_model(
