@@ -85,6 +85,22 @@ def test_validation_split_reuses_train_lambda(tmp_path):
     assert val.ftle_window == train.ftle_window
 
 
+def test_random_horizons_keep_distribution_but_drop_ftle_mapping(tmp_path):
+    ftle = _dataset(tmp_path, var=3)
+    random = _dataset(tmp_path, var=3, random_horizons=True, horizon_seed=1)
+    ftle_T, random_T = ftle.horizons[0], random.horizons[0]
+
+    assert random.base_T == ftle.base_T
+    np.testing.assert_array_equal(np.sort(random_T), np.sort(ftle_T))
+    assert not np.array_equal(random_T, ftle_T)
+    scores = ftle.scores[0]
+    assert np.corrcoef(scores, ftle_T)[0, 1] < -0.5
+    assert abs(np.corrcoef(scores, random_T)[0, 1]) < 0.3
+
+    same_seed = _dataset(tmp_path, var=3, random_horizons=True, horizon_seed=1)
+    np.testing.assert_array_equal(same_seed.horizons[0], random_T)
+
+
 def test_burn_in_is_interpreted_as_steps(tmp_path):
     assert _dataset(tmp_path).burn_in == 100
     default = LyapunovBasedDataset(

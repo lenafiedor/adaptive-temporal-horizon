@@ -1,4 +1,5 @@
 import argparse
+import math
 from pathlib import Path
 from time import perf_counter
 
@@ -30,7 +31,7 @@ from adaptive_horizon.training.methods import (
 from adaptive_horizon.training.schedules import HorizonScheduler
 from adaptive_horizon.training.setup import create_model_and_loaders
 from adaptive_horizon.training.utils import (
-    fixed_budget_wall_time,
+    fixed_sweep_rollout_steps,
     get_existing_adaptive_model_seeds,
     get_existing_fixed_model_seeds,
     get_train_Ts,
@@ -64,6 +65,8 @@ class HorizonSelector:
 
     The chosen checkpoint has the largest T whose loss is within ``tolerance``
     (relative) of the best loss; ties at that T go to the lowest loss.
+    Cross-validation adds one candidate per T (the end of its curriculum
+    stage), so no T is favoured by extra stages of training.
     """
 
     def __init__(self, tolerance=config.CV_TOLERANCE):
@@ -115,6 +118,15 @@ def method_batch_loss(
     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
 
 
+def method_rollout_length(targets, extra, adaptive, adaptive_method, current_T):
+    """Number of autoregressive model steps one training batch rolls out."""
+    if adaptive and adaptive_method in LYAPUNOV_METHODS:
+        return int(extra[0].max().item())
+    if adaptive and adaptive_method == WEIGHTED_LOSS:
+        return targets.shape[1]
+    return current_T
+
+
 def method_validation_loss(model, val_loader, T, adaptive, adaptive_method, dt, device):
     """Validation loss matching the training objective of the selected method."""
     if not adaptive:
@@ -142,7 +154,7 @@ def train(
     debug=False,
     save_dir=None,
     metadata=None,
-    max_wall_time_seconds=None,
+    max_rollout_steps=None,
     system_name=config.DEFAULT_SYSTEM,
 ):
     """
@@ -162,7 +174,9 @@ def train(
         debug: Whether to save g(T) histograms during training
         save_dir: Directory to save gradient histograms
         metadata: Optional checkpoint metadata to update with adaptive schedules
-        max_wall_time_seconds: Optional training wall-clock budget
+        max_rollout_steps: Optional training compute budget in rollout steps
+            (samples x autoregressive steps per training batch). Every method
+            uses the same model, so this is proportional to training FLOPs.
 
     Returns:
         losses: List of training_results losses
@@ -172,11 +186,17 @@ def train(
     val_losses = []
     gradient_history = []
     wall_time_start = perf_counter()
-    if max_wall_time_seconds is not None and metadata is not None:
-        metadata["wall_time_budget_seconds"] = float(max_wall_time_seconds)
+    rollout_steps = 0
+    out_of_steps = False
+    if max_rollout_steps is not None and metadata is not None:
+        metadata["rollout_steps_budget"] = int(max_rollout_steps)
 
     scheduled = adaptive and adaptive_method in SCHEDULED_METHODS
     cross_validation = adaptive and adaptive_method == CROSS_VALIDATION
+    # Cross-validation: curriculum T=1..T_max with one candidate per stage, then
+    # training continues from the selected checkpoint at the selected T.
+    selecting = cross_validation
+    selection_epochs = None
     selector = HorizonSelector()
     if scheduled:
         horizon_scheduler = (
@@ -187,7 +207,7 @@ def train(
 
     if metadata is not None and scheduled:
         metadata["schedule"] = {
-            "type": "stall" if cross_validation else "fixed",
+            "type": "stall_then_selected_T" if cross_validation else "fixed",
             "max_T": T,
             **horizon_scheduler.describe(),
         }
@@ -215,11 +235,23 @@ def train(
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
+        num_batches = 0
         current_T = horizon_scheduler.T if scheduled else T
         final_T = current_T
 
         for batch in train_loader:
             inputs, targets, *extra = [tensor.to(device) for tensor in batch]
+            batch_steps = inputs.shape[0] * method_rollout_length(
+                targets, extra, adaptive, adaptive_method, current_T
+            )
+            if (
+                max_rollout_steps is not None
+                and rollout_steps + batch_steps > max_rollout_steps
+            ):
+                out_of_steps = True
+                break
+            rollout_steps += batch_steps
+            num_batches += 1
             optimizer.zero_grad()
             loss = method_batch_loss(
                 model, inputs, targets, extra, adaptive, adaptive_method, current_T, dt
@@ -231,7 +263,13 @@ def train(
                     loss = batch_loss(model, inputs, targets[:, :1], 1)
             epoch_loss += loss.item()
 
-        avg_loss = epoch_loss / len(train_loader)
+        if num_batches == 0:
+            print(
+                f"\tStopping before epoch {epoch + 1}: "
+                f"rollout-step budget {max_rollout_steps} reached"
+            )
+            break
+        avg_loss = epoch_loss / num_batches
         train_losses.append(avg_loss)
 
         val_loss = method_validation_loss(
@@ -239,27 +277,35 @@ def train(
         )
         val_losses.append(val_loss)
 
-        out_of_time = (
-            max_wall_time_seconds is not None
-            and perf_counter() - wall_time_start >= max_wall_time_seconds
-        )
-        if scheduled:
+        if scheduled and (selecting or not cross_validation):
             selection_loss = (
                 validation_loss(model, val_loader, config.MAX_EVAL_T, device)
-                if cross_validation
+                if selecting
                 else None
             )
-            training_ends = out_of_time or epoch + 1 >= epochs
+            training_ends = out_of_steps or epoch + 1 >= epochs
             stage_ended = horizon_scheduler.step(
                 selection_loss, force_boundary=training_ends
             )
-            if stage_ended and cross_validation:
+            if stage_ended and selecting:
                 score = horizon_scheduler.stage_score
                 selector.add(model, score, current_T, epoch + 1)
                 print(
                     f"\tStage end at epoch {epoch + 1}, T={current_T}: "
                     f"T=1..{config.MAX_EVAL_T} MSE={score:.6f}"
                 )
+                if current_T == T or training_ends:
+                    selector.restore(model)
+                    selecting = False
+                    selection_epochs = epoch + 1
+                    final_T = horizon_scheduler.T = selector.selected["T"]
+                    print(
+                        f"\tCross-validation selected T={final_T} from epoch "
+                        f"{selector.selected['epoch']} "
+                        f"(T=1..{config.MAX_EVAL_T} MSE="
+                        f"{selector.selected['loss']:.6f}, "
+                        f"best={selector.best_loss:.6f})"
+                    )
             if horizon_scheduler.T != current_T and not training_ends:
                 print(
                     f"\tAfter epoch {epoch + 1}/{epochs}, updating T: "
@@ -278,29 +324,22 @@ def train(
                 gradient_history.append((epoch, gradients))
                 plot_gradients_histogram(gradients, save_dir, epoch, T, dt, adaptive)
 
-        if out_of_time:
+        if out_of_steps:
             print(
                 f"\tStopping after epoch {epoch + 1}: "
-                f"wall-clock budget {max_wall_time_seconds:.2f}s reached"
+                f"rollout-step budget {max_rollout_steps} reached"
             )
             epoch += 1
             break
         epoch += 1
 
-    if cross_validation and selector.restore(model):
-        selected = selector.selected
-        final_T = selected["T"]
-        print(
-            f"\tCross-validation selected T={selected['T']} from epoch "
-            f"{selected['epoch']} (T=1..{config.MAX_EVAL_T} MSE={selected['loss']:.6f}, "
-            f"best={selector.best_loss:.6f})"
-        )
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
 
     if metadata is not None:
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
         metadata["epochs_ran"] = len(train_losses)
+        metadata["rollout_steps"] = rollout_steps
         if cross_validation:
             selected = selector.selected or {}
             metadata["selection"].update(
@@ -313,14 +352,15 @@ def train(
                         {k: c[k] for k in ("T", "epoch", "loss")}
                         for c in selector.candidates
                     ],
+                    "selection_epochs": selection_epochs,
                     "epochs_ran": len(train_losses),
                     "final_T": final_T,
                 }
             )
-        if max_wall_time_seconds is not None:
-            metadata["wall_time_budget_result"] = {
+        if max_rollout_steps is not None:
+            metadata["rollout_steps_budget_result"] = {
                 "epochs_ran": len(train_losses),
-                "stopped_by_wall_time": len(train_losses) < epochs,
+                "stopped_by_rollout_steps": out_of_steps,
             }
 
     return train_losses, val_losses
@@ -339,10 +379,11 @@ def train_single_model(
     optimizer_name=config.OPTIMIZER,
     batch_size=config.BATCH_SIZE,
     debug=False,
-    max_wall_time_seconds=None,
+    max_rollout_steps=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
+    random_horizons=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -357,6 +398,7 @@ def train_single_model(
             debug,
             system_name,
             base_T=base_T,
+            random_horizons=random_horizons,
         )
     )
     if adaptive:
@@ -381,7 +423,7 @@ def train_single_model(
         debug=debug,
         save_dir=loss_save_dir,
         metadata=metadata,
-        max_wall_time_seconds=max_wall_time_seconds,
+        max_rollout_steps=max_rollout_steps,
         system_name=system_name,
     )
 
@@ -394,6 +436,7 @@ def train_single_model(
         adaptive=adaptive,
         metadata=metadata,
         adaptive_method=adaptive_method if adaptive else None,
+        random_horizons=random_horizons,
     )
     if debug:
         save_losses(
@@ -503,17 +546,19 @@ def train_adaptive_models(
     max_T=config.MAX_TRAIN_T,
     append=False,
     debug=False,
-    max_wall_time_seconds=None,
+    max_rollout_steps=None,
     budget_metadata=None,
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
+    random_horizons=False,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
         loss_save_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 50}")
-    print(f"Training adaptive models ({adaptive_method})")
+    horizons_label = ", random horizons" if random_horizons else ""
+    print(f"Training adaptive models ({adaptive_method}{horizons_label})")
     print(f"{'=' * 50}")
 
     train_losses = []
@@ -521,7 +566,9 @@ def train_adaptive_models(
 
     seed_range = range(n_seeds)
     existing_seeds = (
-        get_existing_adaptive_model_seeds(model_save_dir, adaptive_method)
+        get_existing_adaptive_model_seeds(
+            model_save_dir, adaptive_method, random_horizons
+        )
         if append
         else set()
     )
@@ -550,10 +597,11 @@ def train_adaptive_models(
             optimizer_name=optimizer_name,
             batch_size=batch_size,
             debug=debug,
-            max_wall_time_seconds=max_wall_time_seconds,
+            max_rollout_steps=max_rollout_steps,
             budget_metadata=budget_metadata,
             system_name=system_name,
             base_T=base_T,
+            random_horizons=random_horizons,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -612,16 +660,18 @@ def main():
         help="Adaptive method",
     )
     parser.add_argument(
-        "--fixed-dir",
-        type=Path,
-        default=None,
-        help="Fixed model directory used to read wall-clock budget",
-    )
-    parser.add_argument(
         "--base-T",
         type=int,
         default=None,
         help="Override the Lyapunov-based center horizon (1..config.MAX_TRAIN_T)",
+    )
+    parser.add_argument(
+        "--random",
+        action="store_true",
+        help=(
+            "Lyapunov-mean ablation: randomly permute the FTLE-based horizons "
+            "across samples (same base T and variance, no FTLE -> T mapping)"
+        ),
     )
     parser.add_argument(
         "--max-T",
@@ -680,6 +730,9 @@ def main():
         if not 1 <= args.base_T <= config.MAX_TRAIN_T:
             parser.error(f"--base-T must be between 1 and {config.MAX_TRAIN_T}")
 
+    if args.random and (not train_adaptive or adaptive_method not in LYAPUNOV_METHODS):
+        parser.error("--random requires --method lyapunov-mean")
+
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
     print(f"Dynamical system: {system.label}")
@@ -700,7 +753,6 @@ def main():
         args.system,
         args.output_dir,
     )
-    budget_fixed_dir = args.fixed_dir or fixed_dir
 
     if args.single:
         print(f"\n{'=' * 50}")
@@ -724,6 +776,7 @@ def main():
             adaptive=train_adaptive,
             adaptive_method=adaptive_method,
             base_T=args.base_T,
+            random_horizons=args.random,
             batch_size=args.batch_size,
             debug=args.debug,
             system_name=args.system,
@@ -744,24 +797,34 @@ def main():
                 system_name=args.system,
             )
         if train_adaptive:
-            wall_time_budget = None
+            rollout_steps_budget = None
             budget_metadata = None
+            adaptive_epochs = (
+                args.epochs_per_T * args.max_T if args.budget_based else args.epochs
+            )
             if args.budget_based and adaptive_method in (
                 *LYAPUNOV_METHODS,
                 WEIGHTED_LOSS,
             ):
-                wall_time_budget = fixed_budget_wall_time(budget_fixed_dir, args.max_T)
+                # Rollout steps (FLOP-proportional) of the fixed sweep T=1..max_T,
+                # computed from the config; epochs are not capped.
+                rollout_steps_budget = fixed_sweep_rollout_steps(
+                    args.max_T, args.epochs_per_T
+                )
+                adaptive_epochs = math.inf
                 budget_metadata = {
-                    "fixed_dir": str(budget_fixed_dir),
-                    "max_epochs": args.epochs_per_T * args.max_T,
+                    "unit": "rollout_steps",
+                    "max_T": args.max_T,
+                    "epochs_per_T": args.epochs_per_T,
+                    "max_epochs": None,
                 }
                 print(
-                    f"Adaptive wall-clock budget from fixed models: "
-                    f"{wall_time_budget:.2f}s"
+                    f"Adaptive rollout-step budget from fixed sweep: "
+                    f"{rollout_steps_budget}"
                 )
             train_adaptive_models(
                 args.n_seeds,
-                args.epochs_per_T * args.max_T if args.budget_based else args.epochs,
+                adaptive_epochs,
                 device,
                 adaptive_dir,
                 loss_dir,
@@ -771,10 +834,11 @@ def main():
                 max_T=args.max_T,
                 append=append,
                 debug=args.debug,
-                max_wall_time_seconds=wall_time_budget,
+                max_rollout_steps=rollout_steps_budget,
                 budget_metadata=budget_metadata,
                 system_name=args.system,
                 base_T=args.base_T,
+                random_horizons=args.random,
             )
 
     print(f"\nModels saved to {model_root}")

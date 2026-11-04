@@ -1,6 +1,5 @@
 import re
 from pathlib import Path
-from statistics import mean
 
 import torch
 
@@ -45,10 +44,10 @@ def get_existing_fixed_model_seeds(model_dir: Path):
 
 
 def get_existing_adaptive_model_seeds(
-    model_dir: Path, adaptive_method: str | None = None
+    model_dir: Path, adaptive_method: str | None = None, random_horizons=False
 ):
     model_seeds = set()
-    method_short = adaptive_method_abbreviation(adaptive_method)
+    method_short = adaptive_method_abbreviation(adaptive_method, random_horizons)
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed\d+(?:_|$)", model_path.name)
         if not match:
@@ -101,26 +100,16 @@ def resolve_dirs(
     return model_root, fixed_dir, adaptive_dir, loss_dir, append_existing
 
 
-def checkpoint_wall_time(checkpoint):
-    """Training wall time in seconds, as stored in the checkpoint metadata."""
-    return float(checkpoint["metadata"]["wall_time_seconds"])
-
-
-def fixed_budget_wall_time(fixed_dir: Path, max_T: int):
-    wall_times_by_T = {T: [] for T in range(1, max_T + 1)}
-    for model_path, train_T, _ in find_fixed_models(fixed_dir):
-        if train_T not in wall_times_by_T:
-            continue
-        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-        wall_times_by_T[train_T].append(checkpoint_wall_time(checkpoint))
-
-    missing_Ts = [T for T, values in wall_times_by_T.items() if not values]
-    if missing_Ts:
-        raise FileNotFoundError(
-            f"Missing fixed model wall-time metadata for T values: {missing_Ts}"
-        )
-
-    return float(sum(mean(values) for values in wall_times_by_T.values()))
+def fixed_sweep_rollout_steps(
+    max_T: int,
+    epochs_per_T: int,
+    trajectory_steps: int = config.TRAJECTORY_STEPS,
+    train_fraction: float = config.TRAIN_FRACTION,
+):
+    train_len = int(train_fraction * (trajectory_steps + 1))
+    return sum(
+        epochs_per_T * (train_len - T) * T for T in range(1, max_T + 1)
+    )
 
 
 def save_model(
@@ -132,12 +121,15 @@ def save_model(
     adaptive=False,
     metadata=None,
     adaptive_method: str | None = None,
+    random_horizons: bool = False,
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     stamp = timestamp()
     if adaptive:
-        method_suffix = f"{adaptive_method_abbreviation(adaptive_method)}_"
+        method_suffix = (
+            f"{adaptive_method_abbreviation(adaptive_method, random_horizons)}_"
+        )
         filename = f"adaptive_mlp_{method_suffix}seed{seed}_{stamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{stamp}.pt"

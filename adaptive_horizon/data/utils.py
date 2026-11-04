@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -96,6 +97,7 @@ def get_trajectory(
         integration_dt=integration_dt,
     )
     trajectory = torch.tensor(np.array(trajectory), dtype=torch.float32)
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     torch.save(
         {
             "trajectory": trajectory,
@@ -107,8 +109,9 @@ def get_trajectory(
             "burn_in": burn_in,
             "seed": seed,
         },
-        path,
+        tmp_path,
     )
+    os.replace(tmp_path, path)
     return trajectory
 
 

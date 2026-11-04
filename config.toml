@@ -41,7 +41,7 @@ weight_floor = 0.05
 anchor_alpha = 0.25
 
 [cross-validation]
-tolerance = 0.05
+tolerance = 0.0
 smoothing_epochs = 3
 stall_patience = 3
 stall_min_delta = 0.01

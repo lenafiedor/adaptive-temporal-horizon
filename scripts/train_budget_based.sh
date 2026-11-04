@@ -12,13 +12,13 @@ MAX_T=10
 EPOCHS_PER_T=20
 N_SEEDS=20
 SYSTEM="lorenz"
-FIXED_DIR=""
+RANDOM_HORIZONS=0
 
 usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           fixed, lyapunov-mean, lyapunov-time, weighted-loss, linear-scheduler, or cross-validation"
+  echo "  --method METHOD           fixed, lyapunov-mean, weighted-loss, linear-scheduler, or cross-validation"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -26,7 +26,7 @@ usage() {
   echo "  --epochs-per-T VALUE      Epoch budget per horizon (default: $EPOCHS_PER_T)"
   echo "  --n-seeds VALUE           Total desired seed count (default: $N_SEEDS)"
   echo "  --system NAME             Dynamical system (default: $SYSTEM)"
-  echo "  --fixed-dir DIR           Fixed models used for wall-time budgets"
+  echo "  --random                  lyapunov-mean only: random horizons (FTLE ablation)"
   echo "  -h, --help                Show this help"
 }
 
@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
     --epochs-per-T) EPOCHS_PER_T="$2"; shift 2 ;;
     --n-seeds) N_SEEDS="$2"; shift 2 ;;
     --system) SYSTEM="$2"; shift 2 ;;
-    --fixed-dir) FIXED_DIR="$2"; shift 2 ;;
+    --random) RANDOM_HORIZONS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -67,11 +67,7 @@ case "$METHOD" in
   linear-scheduler)
     method_args=(--method linear-scheduler)
     ;;
-  lyapunov-mean|lyapunov-time|weighted-loss)
-    if [[ -z "$FIXED_DIR" ]]; then
-      echo "--fixed-dir is required for $METHOD" >&2
-      exit 1
-    fi
+  lyapunov-mean|weighted-loss)
     method_args=(--method "$METHOD")
     ;;
   *)
@@ -80,6 +76,14 @@ case "$METHOD" in
     exit 1
     ;;
 esac
+
+if [[ "$RANDOM_HORIZONS" == 1 ]]; then
+  if [[ "$METHOD" != "lyapunov-mean" ]]; then
+    echo "--random requires --method lyapunov-mean" >&2
+    exit 1
+  fi
+  method_args+=(--random)
+fi
 
 cd "$PROJECT_DIR"
 
@@ -100,10 +104,6 @@ for ((T = MIN_T; T <= MAX_T; T++)); do
     --output-dir "$run_output_dir"
   )
   args+=("${method_args[@]}")
-
-  if [[ -n "$FIXED_DIR" ]]; then
-    args+=(--fixed-dir "$FIXED_DIR")
-  fi
 
   .venv/bin/python -m adaptive_horizon.training.train "${args[@]}"
 done

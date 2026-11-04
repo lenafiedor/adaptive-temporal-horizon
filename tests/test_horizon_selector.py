@@ -99,3 +99,36 @@ def test_smoothing_window_resets_when_T_advances():
     scheduler.step(1.0, force_boundary=True)
     scheduler.step(3.0, force_boundary=True)
     assert scheduler.stage_score == 3.0
+
+
+def test_cross_validation_keeps_one_candidate_per_T_then_trains_at_selected_T():
+    from torch.utils.data import DataLoader, TensorDataset
+
+    from adaptive_horizon import config
+    from adaptive_horizon.model.mlp import MLP, MLPConfig
+    from adaptive_horizon.training.methods import CROSS_VALIDATION
+    from adaptive_horizon.training.train import train
+
+    torch.manual_seed(0)
+    dataset = TensorDataset(torch.randn(32, 3), torch.randn(32, config.MAX_EVAL_T, 3))
+    loader = DataLoader(dataset, batch_size=8)
+    model = MLP(MLPConfig(3, 3, [10, 10, 10], residual_connections=True, k=1), 0)
+    metadata = {}
+
+    train(
+        model,
+        loader,
+        loader,
+        torch.optim.Adam(model.parameters()),
+        epochs=80,
+        T=3,
+        adaptive=True,
+        adaptive_method=CROSS_VALIDATION,
+        metadata=metadata,
+    )
+
+    selection = metadata["selection"]
+    assert [c["T"] for c in selection["candidates"]] == [1, 2, 3]
+    assert selection["selection_epochs"] == selection["candidates"][-1]["epoch"]
+    assert selection["selection_epochs"] < selection["epochs_ran"] == 80
+    assert selection["final_T"] == selection["selected_T"]

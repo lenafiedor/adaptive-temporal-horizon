@@ -57,7 +57,16 @@ def _make_pair(dataset_cls, common, val_overrides=None, carry=()):
     return train_dataset, val_dataset
 
 
-def _build_datasets(adaptive, adaptive_method, T, common, debug, base_T=None):
+def _build_datasets(
+    adaptive,
+    adaptive_method,
+    T,
+    common,
+    debug,
+    base_T=None,
+    random_horizons=False,
+    horizon_seed=0,
+):
     if not adaptive:
         return *_make_pair(TrajectoryDataset, {**common, "T": T}), collate_fn, T
 
@@ -67,6 +76,8 @@ def _build_datasets(adaptive, adaptive_method, T, common, debug, base_T=None):
             "max_T": T or config.MAX_TRAIN_T,
             "debug": debug,
             "base_T": base_T,
+            "random_horizons": random_horizons,
+            "horizon_seed": horizon_seed,
         }
         pair = _make_pair(
             LyapunovBasedDataset, lyapunov_common, carry=("lambda_estimate",)
@@ -109,6 +120,7 @@ def _adaptive_metadata(adaptive_method, train_dataset, T, dt):
         metadata.update(
             {
                 "variance": train_dataset.var,
+                "random_horizons": train_dataset.random_horizons,
                 "base_T": train_dataset.base_T,
                 "lyapunov_fraction": train_dataset.lyapunov_fraction,
                 "lambda_estimate": train_dataset.lambda_estimate,
@@ -134,6 +146,7 @@ def create_model_and_loaders(
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
+    random_horizons=False,
 ):
     system = get_system(system_name)
     mlp_config = MLPConfig(
@@ -168,7 +181,14 @@ def create_model_and_loaders(
         "split_gap": split_gap,
     }
     train_dataset, val_dataset, collate_function, T = _build_datasets(
-        adaptive, adaptive_method, T, common, debug, base_T=base_T
+        adaptive,
+        adaptive_method,
+        T,
+        common,
+        debug,
+        base_T=base_T,
+        random_horizons=random_horizons,
+        horizon_seed=seed,
     )
     if adaptive:
         metadata["adaptive"] = _adaptive_metadata(adaptive_method, train_dataset, T, dt)

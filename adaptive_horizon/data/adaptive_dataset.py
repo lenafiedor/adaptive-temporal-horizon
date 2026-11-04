@@ -46,10 +46,13 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
         base_T: int | None = None,
+        random_horizons: bool = False,
+        horizon_seed: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.var = var
+        self.random_horizons = random_horizons
         self.lyapunov_fraction = float(lyapunov_fraction)
 
         traj_np = self.raw_trajectory.numpy()
@@ -71,6 +74,8 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         self.min_T = max(1, self.base_T - self.var)
         self.max_T = min(self.base_T + self.var, max_T)
         horizons = mean_horizon(sample_scores, self.base_T, self.min_T, self.max_T)
+        if random_horizons:
+            horizons = np.random.default_rng(horizon_seed).permutation(horizons)
         self.horizons.append(horizons)
         self.mean_T = float(np.mean(horizons))
 

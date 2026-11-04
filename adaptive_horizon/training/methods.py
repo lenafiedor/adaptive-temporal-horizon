@@ -21,10 +21,11 @@ def takes_max_T(method: str | None) -> bool:
     return method in SCHEDULED_METHODS
 
 
-def adaptive_method_abbreviation(method: str | None) -> str | None:
-    """Return a short filename-safe abbreviation for an adaptive method."""
+def adaptive_method_abbreviation(
+    method: str | None, random_horizons: bool = False
+) -> str | None:
     if method is None:
         return None
     if method not in ADAPTIVE_METHODS:
         raise ValueError(f"Unknown adaptive method: {method}")
-    return ADAPTIVE_METHODS[method]
+    return ADAPTIVE_METHODS[method] + ("r" if random_horizons else "")
