@@ -6,7 +6,7 @@ import torch
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from adaptive_horizon import config
-from adaptive_horizon.config import ANALYSIS_DIR, DT, EVAL_DIR, LOSS_DIR
+from adaptive_horizon.config import ANALYSIS_DIR, DT, LOSS_DIR
 from adaptive_horizon.utils import format_dt, timestamp
 
 COLOR_TRAIN = "#8B87B0"
@@ -59,59 +59,6 @@ def save_losses(
         f.write("train_loss,val_loss\n")
         f.write(f"{train_losses[-1].item()},{val_losses[-1].item()}")
     print(f"Loss values saved to {loss_path}.txt")
-
-
-def plot_g_T(
-    g_values,
-    save_dir=EVAL_DIR,
-    train_T=None,
-    adaptive=False,
-    dt=DT,
-):
-    Ts = list(g_values.keys())
-    values = list(g_values.values())
-    times = [T * dt for T in Ts]
-
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    stamp = timestamp()
-    filename = (
-        f"gradient_scaling_T{train_T}_{stamp}.png"
-        if not adaptive
-        else f"gradient_scaling_adaptive_{stamp}.png"
-    )
-    plot_path = save_dir / filename
-
-    fig, ax = plt.subplots()
-    if values and isinstance(values[0], list):
-        centers = []
-        lower_errors = []
-        upper_errors = []
-        summary_label = None
-
-        for T in Ts:
-            center, lower_error, upper_error, summary_label = summarize_values(
-                g_values[T]
-            )
-            centers.append(center)
-            lower_errors.append(lower_error)
-            upper_errors.append(upper_error)
-
-        centers_array, lower_bound, upper_bound = plot_bounds(
-            centers, lower_errors, upper_errors
-        )
-
-        ax.plot(times, centers_array, color=COLOR_TRAIN, linewidth=1.8)
-        ax.fill_between(times, lower_bound, upper_bound, color=COLOR_TRAIN, alpha=0.2)
-        ax.set_ylabel(f"g(T) ({summary_label})")
-    else:
-        ax.plot(times, values, color=COLOR_TRAIN, linewidth=1.8)
-        ax.set_ylabel("g(T)")
-
-    ax.set_xlabel(r"Validation Horizon ($\tau = T \cdot dt$)")
-    ax.set_title("Gradient Scaling")
-    fig.tight_layout()
-    save_figure(fig, plot_path.name, plot_path.parent)
 
 
 def plot_gradients_histogram(

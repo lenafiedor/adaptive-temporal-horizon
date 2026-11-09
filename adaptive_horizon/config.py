@@ -55,7 +55,8 @@ CV_STALL_MIN_DELTA = _config["cross-validation"]["stall_min_delta"]
 CV_MIN_STAGE_EPOCHS = _config["cross-validation"]["min_stage_epochs"]
 CV_MAX_STAGE_EPOCHS = _config["cross-validation"]["max_stage_epochs"]
 
-LAYER_WIDTH = _config["model"]["layer_width"]
+LAYER_WIDTHS = list(_config["model"]["layer_widths"])
+SMALL_LAYER_WIDTHS = list(_config["model"]["small_layer_widths"])
 
 NUM_BATCHES = _config["evaluation"]["num_batches"]
 MAX_EVAL_T = _config["evaluation"]["max_eval_T"]

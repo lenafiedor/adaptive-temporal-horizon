@@ -152,7 +152,7 @@ def create_model_and_loaders(
     mlp_config = MLPConfig(
         input_size=system.dim,
         output_size=system.dim,
-        layer_widths=[config.LAYER_WIDTH, config.LAYER_WIDTH, config.LAYER_WIDTH],
+        layer_widths=list(config.LAYER_WIDTHS),
         residual_connections=True,
         k=1,
         activation=torch.nn.ReLU(),

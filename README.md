@@ -90,22 +90,21 @@ g(T) = \frac{\left\| \nabla_{\theta} \mathcal{L}_x(\theta, T) \right\|}{\left\| 
 $$
 
 ```bash
-poetry run gradient-scaling --model path/to/trained/model.pt
-poetry run gradient-scaling --model path/to/trained/model.pt --max-eval-T 100 --dt 0.04
-poetry run gradient-scaling --model path/to/trained/model.pt --system rossler --per-batch
+poetry run gradient-scaling experiments/lorenz/models/dt_05/budget_based_dt_05_fixed_200 --include-init
+poetry run gradient-scaling experiments/lorenz/models/dt_05/dt_05_lm_200 --groups LM --output-dir out/
 ```
 
 **Args:**
 
-| Name            | Description                               | Values                              | Default value           |
-|-----------------|-------------------------------------------|-------------------------------------|-------------------------|
-| `--model`, `-m` | Path to the trained model                 | str                                 | required                |
-| `--max-eval-T`  | Maximum evaluation horizon                | int                                 | `config.MAX_EVAL_T`     |
-| `--dt`          | Model prediction/sampling step            | float                               | `config.DT`             |
-| `--system`      | Dynamical system to evaluate              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM` |
-| `--per-batch`   | Compute per-batch gradient scaling ratios | true \| false                       | false                   |
-
-Plots use median plus 95% CI for repeated values.
+| Name             | Description                                                | Values                              | Default value                       |
+|------------------|------------------------------------------------------------|-------------------------------------|-------------------------------------|
+| `model_dir`      | Directory with checkpoints (searched recursively)          | path                                | models dir of `--system`            |
+| `--max-eval-T`   | Maximum evaluation horizon                                 | int                                 | `config.MAX_EVAL_T`                 |
+| `--dt`           | Model prediction/sampling step                             | float                               | checkpoint metadata, else `config.DT` |
+| `--system`       | Dynamical system to evaluate                               | `lorenz` \| `rossler` \| `lorenz96` | checkpoint metadata, else config    |
+| `--include-init` | Also evaluate untrained models with the same seeds         | flag                                | off                                 |
+| `--groups`       | Only evaluate these groups, e.g. `T1 T10 LM`                | str list                            | all                                 |
+| `--output-dir`   | Where to save (and look for cached) JSON and plot          | path                                | `<eval dir>/gradient_scaling`       |
 
 ### Cross-Validation
 

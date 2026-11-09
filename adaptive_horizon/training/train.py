@@ -703,6 +703,19 @@ def main():
         default=None,
         help="Directory to save models to; existing directories are reused and missing models are appended",
     )
+    arch_group = parser.add_mutually_exclusive_group()
+    arch_group.add_argument(
+        "--layer-widths",
+        type=int,
+        nargs="+",
+        default=None,
+        help=f"Hidden block widths (default {config.LAYER_WIDTHS})",
+    )
+    arch_group.add_argument(
+        "--small",
+        action="store_true",
+        help=f"Use the reduced architecture {config.SMALL_LAYER_WIDTHS}",
+    )
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -710,6 +723,10 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.small:
+        config.LAYER_WIDTHS = list(config.SMALL_LAYER_WIDTHS)
+    elif args.layer_widths is not None:
+        config.LAYER_WIDTHS = list(args.layer_widths)
     train_Ts = get_train_Ts(args.max_T)
     system = get_system(args.system)
     if args.method is None:
@@ -742,6 +759,7 @@ def main():
         f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
         f"({config.BURN_IN_TIME:g} time units)"
     )
+    print(f"Layer widths: {config.LAYER_WIDTHS}")
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
 

@@ -49,7 +49,8 @@ min_stage_epochs = 5
 max_stage_epochs = 20
 
 [model]
-layer_width = 10
+layer_widths = [10, 10, 10]
+small_layer_widths = [5, 5]
 
 [evaluation]
 num_batches = 50
