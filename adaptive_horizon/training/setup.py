@@ -13,6 +13,7 @@ from adaptive_horizon.data.utils import default_split_gap
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.model.mlp import MLP, MLPConfig
 from adaptive_horizon.training.methods import (
+    ERROR_TRUNCATED,
     LYAPUNOV_MEAN,
     LYAPUNOV_METHODS,
     SCHEDULED_METHODS,
@@ -65,6 +66,7 @@ def _build_datasets(
     debug,
     base_T=None,
     random_horizons=False,
+    invert_horizons=False,
     horizon_seed=0,
 ):
     if not adaptive:
@@ -77,6 +79,7 @@ def _build_datasets(
             "debug": debug,
             "base_T": base_T,
             "random_horizons": random_horizons,
+            "invert_horizons": invert_horizons,
             "horizon_seed": horizon_seed,
         }
         pair = _make_pair(
@@ -92,7 +95,7 @@ def _build_datasets(
         )
         return *pair, collate_fn, T
 
-    if adaptive_method in SCHEDULED_METHODS:
+    if adaptive_method in (*SCHEDULED_METHODS, ERROR_TRUNCATED):
         T = T or config.MAX_TRAIN_T
         pair = _make_pair(
             TrajectoryDataset,
@@ -114,13 +117,20 @@ def _adaptive_metadata(adaptive_method, train_dataset, T, dt):
         metadata["lambda_estimate"] = train_dataset.lambda_estimate
     elif adaptive_method in SCHEDULED_METHODS:
         metadata["T_max"] = T
+    elif adaptive_method == ERROR_TRUNCATED:
+        metadata["T_max"] = T
+        if config.TRUNCATION_GROWTH is None:
+            metadata["tolerance"] = float(config.TRUNCATION_TOLERANCE)
+        else:
+            metadata["growth"] = float(config.TRUNCATION_GROWTH)
     else:
         metadata["min_T"] = train_dataset.min_T
         metadata["max_T"] = train_dataset.max_T
         metadata.update(
             {
-                "variance": train_dataset.var,
+                "spread": train_dataset.spread,
                 "random_horizons": train_dataset.random_horizons,
+                "invert_horizons": train_dataset.invert_horizons,
                 "base_T": train_dataset.base_T,
                 "lyapunov_fraction": train_dataset.lyapunov_fraction,
                 "lambda_estimate": train_dataset.lambda_estimate,
@@ -147,6 +157,7 @@ def create_model_and_loaders(
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
     random_horizons=False,
+    invert_horizons=False,
 ):
     system = get_system(system_name)
     mlp_config = MLPConfig(
@@ -188,6 +199,7 @@ def create_model_and_loaders(
         debug,
         base_T=base_T,
         random_horizons=random_horizons,
+        invert_horizons=invert_horizons,
         horizon_seed=seed,
     )
     if adaptive:

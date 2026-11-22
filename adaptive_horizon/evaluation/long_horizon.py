@@ -73,7 +73,10 @@ def evaluate(model, loader, max_T, thresholds, device):
     stats = loader.dataset.normalization_stats
     std = torch.as_tensor(stats["std"], device=device) + 1e-8
     mean = torch.as_tensor(stats["mean"], device=device)
-    sums = {name: torch.zeros(max_T, dtype=torch.float64) for name in ("mse", "nrmse", "smape")}
+    sums = {
+        name: torch.zeros(max_T, dtype=torch.float64)
+        for name in ("mse", "nrmse", "smape")
+    }
     nrmse_rows, n = [], 0
     model.eval()
     for inputs, targets in loader:
@@ -83,7 +86,8 @@ def evaluate(model, loader, max_T, thresholds, device):
         nrmse = squared.sqrt()
         pred_phys, target_phys = pred * std + mean, targets * std + mean
         smape = torch.nan_to_num(
-            200 * (pred_phys - target_phys).abs()
+            200
+            * (pred_phys - target_phys).abs()
             / (pred_phys.abs() + target_phys.abs()).clamp_min(1e-8),
             nan=200.0,
         ).mean(dim=2)
@@ -128,23 +132,32 @@ def run(system, dt_tag, max_T, output_dir, groups, batch_size, device):
         paths = group_paths(group, directory)
         done = {r["path"] for r in payload["records"] if r["group"] == group}
         todo = [p for p in paths if str(p[0]) not in done]
-        print(f"{system} dt_{dt_tag} {group}: {len(paths)} models, {len(todo)} to evaluate")
+        print(
+            f"{system} dt_{dt_tag} {group}: {len(paths)} models, {len(todo)} to evaluate"
+        )
         for path, train_T, seed in todo:
             model, checkpoint = load_model(path)
             stats = get_checkpoint_normalization_stats(checkpoint)
             key = tuple(tuple(map(float, stats[k])) for k in ("mean", "std"))
             if key not in loaders:
-                loaders[key] = make_val_loader(system, dt, max_T, stats, batch_size=batch_size)
-            curves, vpt = evaluate(model.to(device), loaders[key], max_T,
-                                   DEFAULT_VPT_THRESHOLDS, device)
-            payload["records"].append({
-                "group": group,
-                "path": str(path),
-                "train_T": train_T if train_T is not None else checkpoint.get("train_T"),
-                "seed": seed if seed is not None else checkpoint.get("seed"),
-                "curves": curves,
-                "vpt": vpt,
-            })
+                loaders[key] = make_val_loader(
+                    system, dt, max_T, stats, batch_size=batch_size
+                )
+            curves, vpt = evaluate(
+                model.to(device), loaders[key], max_T, DEFAULT_VPT_THRESHOLDS, device
+            )
+            payload["records"].append(
+                {
+                    "group": group,
+                    "path": str(path),
+                    "train_T": train_T
+                    if train_T is not None
+                    else checkpoint.get("train_T"),
+                    "seed": seed if seed is not None else checkpoint.get("seed"),
+                    "curves": curves,
+                    "vpt": vpt,
+                }
+            )
         out.write_text(json.dumps(payload))
     print(f"Saved {out}")
 
@@ -159,10 +172,21 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args()
     output_dir = args.output_dir or (
-        EXP / args.system / "evaluation" / f"dt_{args.dt_tag}" / f"long_horizon_{args.max_eval_T}"
+        EXP
+        / args.system
+        / "evaluation"
+        / f"dt_{args.dt_tag}"
+        / f"long_horizon_{args.max_eval_T}"
     )
-    run(args.system, args.dt_tag, args.max_eval_T, output_dir, args.groups,
-        args.batch_size, config.DEVICE)
+    run(
+        args.system,
+        args.dt_tag,
+        args.max_eval_T,
+        output_dir,
+        args.groups,
+        args.batch_size,
+        config.DEVICE,
+    )
 
 
 if __name__ == "__main__":

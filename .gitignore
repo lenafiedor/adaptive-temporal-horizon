@@ -4,3 +4,4 @@
 .idea/*
 __pycache__
 experiments
+.DS_Store

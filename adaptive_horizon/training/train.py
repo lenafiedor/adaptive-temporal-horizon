@@ -14,6 +14,8 @@ from adaptive_horizon.training.loss import (
     adaptive_validation_loss,
     batch_loss,
     compute_g_T,
+    error_truncated_batch_loss,
+    error_truncated_validation_loss,
     lle_weighted_batch_loss,
     lle_weighted_validation_loss,
     validation_loss,
@@ -21,6 +23,7 @@ from adaptive_horizon.training.loss import (
 from adaptive_horizon.training.methods import (
     ADAPTIVE_METHOD_CHOICES,
     CROSS_VALIDATION,
+    ERROR_TRUNCATED,
     LINEAR_SCHEDULER,
     LYAPUNOV_MEAN,
     LYAPUNOV_METHODS,
@@ -115,6 +118,15 @@ def method_batch_loss(
         return lle_weighted_batch_loss(model, inputs, targets, *extra, dt=dt)
     if adaptive_method in SCHEDULED_METHODS:
         return batch_loss(model, inputs, targets[:, :current_T], current_T)
+    if adaptive_method == ERROR_TRUNCATED:
+        return error_truncated_batch_loss(
+            model,
+            inputs,
+            targets,
+            config.TRUNCATION_TOLERANCE,
+            return_horizon=True,
+            growth=config.TRUNCATION_GROWTH,
+        )
     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
 
 
@@ -122,7 +134,8 @@ def method_rollout_length(targets, extra, adaptive, adaptive_method, current_T):
     """Number of autoregressive model steps one training batch rolls out."""
     if adaptive and adaptive_method in LYAPUNOV_METHODS:
         return int(extra[0].max().item())
-    if adaptive and adaptive_method == WEIGHTED_LOSS:
+    if adaptive and adaptive_method in (WEIGHTED_LOSS, ERROR_TRUNCATED):
+        # Upper bound for error-truncated: the rollout may stop early.
         return targets.shape[1]
     return current_T
 
@@ -137,6 +150,14 @@ def method_validation_loss(model, val_loader, T, adaptive, adaptive_method, dt, 
         return lle_weighted_validation_loss(model, val_loader, dt=dt, device=device)
     if adaptive_method in SCHEDULED_METHODS:
         return validation_loss(model, val_loader, 1, device)
+    if adaptive_method == ERROR_TRUNCATED:
+        return error_truncated_validation_loss(
+            model,
+            val_loader,
+            config.TRUNCATION_TOLERANCE,
+            device,
+            growth=config.TRUNCATION_GROWTH,
+        )
     raise ValueError(f"Unsupported adaptive method: {adaptive_method}")
 
 
@@ -230,11 +251,13 @@ def train(
         )
         debug_T_vals = [2, 4, 6, 8, 10]
 
+    effective_T_history = []
     epoch = 0
     final_T = None
     while epoch < epochs:
         model.train()
         epoch_loss = 0.0
+        epoch_horizon = 0.0
         num_batches = 0
         current_T = horizon_scheduler.T if scheduled else T
         final_T = current_T
@@ -256,6 +279,9 @@ def train(
             loss = method_batch_loss(
                 model, inputs, targets, extra, adaptive, adaptive_method, current_T, dt
             )
+            if isinstance(loss, tuple):
+                loss, batch_horizon = loss
+                epoch_horizon += batch_horizon
             loss.backward()
             optimizer.step()
             if scheduled:
@@ -271,6 +297,8 @@ def train(
             break
         avg_loss = epoch_loss / num_batches
         train_losses.append(avg_loss)
+        if adaptive and adaptive_method == ERROR_TRUNCATED:
+            effective_T_history.append(epoch_horizon / num_batches)
 
         val_loss = method_validation_loss(
             model, val_loader, T, adaptive, adaptive_method, dt, device
@@ -313,9 +341,14 @@ def train(
                 )
 
         if (epoch + 1) % 10 == 0:
+            horizon_note = (
+                f", mean effective T: {effective_T_history[-1]:.2f}"
+                if effective_T_history
+                else ""
+            )
             print(
                 f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_loss:.6f}, "
-                f"Val Loss: {val_loss:.6f}"
+                f"Val Loss: {val_loss:.6f}{horizon_note}"
             )
             if debug:
                 gradients = compute_g_T(
@@ -340,6 +373,8 @@ def train(
         metadata["wall_time_seconds"] = float(perf_counter() - wall_time_start)
         metadata["epochs_ran"] = len(train_losses)
         metadata["rollout_steps"] = rollout_steps
+        if effective_T_history:
+            metadata["adaptive"]["effective_T_per_epoch"] = effective_T_history
         if cross_validation:
             selected = selector.selected or {}
             metadata["selection"].update(
@@ -384,6 +419,7 @@ def train_single_model(
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
     random_horizons=False,
+    invert_horizons=False,
 ):
     model, train_loader, val_loader, optimizer, mlp_config, metadata = (
         create_model_and_loaders(
@@ -391,7 +427,13 @@ def train_single_model(
             adaptive,
             device,
             dt,
-            T if not adaptive or takes_max_T(adaptive_method) else None,
+            (
+                T
+                if not adaptive
+                or takes_max_T(adaptive_method)
+                or adaptive_method in LYAPUNOV_METHODS
+                else None
+            ),
             adaptive_method,
             optimizer_name,
             batch_size,
@@ -399,12 +441,13 @@ def train_single_model(
             system_name,
             base_T=base_T,
             random_horizons=random_horizons,
+            invert_horizons=invert_horizons,
         )
     )
     if adaptive:
         if budget_metadata is not None:
             metadata["budget"] = budget_metadata
-        if adaptive_method in (*SCHEDULED_METHODS, WEIGHTED_LOSS):
+        if adaptive_method in (*SCHEDULED_METHODS, WEIGHTED_LOSS, ERROR_TRUNCATED):
             T = metadata["adaptive"]["T_max"]
         else:
             T = None
@@ -437,6 +480,7 @@ def train_single_model(
         metadata=metadata,
         adaptive_method=adaptive_method if adaptive else None,
         random_horizons=random_horizons,
+        invert_horizons=invert_horizons,
     )
     if debug:
         save_losses(
@@ -463,12 +507,13 @@ def train_fixed_models(
     append=False,
     debug=False,
     system_name=config.DEFAULT_SYSTEM,
+    first_seed=0,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
         loss_save_dir.mkdir(parents=True, exist_ok=True)
 
-    seed_range = range(n_seeds)
+    seed_range = range(first_seed, n_seeds)
     existing_model_seeds = (
         get_existing_fixed_model_seeds(model_save_dir) if append else {}
     )
@@ -551,23 +596,27 @@ def train_adaptive_models(
     system_name=config.DEFAULT_SYSTEM,
     base_T=None,
     random_horizons=False,
+    invert_horizons=False,
+    first_seed=0,
 ):
     if debug and loss_save_dir is None:
         loss_save_dir = config.system_path(config.LOSS_DIR, system_name)
         loss_save_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 50}")
-    horizons_label = ", random horizons" if random_horizons else ""
+    horizons_label = (", inverted" if invert_horizons else "") + (
+        ", random horizons" if random_horizons else ""
+    )
     print(f"Training adaptive models ({adaptive_method}{horizons_label})")
     print(f"{'=' * 50}")
 
     train_losses = []
     val_losses = []
 
-    seed_range = range(n_seeds)
+    seed_range = range(first_seed, n_seeds)
     existing_seeds = (
         get_existing_adaptive_model_seeds(
-            model_save_dir, adaptive_method, random_horizons
+            model_save_dir, adaptive_method, random_horizons, invert_horizons
         )
         if append
         else set()
@@ -591,7 +640,11 @@ def train_adaptive_models(
             model_save_dir,
             loss_save_dir,
             dt,
-            T=max_T if takes_max_T(adaptive_method) else None,
+            T=(
+                max_T
+                if takes_max_T(adaptive_method) or adaptive_method in LYAPUNOV_METHODS
+                else None
+            ),
             adaptive=True,
             adaptive_method=adaptive_method,
             optimizer_name=optimizer_name,
@@ -602,6 +655,7 @@ def train_adaptive_models(
             system_name=system_name,
             base_T=base_T,
             random_horizons=random_horizons,
+            invert_horizons=invert_horizons,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -670,14 +724,69 @@ def main():
         action="store_true",
         help=(
             "Lyapunov-mean ablation: randomly permute the FTLE-based horizons "
-            "across samples (same base T and variance, no FTLE -> T mapping)"
+            "across samples (same base T and spread, no FTLE -> T mapping)"
+        ),
+    )
+    parser.add_argument(
+        "--invert",
+        action="store_true",
+        help=(
+            "Lyapunov-mean variant: give unstable (high-FTLE) samples longer "
+            "horizons instead of shorter ones; with --random, permute the "
+            "inverted horizons (matched control)"
+        ),
+    )
+    parser.add_argument(
+        "--first-seed",
+        type=int,
+        default=0,
+        help=(
+            "Train seeds first_seed..n_seeds-1 only, so seed "
+            "ranges can run as parallel jobs in one output directory"
+        ),
+    )
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=None,
+        help=(
+            "error-truncated: per-sample RMSE (normalized) at which the rollout "
+            f"loss stops (default {config.TRUNCATION_TOLERANCE} from config.toml)"
+        ),
+    )
+    parser.add_argument(
+        "--growth",
+        type=float,
+        default=None,
+        help=(
+            "error-truncated, scale-free: stop once the RMSE exceeds this many "
+            "times the batch-median one-step RMSE (replaces --tolerance)"
+        ),
+    )
+    parser.add_argument(
+        "--spread",
+        type=int,
+        default=None,
+        help=(
+            "Lyapunov-mean horizon spread: T ranges over base_T +- this value "
+            f"(default {config.SPREAD} from config.toml)"
         ),
     )
     parser.add_argument(
         "--max-T",
         type=int,
         default=config.MAX_TRAIN_T,
-        help="Train fixed-horizon models for T from 1 to this value",
+        help=(
+            "Train fixed-horizon models for T from 1 to this value; "
+            "also caps lyapunov-mean horizons"
+        ),
+    )
+    parser.add_argument(
+        "--Ts",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Fixed mode: train only these horizons instead of 1..max_T",
     )
     parser.add_argument(
         "--n-seeds", "-s", type=int, default=config.NUM_SEEDS, help="Number of seeds"
@@ -728,6 +837,10 @@ def main():
     elif args.layer_widths is not None:
         config.LAYER_WIDTHS = list(args.layer_widths)
     train_Ts = get_train_Ts(args.max_T)
+    if args.Ts is not None:
+        if any(T < 1 for T in args.Ts):
+            parser.error("--Ts values must be at least 1")
+        train_Ts = sorted(set(args.Ts))
     system = get_system(args.system)
     if args.method is None:
         train_fixed = args.fixed or not args.adaptive
@@ -749,6 +862,35 @@ def main():
 
     if args.random and (not train_adaptive or adaptive_method not in LYAPUNOV_METHODS):
         parser.error("--random requires --method lyapunov-mean")
+
+    if args.invert and (not train_adaptive or adaptive_method not in LYAPUNOV_METHODS):
+        parser.error("--invert requires --method lyapunov-mean")
+
+    if not 0 <= args.first_seed < args.n_seeds:
+        parser.error("--first-seed must be in [0, n_seeds)")
+
+    if args.tolerance is not None:
+        if not train_adaptive or adaptive_method != ERROR_TRUNCATED:
+            parser.error("--tolerance requires --method error-truncated")
+        if args.tolerance <= 0:
+            parser.error("--tolerance must be positive")
+        config.TRUNCATION_TOLERANCE = args.tolerance
+
+    if args.growth is not None:
+        if not train_adaptive or adaptive_method != ERROR_TRUNCATED:
+            parser.error("--growth requires --method error-truncated")
+        if args.tolerance is not None:
+            parser.error("--growth and --tolerance are mutually exclusive")
+        if args.growth <= 1:
+            parser.error("--growth must be greater than 1")
+        config.TRUNCATION_GROWTH = args.growth
+
+    if args.spread is not None:
+        if not train_adaptive or adaptive_method not in LYAPUNOV_METHODS:
+            parser.error("--spread requires --method lyapunov-mean")
+        if args.spread < 0:
+            parser.error("--spread must be non-negative")
+        config.SPREAD = args.spread
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
@@ -795,6 +937,7 @@ def main():
             adaptive_method=adaptive_method,
             base_T=args.base_T,
             random_horizons=args.random,
+            invert_horizons=args.invert,
             batch_size=args.batch_size,
             debug=args.debug,
             system_name=args.system,
@@ -813,6 +956,7 @@ def main():
                 append=append,
                 debug=args.debug,
                 system_name=args.system,
+                first_seed=args.first_seed,
             )
         if train_adaptive:
             rollout_steps_budget = None
@@ -857,6 +1001,8 @@ def main():
                 system_name=args.system,
                 base_T=args.base_T,
                 random_horizons=args.random,
+                invert_horizons=args.invert,
+                first_seed=args.first_seed,
             )
 
     print(f"\nModels saved to {model_root}")

@@ -40,19 +40,23 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
     def __init__(
         self,
         max_T: int = config.MAX_TRAIN_T,
-        var: int = config.VARIANCE,
+        spread: int | None = None,
         normalization_stats: dict | None = None,
         debug: bool = False,
         lyapunov_fraction: float = config.LYAPUNOV_FRACTION,
         lambda_estimate: float | None = None,
         base_T: int | None = None,
         random_horizons: bool = False,
+        invert_horizons: bool = False,
         horizon_seed: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.var = var
+        self.spread = int(config.SPREAD if spread is None else spread)
+        if self.spread < 0:
+            raise ValueError(f"spread must be non-negative, got {self.spread}")
         self.random_horizons = random_horizons
+        self.invert_horizons = invert_horizons
         self.lyapunov_fraction = float(lyapunov_fraction)
 
         traj_np = self.raw_trajectory.numpy()
@@ -71,9 +75,15 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
         self.ftle_window = self.base_T
         self.scores.append(sample_scores)
 
-        self.min_T = max(1, self.base_T - self.var)
-        self.max_T = min(self.base_T + self.var, max_T)
-        horizons = mean_horizon(sample_scores, self.base_T, self.min_T, self.max_T)
+        self.min_T = max(1, self.base_T - self.spread)
+        self.max_T = min(self.base_T + self.spread, max_T)
+        horizons = mean_horizon(
+            sample_scores,
+            self.base_T,
+            self.min_T,
+            self.max_T,
+            invert=invert_horizons,
+        )
         if random_horizons:
             horizons = np.random.default_rng(horizon_seed).permutation(horizons)
         self.horizons.append(horizons)

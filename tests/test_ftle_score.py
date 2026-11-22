@@ -86,8 +86,8 @@ def test_validation_split_reuses_train_lambda(tmp_path):
 
 
 def test_random_horizons_keep_distribution_but_drop_ftle_mapping(tmp_path):
-    ftle = _dataset(tmp_path, var=3)
-    random = _dataset(tmp_path, var=3, random_horizons=True, horizon_seed=1)
+    ftle = _dataset(tmp_path, spread=3)
+    random = _dataset(tmp_path, spread=3, random_horizons=True, horizon_seed=1)
     ftle_T, random_T = ftle.horizons[0], random.horizons[0]
 
     assert random.base_T == ftle.base_T
@@ -97,7 +97,7 @@ def test_random_horizons_keep_distribution_but_drop_ftle_mapping(tmp_path):
     assert np.corrcoef(scores, ftle_T)[0, 1] < -0.5
     assert abs(np.corrcoef(scores, random_T)[0, 1]) < 0.3
 
-    same_seed = _dataset(tmp_path, var=3, random_horizons=True, horizon_seed=1)
+    same_seed = _dataset(tmp_path, spread=3, random_horizons=True, horizon_seed=1)
     np.testing.assert_array_equal(same_seed.horizons[0], random_T)
 
 
@@ -131,3 +131,40 @@ def test_weighted_loss_dataset_uses_base_T_window(tmp_path):
     assert len(wl.lambda_scores[0]) == wl.trajectories.shape[1] - wl.base_T
     val = WeightedLossDataset(**common, split="val", lambda_estimate=wl.lambda_estimate)
     assert val.ftle_window == wl.ftle_window
+
+
+def test_inverted_horizons_flip_the_ftle_mapping(tmp_path):
+    ftle = _dataset(tmp_path, spread=3)
+    inverted = _dataset(tmp_path, spread=3, invert_horizons=True)
+    scores = ftle.scores[0]
+
+    assert inverted.base_T == ftle.base_T
+    assert np.corrcoef(scores, inverted.horizons[0])[0, 1] > 0.5
+    unclipped = (np.abs(ftle.horizons[0] - ftle.base_T) < 3) & (
+        np.abs(inverted.horizons[0] - inverted.base_T) < 3
+    )
+    np.testing.assert_array_equal(
+        (inverted.horizons[0] - inverted.base_T)[unclipped],
+        -(ftle.horizons[0] - ftle.base_T)[unclipped],
+    )
+
+    control = _dataset(
+        tmp_path, spread=3, invert_horizons=True, random_horizons=True, horizon_seed=1
+    )
+    np.testing.assert_array_equal(
+        np.sort(control.horizons[0]), np.sort(inverted.horizons[0])
+    )
+
+
+def test_inverted_models_get_their_own_abbreviation():
+    from adaptive_horizon.training.methods import adaptive_method_abbreviation
+
+    assert adaptive_method_abbreviation("lyapunov-mean") == "lm"
+    assert adaptive_method_abbreviation("lyapunov-mean", random_horizons=True) == "lmr"
+    assert adaptive_method_abbreviation("lyapunov-mean", invert_horizons=True) == "lmi"
+    assert (
+        adaptive_method_abbreviation(
+            "lyapunov-mean", random_horizons=True, invert_horizons=True
+        )
+        == "lmir"
+    )

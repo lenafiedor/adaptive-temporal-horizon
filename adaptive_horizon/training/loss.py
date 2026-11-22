@@ -72,6 +72,51 @@ def adaptive_batch_loss(
     return sample_loss.mean()
 
 
+def error_truncated_batch_loss(
+    model: MLP,
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    tolerance: float = config.TRUNCATION_TOLERANCE,
+    return_horizon: bool = False,
+    growth: float | None = None,
+):
+    """Rollout loss truncated per sample once the model's own forecast drifts.
+
+    Each sample contributes the mean step MSE over steps 1..t*, where t* is the
+    first step whose RMSE (normalized coordinates) exceeds the threshold, or
+    the full horizon if it never does. The threshold is ``tolerance``, or, with
+    ``growth`` = k, k times the batch-median one-step RMSE (scale-free: the
+    error has grown k-fold over the model's typical one-step error). The rollout stops early once every
+    sample in the batch is truncated. The truncation mask carries no gradient.
+
+    Returns the loss, and with ``return_horizon`` also the mean t* (the
+    effective per-sample training horizon).
+    """
+    T_max = targets.shape[1]
+    current = inputs
+    active = torch.ones(inputs.shape[0], dtype=torch.bool, device=inputs.device)
+    loss_sum = torch.zeros(inputs.shape[0], device=inputs.device)
+    horizon = torch.zeros(inputs.shape[0], device=inputs.device)
+
+    for tau in range(T_max):
+        current = model(current)
+        step_mse = (current - targets[:, tau]).square().mean(dim=1)
+        weight = active.to(step_mse.dtype)
+        loss_sum = loss_sum + step_mse * weight
+        horizon = horizon + weight
+        step_rmse = step_mse.detach().sqrt()
+        if tau == 0 and growth is not None:
+            tolerance = growth * step_rmse.median()
+        active = active & (step_rmse <= tolerance)
+        if not active.any():
+            break
+
+    loss = (loss_sum / horizon).mean()
+    if return_horizon:
+        return loss, horizon.mean().item()
+    return loss
+
+
 def lle_predictability_weights(
     lambda_scores: torch.Tensor,
     T: int,
@@ -169,6 +214,24 @@ def lle_weighted_validation_loss(model, val_loader, dt=config.DT, device=config.
         val_loader,
         lambda model, inputs, targets, lambda_scores: lle_weighted_batch_loss(
             model, inputs, targets, lambda_scores, dt=dt
+        ),
+        device,
+    )
+
+
+def error_truncated_validation_loss(
+    model,
+    val_loader,
+    tolerance=config.TRUNCATION_TOLERANCE,
+    device=config.DEVICE,
+    growth=None,
+):
+    """Validation loss for the error-truncated training objective."""
+    return evaluate_loss(
+        model,
+        val_loader,
+        lambda model, inputs, targets: error_truncated_batch_loss(
+            model, inputs, targets, tolerance, growth=growth
         ),
         device,
     )

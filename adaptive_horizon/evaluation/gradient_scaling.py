@@ -31,7 +31,9 @@ def find_models(model_dir):
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         adaptive = checkpoint.get("metadata", {}).get("adaptive", {})
         method = adaptive_method_abbreviation(
-            adaptive.get("method"), adaptive.get("random_horizons", False)
+            adaptive.get("method"),
+            adaptive.get("random_horizons", False),
+            adaptive.get("invert_horizons", False),
         )
         models.append((path, (method or "adaptive").upper(), checkpoint.get("seed")))
     return models

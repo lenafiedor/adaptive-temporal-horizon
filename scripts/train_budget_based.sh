@@ -13,6 +13,7 @@ EPOCHS_PER_T=20
 N_SEEDS=20
 SYSTEM="lorenz"
 RANDOM_HORIZONS=0
+SPREAD=""
 
 usage() {
   echo "Usage: $0 [options]"
@@ -27,6 +28,7 @@ usage() {
   echo "  --n-seeds VALUE           Total desired seed count (default: $N_SEEDS)"
   echo "  --system NAME             Dynamical system (default: $SYSTEM)"
   echo "  --random                  lyapunov-mean only: random horizons (FTLE ablation)"
+  echo "  --spread VALUE            lyapunov-mean only: T ranges over base_T +- VALUE (default: config.toml)"
   echo "  -h, --help                Show this help"
 }
 
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --n-seeds) N_SEEDS="$2"; shift 2 ;;
     --system) SYSTEM="$2"; shift 2 ;;
     --random) RANDOM_HORIZONS=1; shift ;;
+    --spread) SPREAD="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -83,6 +86,14 @@ if [[ "$RANDOM_HORIZONS" == 1 ]]; then
     exit 1
   fi
   method_args+=(--random)
+fi
+
+if [[ -n "$SPREAD" ]]; then
+  if [[ "$METHOD" != "lyapunov-mean" ]]; then
+    echo "--spread requires --method lyapunov-mean" >&2
+    exit 1
+  fi
+  method_args+=(--spread "$SPREAD")
 fi
 
 cd "$PROJECT_DIR"

@@ -44,10 +44,15 @@ def get_existing_fixed_model_seeds(model_dir: Path):
 
 
 def get_existing_adaptive_model_seeds(
-    model_dir: Path, adaptive_method: str | None = None, random_horizons=False
+    model_dir: Path,
+    adaptive_method: str | None = None,
+    random_horizons=False,
+    invert_horizons=False,
 ):
     model_seeds = set()
-    method_short = adaptive_method_abbreviation(adaptive_method, random_horizons)
+    method_short = adaptive_method_abbreviation(
+        adaptive_method, random_horizons, invert_horizons
+    )
     for model_path in model_dir.glob("adaptive_mlp*.pt"):
         match = re.search(r"adaptive_mlp(?:_([a-z]+))?_seed\d+(?:_|$)", model_path.name)
         if not match:
@@ -120,14 +125,16 @@ def save_model(
     metadata=None,
     adaptive_method: str | None = None,
     random_horizons: bool = False,
+    invert_horizons: bool = False,
 ):
     save_dir.mkdir(parents=True, exist_ok=True)
 
     stamp = timestamp()
     if adaptive:
-        method_suffix = (
-            f"{adaptive_method_abbreviation(adaptive_method, random_horizons)}_"
+        abbreviation = adaptive_method_abbreviation(
+            adaptive_method, random_horizons, invert_horizons
         )
+        method_suffix = f"{abbreviation}_"
         filename = f"adaptive_mlp_{method_suffix}seed{seed}_{stamp}.pt"
     else:
         filename = f"mlp_T{T}_seed{seed}_{stamp}.pt"

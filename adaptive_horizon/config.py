@@ -1,7 +1,6 @@
 import math
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 
 def load_config():
@@ -41,12 +40,15 @@ RANDOM_SEED = _config["trajectory"]["random_seed"]
 TRAIN_FRACTION = _config["trajectory"]["train_fraction"]
 
 LYAPUNOV_FRACTION = _config["training"]["lyapunov_fraction"]
-VARIANCE = _config["lyapunov-mean"]["variance"]
+SPREAD = _config["lyapunov-mean"]["spread"]
 
 RHO = _config["weighted-loss"]["rho"]
 TEMPERATURE = _config["weighted-loss"]["temperature"]
 WEIGHT_FLOOR = _config["weighted-loss"]["weight_floor"]
 ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
+
+TRUNCATION_TOLERANCE = _config["error-truncation"]["tolerance"]
+TRUNCATION_GROWTH = _config["error-truncation"].get("growth")
 
 CV_TOLERANCE = _config["cross-validation"]["tolerance"]
 CV_SMOOTHING_EPOCHS = _config["cross-validation"]["smoothing_epochs"]
