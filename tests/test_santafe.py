@@ -71,3 +71,29 @@ def test_format_dt_keeps_small_steps_and_distinguishes_unit_step():
     assert format_dt(0.08) == "08"
     assert format_dt(0.1) == "1"
     assert format_dt(1.0) == "1_0"
+
+
+def test_observed_fsle_recovers_exponential_growth_rate():
+    from adaptive_horizon.dynamics.fsle import observed_fsle
+
+    rate, steps = 0.1, np.arange(301)[:, None]
+    initial = np.random.default_rng(0).uniform(0.01, 0.02, size=500)
+    # Exponential growth that saturates at 1, like a chaotic separation.
+    curves = np.minimum(initial * np.exp(rate * steps), 1.0)
+    thresholds = 0.03 * np.sqrt(2) ** np.arange(10)
+    lam, valid = observed_fsle(curves, thresholds)
+    assert valid[0] == 500
+    finite = lam[np.isfinite(lam)]
+    assert finite == pytest.approx(rate, rel=0.15)
+
+
+def test_tolerance_from_fsle_uses_recording(recording, tmp_path, monkeypatch):
+    from adaptive_horizon.dynamics.fsle import observed_fsle_tolerance
+
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path / "data")
+    info = observed_fsle_tolerance(recording, n=200, t_max=100)
+    assert info["source"] in ("fsle_knee", "fsle_fallback")
+    assert info["tolerance"] > 0 and info["flops"] > 0
+    assert SANTAFE in info["cache"]
+    # Second call reads the per-checksum cache.
+    assert observed_fsle_tolerance(recording, n=200, t_max=100) == info

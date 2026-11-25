@@ -6,7 +6,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 METHOD=""
 OUTPUT_DIR=""
-DT="0.08"
+DT=""
+DATA_PATH=""
+TOLERANCE=""
+GROWTH=""
 MIN_T=1
 MAX_T=10
 EPOCHS_PER_T=20
@@ -21,7 +24,10 @@ usage() {
   echo "Options:"
   echo "  --method METHOD           fixed, lyapunov-mean, weighted-loss, linear-scheduler, cross-validation, or error-truncated (tolerance from the FSLE knee)"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
-  echo "  --dt VALUE                Simulation time step (default: $DT)"
+  echo "  --dt VALUE                Simulation time step (default: 0.08; santafe-laser: 1)"
+  echo "  --data-path FILE          Santa Fe intensity recording (required for --system santafe-laser)"
+  echo "  --tolerance VALUE         error-truncated: fixed RMSE tolerance instead of the FSLE knee"
+  echo "  --growth VALUE            error-truncated: scale-free growth factor instead of the FSLE knee"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
   echo "  --max-T VALUE             Last budget horizon (default: $MAX_T)"
   echo "  --epochs-per-T VALUE      Epoch budget per horizon (default: $EPOCHS_PER_T)"
@@ -37,6 +43,9 @@ while [[ $# -gt 0 ]]; do
     --method) METHOD="$2"; shift 2 ;;
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     --dt) DT="$2"; shift 2 ;;
+    --data-path) DATA_PATH="$2"; shift 2 ;;
+    --tolerance) TOLERANCE="$2"; shift 2 ;;
+    --growth) GROWTH="$2"; shift 2 ;;
     --min-T) MIN_T="$2"; shift 2 ;;
     --max-T) MAX_T="$2"; shift 2 ;;
     --epochs-per-T) EPOCHS_PER_T="$2"; shift 2 ;;
@@ -60,6 +69,28 @@ if [[ -z "$OUTPUT_DIR" ]]; then
   exit 1
 fi
 
+if [[ "$SYSTEM" == "santafe-laser" ]]; then
+  DT="${DT:-1}"
+  if [[ -z "$DATA_PATH" ]]; then
+    echo "--system santafe-laser requires --data-path" >&2
+    exit 1
+  fi
+else
+  DT="${DT:-0.08}"
+  if [[ -n "$DATA_PATH" ]]; then
+    echo "--data-path is only supported for --system santafe-laser" >&2
+    exit 1
+  fi
+fi
+if [[ -n "$TOLERANCE" && -n "$GROWTH" ]]; then
+  echo "--tolerance and --growth are mutually exclusive" >&2
+  exit 1
+fi
+if [[ ( -n "$TOLERANCE" || -n "$GROWTH" ) && "$METHOD" != "error-truncated" ]]; then
+  echo "--tolerance/--growth require --method error-truncated" >&2
+  exit 1
+fi
+
 case "$METHOD" in
   fixed)
     method_args=(--fixed)
@@ -71,7 +102,13 @@ case "$METHOD" in
     method_args=(--method linear-scheduler)
     ;;
   error-truncated)
-    method_args=(--method error-truncated --tolerance-from-fsle)
+    if [[ -n "$TOLERANCE" ]]; then
+      method_args=(--method error-truncated --tolerance "$TOLERANCE")
+    elif [[ -n "$GROWTH" ]]; then
+      method_args=(--method error-truncated --growth "$GROWTH")
+    else
+      method_args=(--method error-truncated --tolerance-from-fsle)
+    fi
     ;;
   lyapunov-mean|weighted-loss)
     method_args=(--method "$METHOD")
@@ -99,13 +136,25 @@ if [[ -n "$SPREAD" ]]; then
   method_args+=(--spread "$SPREAD")
 fi
 
+if [[ -n "$DATA_PATH" ]]; then
+  method_args+=(--data-path "$DATA_PATH")
+fi
+
+if [[ "$DT" == 0.* ]]; then
+  DT_TAG="${DT#0.}"
+elif [[ "$DT" == *.* ]]; then
+  DT_TAG="${DT/./_}"
+else
+  DT_TAG="${DT}_0"
+fi
+
 cd "$PROJECT_DIR"
 
 for ((T = MIN_T; T <= MAX_T; T++)); do
   if [[ "$METHOD" == "fixed" ]]; then
     run_output_dir="$OUTPUT_DIR"
   else
-    run_output_dir="$OUTPUT_DIR/budget_dt_${DT#*.}_T${T}"
+    run_output_dir="$OUTPUT_DIR/budget_dt_${DT_TAG}_T${T}"
   fi
 
   args=(

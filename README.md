@@ -84,45 +84,13 @@ Notes:
 
 ### Santa Fe laser benchmark
 
-Obtain the measured [Santa Fe laser recording](https://reservoirpy.readthedocs.io/en/stable/api/generated/reservoirpy.datasets.santafe_laser.html)
-manually and save it as a text file with one intensity value per line. The documented
-full recording has 10,093 samples; shorter recordings are accepted if all splits
-have enough history, targets, and distinct neighbours.
+Get the measured [Santa Fe laser recording](https://reservoirpy.readthedocs.io/en/stable/api/generated/reservoirpy.datasets.santafe_laser.html) manually and save it as a text file with one intensity value per line. The documented full recording has 10,093 samples; shorter recordings are accepted if all splits have enough history, targets, and distinct neighbors.
 
 ```bash
 poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --fixed --output-dir experiments/santafe-laser/run
 poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --method lyapunov-mean --output-dir experiments/santafe-laser/run
 poetry run cross-validation --system santafe-laser --model-dir experiments/santafe-laser/run --max-eval-T 10
 ```
-
-All adaptive methods are supported through `--method` (`--tolerance-from-fsle`
-needs a simulated system). The laser uses `dt=1` (one recorded sample) and eight
-consecutive past intensities as the model input. Raw samples are split
-70%/15%/15% into training/validation/test before history windows are constructed,
-and every split uses the scalar training mean and standard deviation. The MLP
-predicts only the next intensity and shifts the remaining history
-deterministically; losses and metrics score only newly predicted intensities.
-Training keeps the epoch with the lowest validation loss (`cross-validation`
-keeps its own selected checkpoint). Budget mode sizes the fixed sweep from the
-recording's training split.
-
-Lyapunov methods use an offline **neighbour-divergence proxy** instead of FTLEs:
-five distinct nearest training states, a 50-sample Theiler exclusion, and distance
-growth over five samples. The training mean of this rate replaces the global
-Lyapunov exponent in the `lyapunov_fraction` center-horizon rule, and scores are
-standardized with training statistics on every split. Forward observations supply
-offline labels, never forecast inputs.
-
-For laser checkpoints, `cross-validation` evaluates the held-out **test** block.
-Besides the usual metrics, records contain `physical_mse` (MSE in intensity
-units; plot it with `--error-metric physical_mse`). VPT is expressed in units of
-the neighbour-divergence rate. Checkpoints record the file checksum, split
-bounds, normalization, history and estimator settings; evaluation rebuilds
-preprocessing from them. Use `--data-path` during evaluation only if the
-recording has moved; its checksum must still match. Use validation to select
-models; test results are final benchmark results. When a run contains several
-adaptive methods, summaries and plots are separated per method under
-`adaptive_by_method`.
 
 ### Gradient Scaling
 

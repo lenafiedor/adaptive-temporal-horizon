@@ -894,10 +894,7 @@ def main():
             parser.error("Santa Fe --dt must be 1 (one recorded sample)")
         if args.data_path is None:
             parser.error(f"--system {SANTAFE} requires --data-path")
-        if args.tolerance_from_fsle:
-            parser.error("--tolerance-from-fsle needs a simulated system")
         config.SANTAFE_DATA_PATH = args.data_path
-        # Fail fast on a missing or too-short recording.
         observed_train_len = len(
             load_santafe(args.data_path, max(args.max_T, args.T, config.MAX_EVAL_T))[
                 "trajectories"
@@ -1059,6 +1056,12 @@ def main():
                     math.ceil(fsle_info["flops"] / step_flops) if fsle_info else 0
                 )
                 rollout_steps_budget = sweep_steps - fsle_steps
+                if rollout_steps_budget <= 0:
+                    parser.error(
+                        f"The FSLE costs {fsle_steps} rollout steps, more than the "
+                        f"fixed-sweep budget of {sweep_steps}; raise --epochs-per-T "
+                        "or --max-T, or pass --tolerance/--growth"
+                    )
                 budget_metadata = {
                     "unit": "rollout_steps",
                     "max_T": args.max_T,
