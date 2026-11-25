@@ -25,9 +25,10 @@ from adaptive_horizon.training.methods import (
 def model_config(system_name, history_length=None):
     if system_name == SANTAFE:
         # Delay-window model: a history of intensities in, one new intensity out.
-        input_size = history_length or load_santafe(config.SANTAFE_DATA_PATH)[
-            "metadata"
-        ]["history_length"]
+        input_size = (
+            history_length
+            or load_santafe(config.SANTAFE_DATA_PATH)["metadata"]["history_length"]
+        )
         output_size = 1
     else:
         system = get_system(system_name)

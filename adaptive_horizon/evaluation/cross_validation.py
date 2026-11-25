@@ -157,7 +157,8 @@ def cross_validate_models(
         )
         metadata = checkpoint.get("metadata", {})
         model_system = metadata.get("system") or system_name
-        extra = {"system": model_system, "split": eval_loader.dataset.split}
+        split = "test" if model_system == SANTAFE else "val"
+        extra = {"system": model_system, "split": split}
         if "epochs_requested" in metadata:
             extra["epochs_requested"] = metadata["epochs_requested"]
         if model_type == "adaptive":
@@ -282,8 +283,11 @@ def cross_validation(
         if system == SANTAFE:
             lyapunov_exponent = observed_lyapunov_exponent(
                 [
-                    *(path for paths in get_fixed_paths(model_dir=fixed_dir).values()
-                      for path in paths),
+                    *(
+                        path
+                        for paths in get_fixed_paths(model_dir=fixed_dir).values()
+                        for path in paths
+                    ),
                     *get_adaptive_paths(adaptive_dir),
                 ],
                 data_path,
@@ -378,7 +382,9 @@ def cross_validation(
     if not summary["fixed"]:
         print("No fixed models evaluated; skipping plots")
         return
-    for method, method_summary in summary.get("adaptive_by_method", {None: summary}).items():
+    for method, method_summary in summary.get(
+        "adaptive_by_method", {None: summary}
+    ).items():
         method_dir = Path(output_dir) / method if method else output_dir
         plot_mse(
             method_summary,

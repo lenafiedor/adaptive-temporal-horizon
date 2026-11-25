@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from adaptive_horizon import config
 from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.data.santafe import observed_trajectory
 from adaptive_horizon.data.utils import (
     NormalizationStats,
     apply_normalization,
@@ -13,7 +14,6 @@ from adaptive_horizon.data.utils import (
     get_trajectory,
     split_trajectory,
 )
-from adaptive_horizon.data.santafe import observed_trajectory
 from adaptive_horizon.dynamics.systems import get_system
 from adaptive_horizon.utils import timestamp
 

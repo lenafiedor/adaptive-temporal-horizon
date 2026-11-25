@@ -110,16 +110,14 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
                 base_T,
             )
         else:
-            self.lambda_estimate, self.base_T, sample_scores = (
-                lyapunov_center_and_ftle(
-                    traj_np,
-                    self.dt,
-                    self.system,
-                    lambda_estimate,
-                    self.lyapunov_fraction,
-                    max_T,
-                    base_T=base_T,
-                )
+            self.lambda_estimate, self.base_T, sample_scores = lyapunov_center_and_ftle(
+                traj_np,
+                self.dt,
+                self.system,
+                lambda_estimate,
+                self.lyapunov_fraction,
+                max_T,
+                base_T=base_T,
             )
             self.ftle_window = self.base_T
         self.scores.append(sample_scores)
@@ -174,7 +172,9 @@ class LyapunovBasedDataset(BaseTrajectoryDataset):
             for value, count in self.horizon_counts().items():
                 file.write(f"T={value} count={count}\n")
 
-            score_label = "FTLE" if self.observed_data is None else "Neighbour divergence"
+            score_label = (
+                "FTLE" if self.observed_data is None else "Neighbour divergence"
+            )
             file.write(f"\n# {score_label} score and T value per sample\n")
             for traj_idx in range(len(self.horizons)):
                 for i in range(len(self.horizons[traj_idx])):
