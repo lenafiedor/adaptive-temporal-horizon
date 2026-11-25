@@ -8,6 +8,7 @@ import torch
 from adaptive_horizon import config
 from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.dataset import make_val_loader
+from adaptive_horizon.dynamics.fsle import fsle_tolerance
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
     adaptive_batch_loss,
@@ -32,7 +33,10 @@ from adaptive_horizon.training.methods import (
     takes_max_T,
 )
 from adaptive_horizon.training.schedules import HorizonScheduler
-from adaptive_horizon.training.setup import create_model_and_loaders
+from adaptive_horizon.training.setup import (
+    create_model_and_loaders,
+    rollout_step_flops,
+)
 from adaptive_horizon.training.utils import (
     fixed_sweep_rollout_steps,
     get_existing_adaptive_model_seeds,
@@ -755,6 +759,11 @@ def main():
         ),
     )
     parser.add_argument(
+        "--tolerance-from-fsle",
+        action="store_true",
+        help=("error-truncated: set the tolerance to the FSLE knee of the system"),
+    )
+    parser.add_argument(
         "--growth",
         type=float,
         default=None,
@@ -876,6 +885,21 @@ def main():
             parser.error("--tolerance must be positive")
         config.TRUNCATION_TOLERANCE = args.tolerance
 
+    fsle_info = None
+    if args.tolerance_from_fsle:
+        if not train_adaptive or adaptive_method != ERROR_TRUNCATED:
+            parser.error("--tolerance-from-fsle requires --method error-truncated")
+        if args.tolerance is not None or args.growth is not None:
+            parser.error("--tolerance-from-fsle excludes --tolerance and --growth")
+        fsle_info = fsle_tolerance(args.system, args.dt)
+        config.TRUNCATION_TOLERANCE = fsle_info["tolerance"]
+        config.TRUNCATION_FSLE = fsle_info
+        print(
+            f"Tolerance from FSLE: {fsle_info['tolerance']:.3f} "
+            f"({fsle_info['source']}, knee={fsle_info['knee']}, "
+            f"cost {fsle_info['flops']:.3g} FLOPs)"
+        )
+
     if args.growth is not None:
         if not train_adaptive or adaptive_method != ERROR_TRUNCATED:
             parser.error("--growth requires --method error-truncated")
@@ -964,12 +988,34 @@ def main():
             adaptive_epochs = (
                 args.epochs_per_T * args.max_T if args.budget_based else args.epochs
             )
-            if args.budget_based and adaptive_method in (
+            if args.budget_based and adaptive_method == ERROR_TRUNCATED:
+                sweep_steps = fixed_sweep_rollout_steps(args.max_T, args.epochs_per_T)
+                step_flops = rollout_step_flops(args.system)
+                fsle_steps = (
+                    math.ceil(fsle_info["flops"] / step_flops) if fsle_info else 0
+                )
+                rollout_steps_budget = sweep_steps - fsle_steps
+                budget_metadata = {
+                    "unit": "rollout_steps",
+                    "max_T": args.max_T,
+                    "epochs_per_T": args.epochs_per_T,
+                    "max_epochs": adaptive_epochs,
+                    "fixed_sweep_rollout_steps": sweep_steps,
+                    "rollout_step_flops": step_flops,
+                    "fsle_flops": fsle_info["flops"] if fsle_info else 0,
+                    "fsle_rollout_steps": fsle_steps,
+                    "fsle_fraction_of_budget": fsle_steps / sweep_steps,
+                }
+                print(
+                    f"Error-truncated budget: {sweep_steps} rollout steps of the "
+                    f"fixed sweep - {fsle_steps} for the FSLE "
+                    f"({100 * fsle_steps / sweep_steps:.2f}%) = "
+                    f"{rollout_steps_budget}, at most {adaptive_epochs} epochs"
+                )
+            elif args.budget_based and adaptive_method in (
                 *LYAPUNOV_METHODS,
                 WEIGHTED_LOSS,
             ):
-                # Rollout steps (FLOP-proportional) of the fixed sweep T=1..max_T,
-                # computed from the config; epochs are not capped.
                 rollout_steps_budget = fixed_sweep_rollout_steps(
                     args.max_T, args.epochs_per_T
                 )

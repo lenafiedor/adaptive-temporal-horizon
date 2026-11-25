@@ -41,12 +41,10 @@ weight_floor = 0.05
 anchor_alpha = 0.25
 
 [error-truncation]
-# Per-sample rollout loss stops at the first step whose RMSE (normalized
-# coordinates) exceeds this tolerance; that step is still included.
 tolerance = 0.3
-# Scale-free alternative (train.py --growth k): stop once the RMSE exceeds k
-# times the batch-median one-step RMSE. Unset = use the absolute tolerance.
 # growth = 3.0
+fsle_knee_fraction = 0.75
+fsle_fallback_tolerance = 0.7
 
 [cross-validation]
 tolerance = 0.0

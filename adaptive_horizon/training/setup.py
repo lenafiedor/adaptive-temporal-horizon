@@ -21,6 +21,29 @@ from adaptive_horizon.training.methods import (
 )
 
 
+def model_config(system_name):
+    system = get_system(system_name)
+    return MLPConfig(
+        input_size=system.dim,
+        output_size=system.dim,
+        layer_widths=list(config.LAYER_WIDTHS),
+        residual_connections=True,
+        k=1,
+        activation=torch.nn.ReLU(),
+    )
+
+
+def rollout_step_flops(system_name):
+    model = MLP(model_config(system_name), random_seed=0)
+    forward = sum(
+        2 * m.in_features * m.out_features
+        + (m.out_features if m.bias is not None else 0)
+        for m in model.modules()
+        if isinstance(m, torch.nn.Linear)
+    )
+    return 3 * forward
+
+
 def create_optimizer(optimizer_name, model):
     optimizer_name = optimizer_name.lower()
 
@@ -123,6 +146,8 @@ def _adaptive_metadata(adaptive_method, train_dataset, T, dt):
             metadata["tolerance"] = float(config.TRUNCATION_TOLERANCE)
         else:
             metadata["growth"] = float(config.TRUNCATION_GROWTH)
+        if config.TRUNCATION_FSLE is not None:
+            metadata["fsle"] = dict(config.TRUNCATION_FSLE)
     else:
         metadata["min_T"] = train_dataset.min_T
         metadata["max_T"] = train_dataset.max_T
@@ -160,14 +185,7 @@ def create_model_and_loaders(
     invert_horizons=False,
 ):
     system = get_system(system_name)
-    mlp_config = MLPConfig(
-        input_size=system.dim,
-        output_size=system.dim,
-        layer_widths=list(config.LAYER_WIDTHS),
-        residual_connections=True,
-        k=1,
-        activation=torch.nn.ReLU(),
-    )
+    mlp_config = model_config(system)
     model = MLP(mlp_config, random_seed=seed).to(device)
     split_gap = default_split_gap(T or 0)
     metadata = {

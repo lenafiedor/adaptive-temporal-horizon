@@ -49,6 +49,9 @@ ANCHOR_ALPHA = _config["weighted-loss"]["anchor_alpha"]
 
 TRUNCATION_TOLERANCE = _config["error-truncation"]["tolerance"]
 TRUNCATION_GROWTH = _config["error-truncation"].get("growth")
+FSLE_KNEE_FRACTION = _config["error-truncation"]["fsle_knee_fraction"]
+FSLE_FALLBACK_TOLERANCE = _config["error-truncation"]["fsle_fallback_tolerance"]
+TRUNCATION_FSLE = None
 
 CV_TOLERANCE = _config["cross-validation"]["tolerance"]
 CV_SMOOTHING_EPOCHS = _config["cross-validation"]["smoothing_epochs"]

@@ -19,7 +19,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --method METHOD           fixed, lyapunov-mean, weighted-loss, linear-scheduler, or cross-validation"
+  echo "  --method METHOD           fixed, lyapunov-mean, weighted-loss, linear-scheduler, cross-validation, or error-truncated (tolerance from the FSLE knee)"
   echo "  --output-dir DIR          Parent directory for budget_dt_*_T* runs"
   echo "  --dt VALUE                Simulation time step (default: $DT)"
   echo "  --min-T VALUE             First budget horizon (default: $MIN_T)"
@@ -69,6 +69,9 @@ case "$METHOD" in
     ;;
   linear-scheduler)
     method_args=(--method linear-scheduler)
+    ;;
+  error-truncated)
+    method_args=(--method error-truncated --tolerance-from-fsle)
     ;;
   lyapunov-mean|weighted-loss)
     method_args=(--method "$METHOD")
