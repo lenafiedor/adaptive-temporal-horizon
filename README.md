@@ -35,6 +35,16 @@ poetry run ruff check
 poetry run ruff format
 ```
 
+A pre-commit hook in `.githooks/` enforces this: it blocks a commit when a staged
+Python file fails `ruff check` or `ruff format --check` (on the staged content), or
+when the unit tests fail. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Bypass it in an emergency with `git commit --no-verify`.
+
 ## Usage
 
 ### MLP Training
