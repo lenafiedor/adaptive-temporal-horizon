@@ -10,6 +10,28 @@ import torch
 SANTAFE = "santafe-laser"
 
 
+def nearest_analogues(
+    queries, positions, candidates, neighbours=5, theiler_window=50, chunk=64
+):
+    """Nearest candidate states (Euclidean) of each query, as (indices, distances)."""
+    candidate_positions = np.arange(len(candidates))
+    indices = np.empty((len(queries), neighbours), dtype=np.int64)
+    distances = np.empty((len(queries), neighbours))
+    for start in range(0, len(queries), chunk):
+        stop = min(start + chunk, len(queries))
+        dist = np.linalg.norm(
+            queries[start:stop, None, :] - candidates[None, :, :], axis=2
+        )
+        excluded = (
+            np.abs(positions[start:stop, None] - candidate_positions) <= theiler_window
+        ) | (dist == 0)
+        dist[excluded] = np.inf
+        nearest = np.argpartition(dist, neighbours - 1, axis=1)[:, :neighbours]
+        indices[start:stop] = nearest
+        distances[start:stop] = np.take_along_axis(dist, nearest, axis=1)
+    return indices, distances
+
+
 def neighbour_divergence(
     states,
     reference,
@@ -23,33 +45,20 @@ def neighbour_divergence(
     candidates = reference[:-window]
     if len(candidates) < neighbours or len(states) <= window:
         raise ValueError("Recording is too short for neighbour divergence")
-    scores = np.empty(len(states) - window, dtype=np.float64)
-    reference_indices = np.arange(len(candidates))
-    for start in range(0, len(scores), 64):
-        stop = min(start + 64, len(scores))
-        query_indices = np.arange(start, stop)
-        distances = np.linalg.norm(
-            states[start:stop, None, :] - candidates[None, :, :], axis=2
-        )
-        excluded = (
-            np.abs(query_indices[:, None] + query_start - reference_indices)
-            <= theiler_window
-        ) | (distances == 0)
-        distances[excluded] = np.inf
-        if np.any(np.isfinite(distances).sum(axis=1) < neighbours):
-            raise ValueError(
-                "Not enough distinct neighbours outside the Theiler window"
-            )
-        indices = np.argpartition(distances, neighbours - 1, axis=1)[:, :neighbours]
-        initial = np.take_along_axis(distances, indices, axis=1)
-        future = np.linalg.norm(
-            states[query_indices + window, None, :] - reference[indices + window],
-            axis=2,
-        )
-        scores[start:stop] = (
-            np.log((future + epsilon) / (initial + epsilon)).mean(axis=1) / window
-        )
-    return scores
+    query_indices = np.arange(len(states) - window)
+    indices, initial = nearest_analogues(
+        states[query_indices],
+        query_indices + query_start,
+        candidates,
+        neighbours,
+        theiler_window,
+    )
+    if not np.isfinite(initial).all():
+        raise ValueError("Not enough distinct neighbours outside the Theiler window")
+    future = np.linalg.norm(
+        states[query_indices + window, None, :] - reference[indices + window], axis=2
+    )
+    return np.log((future + epsilon) / (initial + epsilon)).mean(axis=1) / window
 
 
 @lru_cache(maxsize=2)

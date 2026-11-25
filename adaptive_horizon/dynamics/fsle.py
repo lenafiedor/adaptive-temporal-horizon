@@ -22,6 +22,7 @@ import numpy as np
 
 from adaptive_horizon import config
 from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.dynamics.integrators import rk4_step
 from adaptive_horizon.dynamics.systems import get_system
 
 RHS_FLOPS = {"lorenz": 8, "rossler": 7}
@@ -29,47 +30,58 @@ RK4_COMBINE_FLOPS_PER_DIM = 14
 RMSE_FLOPS_PER_DIM = 4
 
 
-def batched_rhs(system):
-    """Vector field on states of shape (dim, n)."""
-    system = get_system(system)
-    if system.name.startswith("lorenz96"):
-        F = system.parameters["forcing"]
-        return lambda x: (
-            (np.roll(x, -1, 0) - np.roll(x, 2, 0)) * np.roll(x, 1, 0) - x + F
-        )
-    return system.rhs
-
-
-def rk4(f, x, h):
-    k1 = f(x)
-    k2 = f(x + 0.5 * h * k1)
-    k3 = f(x + 0.5 * h * k2)
-    k4 = f(x + h * k3)
-    return x + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
-
-
 def separation_curves(system, x0, std, delta0, t_max, h, rng):
-    """Normalized RMSE between reference and perturbed runs, (n_times, n)."""
-    f = batched_rhs(system)
+    """Normalized RMSE between reference and perturbed runs, (n_times, n).
+
+    States are integrated as one batch of shape (dim, n); every system's
+    vector field accepts that layout.
+    """
+    f = get_system(system).rhs
     n, d = x0.shape
     u = rng.standard_normal((n, d))
     u *= delta0 / np.sqrt(np.mean(u**2, axis=1, keepdims=True))
     a, b = x0.T.copy(), (x0 + u * std).T.copy()
     out = []
     for _ in range(round(t_max / h)):
-        a, b = rk4(f, a, h), rk4(f, b, h)
+        a, b = rk4_step(f, a, h), rk4_step(f, b, h)
         out.append(np.sqrt(np.mean(((a - b).T / std) ** 2, axis=1)))
     return np.asarray(out)
 
 
-def fsle(curves, h, thresholds):
-    """lambda(delta_n) from first-crossing times; NaN where too few cross."""
-    times = []
+def first_crossings(curves, thresholds):
+    """First row index where each column exceeds each threshold, NaN if never."""
+    crossings = []
     for delta in thresholds:
         crossed = curves > delta
-        t = np.where(crossed.any(0), crossed.argmax(0) * h + h, np.nan)
-        times.append(t)
-    times = np.asarray(times)
+        crossings.append(np.where(crossed.any(0), crossed.argmax(0), np.nan))
+    return np.asarray(crossings, dtype=float)
+
+
+def fsle_knees(lam, thresholds, plateau, fractions):
+    """Separation sizes per FSLE bin and the knee delta*_f for each fraction f."""
+    sizes = thresholds[:-1] * np.sqrt(2) ** 0.5
+    knees = {}
+    for frac in fractions:
+        below = np.where(lam < frac * plateau)[0]
+        knees[str(frac)] = float(sizes[below[0]]) if len(below) else None
+    return sizes, knees
+
+
+def cached_json(path, compute):
+    """Load ``path`` or write ``compute()`` there atomically (parallel-safe)."""
+    if path.exists():
+        return json.loads(path.read_text())
+    result = compute()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{np.random.randint(1 << 30)}.tmp")
+    tmp.write_text(json.dumps(result, indent=2))
+    tmp.replace(path)
+    return result
+
+
+def fsle(curves, h, thresholds):
+    """lambda(delta_n) from first-crossing times; NaN where too few cross."""
+    times = first_crossings(curves, thresholds) * h + h
     r = thresholds[1] / thresholds[0]
     lam = []
     for k in range(len(thresholds) - 1):
@@ -125,12 +137,8 @@ def compute_fsle(
     thresholds = delta0 * 100 * np.sqrt(2) ** np.arange(60)
     thresholds = thresholds[thresholds < 1.5]
     lam, t_cross = fsle(curves, h, thresholds)
-    sizes = thresholds[:-1] * np.sqrt(2) ** 0.5
     plateau = float(np.nanmedian(lam[:5]))
-    crossover = {}
-    for frac in fractions:
-        below = np.where(lam < frac * plateau)[0]
-        crossover[str(frac)] = float(sizes[below[0]]) if len(below) else None
+    sizes, crossover = fsle_knees(lam, thresholds, plateau, fractions)
     saturation = float(np.median(curves[-round(2 / h) :]))
     steps = (t_cross - t_cross[0]) / dt
     return {
@@ -162,13 +170,7 @@ def fsle_tolerance(
     n=2000,
     t_max=40.0,
 ):
-    """Truncation tolerance from the FSLE knee, with its cost.
-
-    tau = delta*_fraction; if lambda(delta) never drops below that fraction
-    before saturation (no knee), tau = ``fallback``. The FSLE is deterministic
-    (fixed seed), so the result is cached next to the trajectory data; the cost
-    (FLOPs) is reported either way, since every model that uses tau pays it.
-    """
+    """Truncation tolerance from the FSLE knee, with its cost."""
     from adaptive_horizon.data.santafe import SANTAFE
 
     if system == SANTAFE:
@@ -178,14 +180,10 @@ def fsle_tolerance(
     system = get_system(system)
     data_dir = config.system_path(config.DATA_DIR, system.name)
     path = data_dir / f"fsle_{system.name}_dt{dt:g}_n{n}_t{t_max:g}.json"
-    if path.exists():
-        result = json.loads(path.read_text())
-    else:
-        result = compute_fsle(system.name, dt, n=n, t_max=t_max, fractions=(fraction,))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{np.random.randint(1 << 30)}.tmp")
-        tmp.write_text(json.dumps(result, indent=2))
-        tmp.replace(path)
+    result = cached_json(
+        path,
+        lambda: compute_fsle(system.name, dt, n=n, t_max=t_max, fractions=(fraction,)),
+    )
     return _tolerance_from_result(result, fraction, fallback, n, t_max, path)
 
 
@@ -211,21 +209,12 @@ def _tolerance_from_result(result, fraction, fallback, n, t_max, path):
     }
 
 
-# --- Measured data -----------------------------------------------------------
-# Without equations to integrate, a perturbed run is replaced by an analogue: a
-# nearby state elsewhere in the training recording (outside a Theiler window)
-# that is followed forward along the data (Boffetta et al. 2002, Phys. Rep.).
-
-
 def observed_separation_curves(
     states, n=2000, neighbours=5, t_max=400, theiler_window=50, seed=0
 ):
-    """Window RMSE between analogue pairs, (t_max + 1, pairs), plus FLOPs.
+    """Window RMSE between analogue pairs, (t_max + 1, pairs), plus FLOPs."""
+    from adaptive_horizon.data.santafe import nearest_analogues
 
-    ``states`` are normalized delay windows of shape (N, history). Each of
-    ``n`` reference states is paired with its ``neighbours`` nearest distinct
-    states whose continuation of ``t_max`` steps lies inside the recording.
-    """
     states = np.asarray(states, dtype=np.float64)
     count, history = states.shape
     usable = count - t_max
@@ -233,21 +222,13 @@ def observed_separation_curves(
         raise ValueError("Recording is too short for an analogue FSLE")
     rng = np.random.default_rng(seed)
     refs = np.sort(rng.choice(usable, size=min(n, usable), replace=False))
-    candidates = states[:usable]
-    pairs = []
-    for start in range(0, len(refs), 256):
-        chunk = refs[start : start + 256]
-        dist = np.sqrt(
-            ((states[chunk, None, :] - candidates[None, :, :]) ** 2).mean(axis=2)
-        )
-        dist[np.abs(chunk[:, None] - np.arange(usable)) <= theiler_window] = np.inf
-        dist[dist == 0] = np.inf
-        nearest = np.argpartition(dist, neighbours - 1, axis=1)[:, :neighbours]
-        for row, ref in enumerate(chunk):
-            for j in nearest[row]:
-                if np.isfinite(dist[row, j]):
-                    pairs.append((ref, j))
-    pairs = np.asarray(pairs)
+    indices, distances = nearest_analogues(
+        states[refs], refs, states[:usable], neighbours, theiler_window
+    )
+    found = np.isfinite(distances)
+    pairs = np.column_stack(
+        (np.repeat(refs, neighbours)[found.ravel()], indices[found])
+    )
     steps = np.arange(t_max + 1)
     a = states[pairs[:, 0, None] + steps]  # (pairs, t_max + 1, history)
     b = states[pairs[:, 1, None] + steps]
@@ -260,18 +241,9 @@ def observed_separation_curves(
 
 
 def observed_fsle(curves, thresholds, min_pairs=50):
-    """lambda(delta_n) per step from analogue pairs.
-
-    Only pairs that start below delta_n time the doubling from delta_n to
-    delta_{n+1}; pairs never reaching both thresholds are left out, and a
-    threshold needs ``min_pairs`` valid pairs with over half of them crossing.
-    """
+    """lambda(delta_n) per step from analogue pairs."""
     initial = curves[0]
-    times = []
-    for delta in thresholds:
-        crossed = curves > delta
-        times.append(np.where(crossed.any(0), crossed.argmax(0), np.nan))
-    times = np.asarray(times, dtype=float)
+    times = first_crossings(curves, thresholds)
     r = thresholds[1] / thresholds[0]
     lam, valid_pairs = [], []
     for k in range(len(thresholds) - 1):
@@ -293,13 +265,7 @@ def compute_observed_fsle(
     fractions=(0.75, 0.5, 0.25),
     seed=0,
 ):
-    """Analogue FSLE of a recording's training split (Santa Fe laser).
-
-    Separations are window RMSEs in the training normalization, the units of
-    the error-truncation tolerance; time is in recorded samples (dt = 1).
-    Measurement noise and data density bound the smallest resolvable delta, so
-    the small-delta plateau starts at the typical nearest-analogue distance.
-    """
+    """Analogue FSLE of a recording's training split (Santa Fe laser)."""
     from adaptive_horizon.data.santafe import load_santafe
 
     start = perf_counter()
@@ -315,15 +281,11 @@ def compute_observed_fsle(
     thresholds = delta_min * np.sqrt(2) ** np.arange(40)
     thresholds = thresholds[thresholds < 1.5]
     lam, valid_pairs = observed_fsle(curves, thresholds)
-    sizes = thresholds[:-1] * np.sqrt(2) ** 0.5
     finite = np.where(np.isfinite(lam))[0]
     if len(finite) == 0:
         raise ValueError("No threshold has enough analogue pairs for an FSLE")
     plateau = float(np.nanmedian(lam[finite[:3]]))
-    crossover = {}
-    for frac in fractions:
-        below = np.where(lam < frac * plateau)[0]
-        crossover[str(frac)] = float(sizes[below[0]]) if len(below) else None
+    sizes, crossover = fsle_knees(lam, thresholds, plateau, fractions)
     return {
         "system": "santafe-laser",
         "data_checksum": data["metadata"]["checksum"],
@@ -361,14 +323,10 @@ def observed_fsle_tolerance(
     checksum = load_santafe(data_path, t_max)["metadata"]["checksum"]
     data_dir = config.system_path(config.DATA_DIR, SANTAFE)
     path = data_dir / f"fsle_{SANTAFE}_{checksum[:12]}_n{n}_t{t_max:g}.json"
-    if path.exists():
-        result = json.loads(path.read_text())
-    else:
-        result = compute_observed_fsle(
+    result = cached_json(
+        path,
+        lambda: compute_observed_fsle(
             data_path, n=n, t_max=t_max, fractions=(fraction,)
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{np.random.randint(1 << 30)}.tmp")
-        tmp.write_text(json.dumps(result, indent=2))
-        tmp.replace(path)
+        ),
+    )
     return _tolerance_from_result(result, fraction, fallback, n, t_max, path)

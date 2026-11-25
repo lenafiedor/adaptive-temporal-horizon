@@ -6,14 +6,15 @@ from adaptive_horizon import config
 def lorenz96_f(x, forcing=config.LORENZ96_FORCING):
     """Lorenz-96 vector field with cyclic indices."""
     state = np.asarray(x, dtype=np.float64)
-    if state.ndim != 1 or state.size < 4:
+    if state.ndim not in (1, 2) or state.shape[0] < 4:
         raise ValueError(
-            "Lorenz-96 requires a one-dimensional state with at least 4 variables"
+            "Lorenz-96 requires a state (dim,) or batch (dim, n) with dim >= 4"
         )
 
-    return (
-        (np.roll(state, -1) - np.roll(state, 2)) * np.roll(state, 1) - state + forcing
-    )
+    def roll(shift):
+        return np.roll(state, shift, axis=0)
+
+    return (roll(-1) - roll(2)) * roll(1) - state + forcing
 
 
 def jacobian_lorenz96(
