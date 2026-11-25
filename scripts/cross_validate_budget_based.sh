@@ -21,7 +21,7 @@ usage() {
   echo "  --fixed-dir DIR       Fixed-model directory (default: inferred)"
   echo "  --max-eval-T VALUE    Maximum validation horizon (default: $MAX_EVAL_T)"
   echo "  --metric VALUE        mean or median (default: $METRIC)"
-  echo "  --system NAME         lorenz, lorenz96, or rossler (default: $SYSTEM)"
+  echo "  --system NAME         lorenz, lorenz96, rossler, or santafe-laser (default: $SYSTEM)"
   echo "  --cached PATH         Cached result file or directory"
   echo "  -h, --help            Show this help"
 }

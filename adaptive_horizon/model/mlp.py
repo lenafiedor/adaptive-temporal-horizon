@@ -16,6 +16,7 @@ class MLPConfig:
     residual_connections: bool = False
     activation: nn.Module = field(default_factory=nn.ReLU)
     k: int | None = None
+    delay_window: bool = False
 
 
 class MLP(torch.nn.Module):
@@ -24,6 +25,9 @@ class MLP(torch.nn.Module):
         np.random.seed(random_seed)
 
         super().__init__()
+        self.delay_window = config.delay_window
+        if self.delay_window and config.output_size != 1:
+            raise ValueError("Delay-window models must predict one new observation")
         self.layer_widths = config.layer_widths
         self.embedding = nn.Linear(
             config.input_size, config.layer_widths[0], bias=False
@@ -45,8 +49,10 @@ class MLP(torch.nn.Module):
                 self.blocks.append(DenseBlock(self.layer_widths[i], config.activation))
 
     def forward(self, x):
+        history = x
         x = self.embedding(x)
         for block in self.blocks:
             x = block(x)
         x = self.unembedding(x)
-        return x
+        # Delay-window models shift the history and append the new observation.
+        return torch.cat((history[..., 1:], x), dim=-1) if self.delay_window else x

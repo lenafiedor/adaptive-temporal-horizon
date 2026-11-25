@@ -56,6 +56,7 @@ def load_model(model_path):
         layer_widths=cfg["layer_widths"],
         residual_connections=cfg["residual_connections"],
         k=cfg.get("k"),
+        delay_window=cfg.get("delay_window", False),
         activation=nn.ReLU(),
     )
 
@@ -87,10 +88,18 @@ def save_cross_validation_results(
         f"{prefix}mse_results_dt_{format_dt(run_metadata['dt'])}"
         f"_T{max_train_T}_{timestamp()}.json"
     )
+    fixed_epochs = {
+        record.get("epochs_requested")
+        for record in evaluation_records
+        if record["model_type"] == "fixed"
+    }
+    single_epochs = len(fixed_epochs) == 1 and None not in fixed_epochs
     metadata = {
         **run_metadata,
         "fixed_dir": str(fixed_dir),
         "max_train_T": max_train_T,
+        "fixed_epochs_per_horizon": next(iter(fixed_epochs)) if single_epochs else None,
+        "fixed_epochs_source": "checkpoint" if single_epochs else "not_recorded",
     }
     if summary["fixed"]:
         best_fixed = min(summary["fixed"], key=lambda item: item["overall"]["median"])
@@ -213,7 +222,8 @@ def summarize_by_eval_T(records, val_Ts):
         if all("nrmse" in record for record in records_at_T):
             stats["metrics"] = {
                 name: calculate_stats(record[name] for record in records_at_T)
-                for name in ("nrmse", "smape")
+                for name in ("nrmse", "smape", "physical_mse")
+                if all(name in record for record in records_at_T)
             }
         if all("vpt" in record for record in records_at_T):
             stats["vpt"] = {

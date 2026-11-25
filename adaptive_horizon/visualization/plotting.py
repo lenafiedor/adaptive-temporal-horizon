@@ -235,6 +235,7 @@ def plot_mse(
     metric="median",
     error_metric="mse",
     max_lines=10,
+    evaluation_split="val",
 ):
     """
     Plot error summaries for up to ``max_lines`` evenly spaced validation Ts.
@@ -248,6 +249,7 @@ def plot_mse(
         metric: median or mean
         error_metric: mse, nrmse, or smape
         max_lines: maximum number of lines to plot
+        evaluation_split: "val", or "test" for held-out measured data
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -304,15 +306,20 @@ def plot_mse(
 
     ax.set_xlabel(r"Training horizon ($\tau = T \cdot dt$)")
     unit = " (%)" if error_metric == "smape" else ""
-    ax.set_ylabel(f"Validation {error_metric.upper()}{unit} ({metric} +/- 95% CI)")
-    title = f"Cross-Validation {error_metric.upper()}"
+    split_label = "Test" if evaluation_split == "test" else "Validation"
+    ax.set_ylabel(f"{split_label} {error_metric.upper()}{unit} ({metric} +/- 95% CI)")
+    title = (
+        f"Test {error_metric.upper()}"
+        if evaluation_split == "test"
+        else f"Cross-Validation {error_metric.upper()}"
+    )
     if adaptive_summary is not None:
         title += " (dashed = adaptive model)"
     ax.set_title(title)
     ax.set_yscale("log")
     ax.set_xticks(train_times)
     ax.legend(
-        title="Validation Horizon",
+        title=f"{split_label} Horizon",
         loc="center left",
         bbox_to_anchor=(1.02, 0.5),
         borderaxespad=0.0,

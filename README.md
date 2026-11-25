@@ -35,6 +35,16 @@ poetry run ruff check
 poetry run ruff format
 ```
 
+A pre-commit hook in `.githooks/` enforces this: it blocks a commit when a staged
+Python file fails `ruff check` or `ruff format --check` (on the staged content), or
+when the unit tests fail. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Bypass it in an emergency with `git commit --no-verify`.
+
 ## Usage
 
 ### MLP Training
@@ -69,8 +79,9 @@ poetry run train-mlp --system rossler           # Train on Rossler dynamics
 | `--budget-based`   | Train fixed and adaptive models under one budget                      | true \| false                                                                                      | false                   |
 | `--epochs-per-T`   | Budget mode epochs for each fixed horizon                             | int                                                                                                | 20                      |
 | `--n-seeds` `-s`   | Number of seeds for aggregate training                                | int                                                                                                | `config.NUM_SEEDS`      |
-| `--dt`             | Model prediction/sampling step                                        | float                                                                                              | `config.DT`             |
-| `--system`         | Dynamical system to train on                                          | `lorenz` \| `rossler` \| `lorenz96`                                                                | `config.DEFAULT_SYSTEM` |
+| `--dt`             | Model prediction/sampling step                                        | float                                                                                              | `config.DT`; laser: 1   |
+| `--system`         | System or recording to train on                                       | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser`                                             | `config.DEFAULT_SYSTEM` |
+| `--data-path`      | Local Santa Fe intensity recording                                    | path                                                                                               | Required for laser      |
 | `--batch-size`     | Batch size for training and validation loaders                        | int                                                                                                | `config.BATCH_SIZE`     |
 | `--output-dir`     | Directory to save models to; existing directories are reused          | path                                                                                               | None                    |
 | `--debug`          | Save extra loss and gradient diagnostics                              | true \| false                                                                                      | false                   |
@@ -80,6 +91,16 @@ Notes:
 - `--method` selects one training method. Both scheduled methods grow T by one per stage, starting at 1, and keep Adam state across T changes.
 - `--max-T` controls aggregate fixed horizons and the maximum horizon for scheduler-based adaptive methods.
 - When `--output-dir` points to an existing run, training checks seeds `0..n_seeds-1` and only trains missing models.
+
+### Santa Fe laser benchmark
+
+Get the measured [Santa Fe laser recording](https://reservoirpy.readthedocs.io/en/stable/api/generated/reservoirpy.datasets.santafe_laser.html) manually and save it as a text file with one intensity value per line. The documented full recording has 10,093 samples; shorter recordings are accepted if all splits have enough history, targets, and distinct neighbors.
+
+```bash
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --fixed --output-dir experiments/santafe-laser/run
+poetry run train-mlp --system santafe-laser --data-path /absolute/path/laser.dat --method lyapunov-mean --output-dir experiments/santafe-laser/run
+poetry run cross-validation --system santafe-laser --model-dir experiments/santafe-laser/run --max-eval-T 10
+```
 
 ### Gradient Scaling
 
@@ -127,8 +148,9 @@ poetry run cross-validation --model-dir experiments/lorenz/models/dt_08 --max-ev
 | `--max-eval-T`        | Maximum validation horizon to evaluate                    | int                                 | `config.MAX_EVAL_T`             |
 | `--cached`            | Reuse a saved cross-validation JSON to replot the results | str                                 | None                            |
 | `--metric`            | Statistic shown in plots                                  | `mean` \| `median`                  | `median`                        |
-| `--error-metric`      | Error shown in the cross-validation plot                  | `mse` \| `nrmse` \| `smape`         | `mse`                           |
-| `--system`            | Dynamical system to evaluate                              | `lorenz` \| `rossler` \| `lorenz96` | `config.DEFAULT_SYSTEM`         |
+| `--error-metric`      | Error shown in the cross-validation plot                  | `mse` \| `nrmse` \| `smape` \| `physical_mse` | `mse`                |
+| `--system`            | System or recording to evaluate                           | `lorenz` \| `rossler` \| `lorenz96` \| `santafe-laser` | `config.DEFAULT_SYSTEM` |
+| `--data-path`         | Override the laser recording path saved in checkpoints    | path                                | Checkpoint path                 |
 
 For a true state $x$ and prediction $\hat{x}$ with $D$ coordinates, per-step errors are:
 

@@ -110,8 +110,12 @@ def fixed_sweep_rollout_steps(
     epochs_per_T: int,
     trajectory_steps: int = config.TRAJECTORY_STEPS,
     train_fraction: float = config.TRAIN_FRACTION,
+    train_len: int | None = None,
 ):
-    train_len = int(train_fraction * (trajectory_steps + 1))
+    """Rollout steps of a fixed T=1..max_T sweep; ``train_len`` overrides the
+    simulated training-split length (e.g. for measured data)."""
+    if train_len is None:
+        train_len = int(train_fraction * (trajectory_steps + 1))
     return sum(epochs_per_T * (train_len - T) * T for T in range(1, max_T + 1))
 
 
@@ -151,6 +155,7 @@ def save_model(
             "layer_widths": cfg.layer_widths,
             "residual_connections": cfg.residual_connections,
             "k": cfg.k,
+            "delay_window": cfg.delay_window,
         },
     }
     if metadata is not None:

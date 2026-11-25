@@ -8,7 +8,7 @@ import torch
 from adaptive_horizon import config
 from adaptive_horizon.training.loss import rollout_predictions
 
-ERROR_METRICS = ("mse", "nrmse", "smape")
+ERROR_METRICS = ("mse", "nrmse", "smape", "physical_mse")
 DEFAULT_VPT_THRESHOLDS = (0.1, 0.3, 0.5, 1.0)
 
 
@@ -26,6 +26,7 @@ def evaluate_metrics(
     - NRMSE is the per-sample RMSE in normalized coordinates, i.e., scaled by
       each coordinate's standard deviation over the attractor.
     - SMAPE (0-200%) uses physical coordinates, for comparison with Horizon Forcing.
+    - Physical MSE is the MSE in measured units (e.g. Santa Fe laser intensity).
 
     A trajectory's VPT is the number of steps before its NRMSE first exceeds
     a threshold; rollouts without a crossing are censored at ``max(val_Ts)``.
@@ -35,9 +36,14 @@ def evaluate_metrics(
     stats = loader.dataset.normalization_stats
     std = torch.as_tensor(stats["std"], device=device) + 1e-8
     mean = torch.as_tensor(stats["mean"], device=device)
+    # Delay-window models: score only the newly predicted observation.
+    delay_window = getattr(model, "delay_window", False)
+    if delay_window:
+        std, mean = std[-1:], mean[-1:]
     mse_sum = torch.zeros(max_T, dtype=torch.float64)
     nrmse_sum = torch.zeros(max_T, dtype=torch.float64)
     smape_sum = torch.zeros(max_T, dtype=torch.float64)
+    physical_sum = torch.zeros(max_T, dtype=torch.float64)
     nrmse_rows = []
     n_batches = 0
     model.eval()
@@ -45,11 +51,17 @@ def evaluate_metrics(
         for inputs, targets in loader:
             inputs, targets = inputs.to(device), targets[:, :max_T].to(device)
             predictions = rollout_predictions(model, inputs, max_T)
+            if delay_window:
+                predictions, targets = predictions[..., -1:], targets[..., -1:]
             # Diverged/non-finite forecasts must never appear valid again.
             squared = torch.nan_to_num(
                 (predictions - targets).square().mean(dim=2), nan=math.inf
             )
             nrmse = squared.sqrt()
+            physical = torch.nan_to_num(
+                ((predictions - targets) * std).square().mean(dim=2), nan=math.inf
+            )
+            physical_sum += physical.mean(dim=0).double().cpu()
             predictions, targets = predictions * std + mean, targets * std + mean
             smape = torch.nan_to_num(
                 200
@@ -68,6 +80,8 @@ def evaluate_metrics(
     nrmse = torch.cat(nrmse_rows)
     curves = {
         "mse": mse_sum / n_batches,
+        # Error in the measured units (e.g. laser intensity); MSE x variance.
+        "physical_mse": physical_sum / n_batches,
         "nrmse": nrmse_sum / len(nrmse),
         "smape": smape_sum / len(nrmse),
     }

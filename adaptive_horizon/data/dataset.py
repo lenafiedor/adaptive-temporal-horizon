@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from adaptive_horizon import config
 from adaptive_horizon.config import resolve_burn_in_steps
+from adaptive_horizon.data.santafe import observed_trajectory
 from adaptive_horizon.data.utils import (
     NormalizationStats,
     apply_normalization,
@@ -30,15 +31,26 @@ class BaseTrajectoryDataset(NormalizationStats, Dataset):
         train_fraction: float = config.TRAIN_FRACTION,
         split_gap: int = 0,
         trajectory_path: str | None = None,
+        observed_data: dict | None = None,
     ):
-        self.system = get_system(system)
-        self.system_name = self.system.name
+        """``observed_data`` (from ``load_santafe``) replaces the simulated
+        trajectory with a measured, already split delay-embedded recording."""
+        self.observed_data = observed_data
         self.dt = dt
         self.normalize = normalize
-        self.burn_in: int = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
         self.split = split
         self.mean: torch.Tensor | None = None
         self.std: torch.Tensor | None = None
+        if observed_data is not None:
+            self.system = None
+            self.system_name = system
+            self.burn_in = 0
+            self.raw_trajectory = observed_trajectory(self, observed_data, split)
+            return
+
+        self.system = get_system(system)
+        self.system_name = self.system.name
+        self.burn_in: int = resolve_burn_in_steps(dt, burn_in_steps=burn_in)
         self.trajectory_path = trajectory_path or default_trajectory_path(
             self.system.name,
             config.system_path(config.DATA_DIR, self.system.name),
@@ -63,6 +75,9 @@ class BaseTrajectoryDataset(NormalizationStats, Dataset):
         )
 
     def _finalize(self, normalization_stats: dict | None):
+        if self.observed_data is not None:
+            # Measured data is always normalized with training-split statistics.
+            normalization_stats = self.observed_data["metadata"]["normalization_stats"]
         self.trajectories = self.raw_trajectory.unsqueeze(0)
         apply_normalization(self, normalization_stats)
         self.samples = self._create_samples()
@@ -119,6 +134,8 @@ def make_val_loader(
     T,
     normalization_stats=None,
     batch_size=config.BATCH_SIZE,
+    observed_data=None,
+    split="val",
 ):
     dataset = TrajectoryDataset(
         T=T,
@@ -126,10 +143,11 @@ def make_val_loader(
         system=system_name,
         normalize=True,
         seed=config.RANDOM_SEED,
-        burn_in=resolve_burn_in_steps(dt),
-        split="val",
+        burn_in=None if observed_data is not None else resolve_burn_in_steps(dt),
+        split=split,
         split_gap=default_split_gap(T),
         normalization_stats=normalization_stats,
+        observed_data=observed_data,
     )
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn

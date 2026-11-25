@@ -68,6 +68,9 @@ MAX_EVAL_T = _config["evaluation"]["max_eval_T"]
 
 SIMULATION_STEPS = _config["analysis"]["simulation_steps"]
 
+# Local Santa Fe laser recording; set from --data-path (never committed).
+SANTAFE_DATA_PATH = None
+
 
 def system_path(path, system_name=DEFAULT_SYSTEM):
     """Return a path rooted under the selected dynamical system."""

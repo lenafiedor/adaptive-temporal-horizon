@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Block commits whose staged Python files fail `ruff check` or `ruff format`,
+# or when the unit tests fail. Ruff checks the staged content (what will be
+# committed); the tests run on the working tree. Skips when no Python file is
+# staged. Bypass in an emergency with `git commit --no-verify`.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+
+if [[ -x .venv/bin/ruff ]]; then
+  ruff=(.venv/bin/ruff)
+elif command -v ruff > /dev/null; then
+  ruff=(ruff)
+elif command -v uv > /dev/null; then
+  ruff=(uv run --quiet ruff)
+else
+  echo "pre-commit: ruff not found (install the dev dependencies)" >&2
+  exit 1
+fi
+
+files=()
+while IFS= read -r -d '' file; do
+  files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py' '*.pyi')
+[[ ${#files[@]} -eq 0 ]] && exit 0
+
+check_failed=()
+check_output=""
+format_failed=()
+for file in "${files[@]}"; do
+  staged="$(git show ":$file")"
+  if ! output="$(printf '%s\n' "$staged" | "${ruff[@]}" check --output-format concise --stdin-filename "$file" - 2>&1)"; then
+    check_failed+=("$file")
+    check_output+="$output"$'\n'
+  fi
+  if ! printf '%s\n' "$staged" | "${ruff[@]}" format --check --quiet --stdin-filename "$file" - > /dev/null 2>&1; then
+    format_failed+=("$file")
+  fi
+done
+
+if [[ ${#check_failed[@]} -eq 0 && ${#format_failed[@]} -eq 0 ]]; then
+  # Unit tests run on the working tree (staged and unstaged changes).
+  if [[ -x .venv/bin/python ]]; then
+    pytest=(.venv/bin/python -m pytest)
+  else
+    pytest=(uv run --quiet pytest)
+  fi
+  if ! output="$("${pytest[@]}" -q -x 2>&1)"; then
+    echo "pre-commit: commit blocked, unit tests failed:" >&2
+    printf '%s\n' "$output" | tail -30 >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+echo "pre-commit: commit blocked by ruff." >&2
+if [[ ${#check_failed[@]} -gt 0 ]]; then
+  echo >&2
+  echo "ruff check failed:" >&2
+  printf '%s' "$check_output" | grep -v '^Found [0-9]* error' >&2
+fi
+if [[ ${#format_failed[@]} -gt 0 ]]; then
+  echo >&2
+  echo "ruff format would reformat:" >&2
+  printf '  %s\n' "${format_failed[@]}" >&2
+fi
+echo >&2
+echo "Fix with: ${ruff[*]} check --fix && ${ruff[*]} format, then git add the files." >&2
+exit 1

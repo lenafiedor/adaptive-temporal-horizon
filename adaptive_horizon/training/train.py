@@ -8,6 +8,7 @@ import torch
 from adaptive_horizon import config
 from adaptive_horizon.config import resolve_burn_in_steps
 from adaptive_horizon.data.dataset import make_val_loader
+from adaptive_horizon.data.santafe import SANTAFE, load_santafe
 from adaptive_horizon.dynamics.fsle import fsle_tolerance
 from adaptive_horizon.dynamics.systems import SYSTEM_CHOICES, get_system
 from adaptive_horizon.training.loss import (
@@ -210,6 +211,12 @@ def train(
     train_losses = []
     val_losses = []
     gradient_history = []
+    # Measured data: keep the epoch with the best validation loss (cross-
+    # validation already restores its own selected checkpoint).
+    select_best_epoch = system_name == SANTAFE and not (
+        adaptive and adaptive_method == CROSS_VALIDATION
+    )
+    best_epoch = {"loss": math.inf, "epoch": None, "state": None}
     wall_time_start = perf_counter()
     rollout_steps = 0
     out_of_steps = False
@@ -252,6 +259,11 @@ def train(
             config.MAX_EVAL_T,
             normalization_stats=getattr(model, "normalization_stats", None),
             batch_size=1,
+            observed_data=(
+                load_santafe(config.SANTAFE_DATA_PATH, config.MAX_EVAL_T)
+                if system_name == SANTAFE
+                else None
+            ),
         )
         debug_T_vals = [2, 4, 6, 8, 10]
 
@@ -308,6 +320,12 @@ def train(
             model, val_loader, T, adaptive, adaptive_method, dt, device
         )
         val_losses.append(val_loss)
+        if select_best_epoch and val_loss < best_epoch["loss"]:
+            best_epoch.update(
+                loss=float(val_loss),
+                epoch=epoch + 1,
+                state=clone_model_state_dict(model),
+            )
 
         if scheduled and (selecting or not cross_validation):
             selection_loss = (
@@ -369,6 +387,14 @@ def train(
             epoch += 1
             break
         epoch += 1
+
+    if select_best_epoch and best_epoch["state"] is not None:
+        model.load_state_dict(best_epoch["state"])
+        if metadata is not None:
+            metadata["validation_selection"] = {
+                "selected_epoch": best_epoch["epoch"],
+                "selected_loss": best_epoch["loss"],
+            }
 
     if debug:
         plot_gradient_history(gradient_history, save_dir, T, dt, adaptive)
@@ -448,6 +474,7 @@ def train_single_model(
             invert_horizons=invert_horizons,
         )
     )
+    metadata["epochs_requested"] = epochs if math.isfinite(epochs) else None
     if adaptive:
         if budget_metadata is not None:
             metadata["budget"] = budget_metadata
@@ -801,13 +828,22 @@ def main():
         "--n-seeds", "-s", type=int, default=config.NUM_SEEDS, help="Number of seeds"
     )
     parser.add_argument(
-        "--dt", type=float, default=config.DT, help="Model prediction step"
+        "--dt",
+        type=float,
+        default=None,
+        help=f"Model prediction step (default {config.DT}; Santa Fe: 1 sample)",
     )
     parser.add_argument(
         "--system",
-        choices=SYSTEM_CHOICES,
+        choices=(*SYSTEM_CHOICES, SANTAFE),
         default=config.DEFAULT_SYSTEM,
         help="Dynamical system to train on",
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        default=None,
+        help=f"Local Santa Fe intensity recording (required for --system {SANTAFE})",
     )
     parser.add_argument(
         "--batch-size",
@@ -850,7 +886,26 @@ def main():
         if any(T < 1 for T in args.Ts):
             parser.error("--Ts values must be at least 1")
         train_Ts = sorted(set(args.Ts))
-    system = get_system(args.system)
+    observed = args.system == SANTAFE
+    if args.dt is None:
+        args.dt = 1.0 if observed else config.DT
+    if observed:
+        if args.dt != 1:
+            parser.error("Santa Fe --dt must be 1 (one recorded sample)")
+        if args.data_path is None:
+            parser.error(f"--system {SANTAFE} requires --data-path")
+        config.SANTAFE_DATA_PATH = args.data_path
+        observed_train_len = len(
+            load_santafe(args.data_path, max(args.max_T, args.T, config.MAX_EVAL_T))[
+                "trajectories"
+            ]["train"]
+        )
+        system = None
+    else:
+        if args.data_path is not None:
+            parser.error(f"--data-path is only supported for --system {SANTAFE}")
+        observed_train_len = None
+        system = get_system(args.system)
     if args.method is None:
         train_fixed = args.fixed or not args.adaptive
         train_adaptive = args.adaptive or not args.fixed
@@ -918,13 +973,17 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else config.DEVICE
     print(f"\nUsing device: {device}")
-    print(f"Dynamical system: {system.label}")
-    print(f"Prediction step: {args.dt}")
-    print(f"Integration step: {config.INTEGRATION_DT}")
-    print(
-        f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
-        f"({config.BURN_IN_TIME:g} time units)"
-    )
+    if system is None:
+        print(f"Dataset: Santa Fe laser ({args.data_path})")
+        print(f"Prediction step: {args.dt:g} recorded sample")
+    else:
+        print(f"Dynamical system: {system.label}")
+        print(f"Prediction step: {args.dt}")
+        print(f"Integration step: {config.INTEGRATION_DT}")
+        print(
+            f"Burn-in: {resolve_burn_in_steps(args.dt)} steps "
+            f"({config.BURN_IN_TIME:g} time units)"
+        )
     print(f"Layer widths: {config.LAYER_WIDTHS}")
     print(f"Batch size: {args.batch_size}")
     print(f"Optimizer: {config.OPTIMIZER}")
@@ -989,12 +1048,20 @@ def main():
                 args.epochs_per_T * args.max_T if args.budget_based else args.epochs
             )
             if args.budget_based and adaptive_method == ERROR_TRUNCATED:
-                sweep_steps = fixed_sweep_rollout_steps(args.max_T, args.epochs_per_T)
+                sweep_steps = fixed_sweep_rollout_steps(
+                    args.max_T, args.epochs_per_T, train_len=observed_train_len
+                )
                 step_flops = rollout_step_flops(args.system)
                 fsle_steps = (
                     math.ceil(fsle_info["flops"] / step_flops) if fsle_info else 0
                 )
                 rollout_steps_budget = sweep_steps - fsle_steps
+                if rollout_steps_budget <= 0:
+                    parser.error(
+                        f"The FSLE costs {fsle_steps} rollout steps, more than the "
+                        f"fixed-sweep budget of {sweep_steps}; raise --epochs-per-T "
+                        "or --max-T, or pass --tolerance/--growth"
+                    )
                 budget_metadata = {
                     "unit": "rollout_steps",
                     "max_T": args.max_T,
@@ -1017,7 +1084,7 @@ def main():
                 WEIGHTED_LOSS,
             ):
                 rollout_steps_budget = fixed_sweep_rollout_steps(
-                    args.max_T, args.epochs_per_T
+                    args.max_T, args.epochs_per_T, train_len=observed_train_len
                 )
                 adaptive_epochs = math.inf
                 budget_metadata = {

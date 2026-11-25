@@ -31,14 +31,14 @@ def lyapunov_center_horizon(lambda_estimate, dt, fraction, max_T, min_T=1):
     return int(min(max(T, min_T), max_T))
 
 
-def mean_horizon(lambda_max, base_T, min_T, max_T, invert=False):
+def mean_horizon(lambda_max, base_T, min_T, max_T, invert=False, mean=None, std=None):
     """Map standardized Lyapunov exponents to horizons around the base horizon.
 
     By default uns table (high-FTLE) states get shorter horizons; ``invert``
     gives them longer ones instead.
     """
-    lambda_mean = float(np.mean(lambda_max))
-    lambda_std = float(np.std(lambda_max)) + 1e-8
+    lambda_mean = float(np.mean(lambda_max)) if mean is None else float(mean)
+    lambda_std = (float(np.std(lambda_max)) if std is None else float(std)) + 1e-8
     z_scores = (lambda_max - lambda_mean) / lambda_std
     if invert:
         z_scores = -z_scores
